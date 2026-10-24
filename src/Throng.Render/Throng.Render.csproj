@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    OpenGL 3.3 renderer, cameras and scene building. UI-agnostic: the WPF app hosts it in a GLWpfControl.
+    OpenTK.Graphics provides the GL bindings only (MIT). Version pinned from
+    project.assets.json (D-028).
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Throng.Render</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="OpenTK.Graphics" Version="4.9.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Throng.Core\Throng.Core.csproj" />
+  </ItemGroup>
+
+</Project>

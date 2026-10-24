@@ -1,0 +1,23 @@
+<Project>
+  <!--
+    Shared build settings for every project in the Throng solution.
+    Individual .csproj files only declare what is unique to them (target framework, references).
+  -->
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Deterministic>true</Deterministic>
+
+    <!-- XML docs are generated so IntelliSense picks up the headers. CS1591 (missing docs) is
+         silenced to keep the warning list meaningful; public API is still documented by convention. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+
+    <Version>0.1.0</Version>
+    <Product>Throng</Product>
+    <Authors>Gavin Nicholls</Authors>
+    <Company>Gavin Nicholls</Company>
+    <Copyright>Copyright (c) 2026 Gavin Nicholls</Copyright>
+  </PropertyGroup>
+</Project>

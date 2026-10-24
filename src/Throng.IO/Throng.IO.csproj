@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- .throng file format (zip of JSON), versioning/migration and the built-in demo study. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Throng.IO</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Throng.Core\Throng.Core.csproj" />
+  </ItemGroup>
+
+</Project>

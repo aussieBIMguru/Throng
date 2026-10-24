@@ -1,0 +1,77 @@
+using System.Numerics;
+using Throng.Core.Geometry;
+
+namespace Throng.Render.Cameras;
+
+/// <summary>
+/// Perspective orbit camera around a target point, Z up (§12.1). Isometric and cutaway presets build on this in M6.
+/// </summary>
+public sealed class OrbitCamera
+{
+    private const float MinPitch = 0.05f;
+    private const float MaxPitch = 1.53f;
+    private const float FieldOfView = MathF.PI / 4f;
+
+    /// <summary>World point the camera orbits.</summary>
+    public Vector3 Target { get; set; } = Vector3.Zero;
+
+    /// <summary>Heading around Z in radians (0 = looking from +X).</summary>
+    public float Yaw { get; set; } = -2.2f;
+
+    /// <summary>Elevation angle above the horizon in radians.</summary>
+    public float Pitch { get; set; } = 0.62f;
+
+    /// <summary>Distance from target to eye in metres.</summary>
+    public float Distance { get; set; } = 90f;
+
+    /// <summary>Eye position in world space.</summary>
+    public Vector3 Eye =>
+        Target + (Distance * new Vector3(MathF.Cos(Pitch) * MathF.Cos(Yaw), MathF.Cos(Pitch) * MathF.Sin(Yaw), MathF.Sin(Pitch)));
+
+    /// <summary>Combined view-projection matrix (System.Numerics row-vector convention).</summary>
+    public Matrix4x4 ViewProjection(double widthDip, double heightDip)
+    {
+        float aspect = (float)(Math.Max(1, widthDip) / Math.Max(1, heightDip));
+        Matrix4x4 view = Matrix4x4.CreateLookAt(Eye, Target, Vector3.UnitZ);
+        float near = MathF.Max(0.05f, Distance * 0.01f);
+        float far = (Distance * 10f) + 1000f;
+        Matrix4x4 projection = Matrix4x4.CreatePerspectiveFieldOfView(FieldOfView, aspect, near, far);
+        return view * projection;
+    }
+
+    /// <summary>Rotates by a screen drag in DIPs.</summary>
+    public void Orbit(double dxDip, double dyDip)
+    {
+        Yaw -= (float)dxDip * 0.008f;
+        Pitch = Math.Clamp(Pitch + ((float)dyDip * 0.008f), MinPitch, MaxPitch);
+    }
+
+    /// <summary>Slides the target by a screen drag in DIPs (content follows the cursor).</summary>
+    public void Pan(double dxDip, double dyDip)
+    {
+        Vector3 forward = Vector3.Normalize(Target - Eye);
+        Vector3 right = Vector3.Normalize(Vector3.Cross(forward, Vector3.UnitZ));
+        Vector3 up = Vector3.Cross(right, forward);
+        float scale = Distance * 0.0018f;
+        Target += ((-right * (float)dxDip) + (up * (float)dyDip)) * scale;
+    }
+
+    /// <summary>Moves the eye towards (factor &lt; 1) or away from the target.</summary>
+    public void Zoom(double factor) => Distance = Math.Clamp(Distance * (float)factor, 2f, 5000f);
+
+    /// <summary>Frames plan bounds and an elevation range.</summary>
+    public void Fit(Bounds2 bounds, double minZ, double maxZ)
+    {
+        if (bounds.IsEmpty)
+        {
+            Target = Vector3.Zero;
+            Distance = 90f;
+            return;
+        }
+
+        Point2 c = bounds.Center;
+        Target = new Vector3((float)c.X, (float)c.Y, (float)((minZ + maxZ) * 0.5));
+        double extent = Math.Max(Math.Max(bounds.Width, bounds.Height), maxZ - minZ);
+        Distance = (float)((extent * 1.35) + 10);
+    }
+}

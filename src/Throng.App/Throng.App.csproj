@@ -1,0 +1,45 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    WPF shell. UseWPF only (no WinForms) to avoid the implicit-using type clashes between the two frameworks.
+    Package versions are pinned from project.assets.json (D-028).
+  -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>Throng.App</RootNamespace>
+    <AssemblyName>Throng</AssemblyName>
+    <ApplicationIcon>Assets\throng.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+    <PackageReference Include="OpenTK.GLWpfControl" Version="4.3.6" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Throng.Core\Throng.Core.csproj" />
+    <ProjectReference Include="..\Throng.Sim\Throng.Sim.csproj" />
+    <ProjectReference Include="..\Throng.Analysis\Throng.Analysis.csproj" />
+    <ProjectReference Include="..\Throng.IO\Throng.IO.csproj" />
+    <ProjectReference Include="..\Throng.Render\Throng.Render.csproj" />
+  </ItemGroup>
+
+  <!-- Embedded assets, including the bundled VT323 font (SIL OFL). -->
+  <ItemGroup>
+    <None Remove="Assets\throng.ico;Assets\throng-256.png;Assets\throng-64.png;Assets\Fonts\*.ttf" />
+    <Resource Include="Assets\throng.ico" />
+    <Resource Include="Assets\throng-256.png" />
+    <Resource Include="Assets\throng-64.png" />
+    <Resource Include="Assets\Fonts\*.ttf" />
+  </ItemGroup>
+
+  <!-- Licence files ship next to Throng.exe (§20.3 rule 2). -->
+  <ItemGroup>
+    <None Update="Assets\Fonts\OFL.txt" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\LICENSE" Link="LICENSE" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\THIRD-PARTY-NOTICES.md" Link="THIRD-PARTY-NOTICES.md" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

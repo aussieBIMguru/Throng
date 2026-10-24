@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Metrics, heatmaps and Level of Service classification. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Throng.Analysis</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Throng.Core\Throng.Core.csproj" />
+    <ProjectReference Include="..\Throng.Sim\Throng.Sim.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,39 @@
+<Window x:Class="Throng.App.Views.ThrongDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        WindowStyle="None"
+        ResizeMode="NoResize"
+        SizeToContent="WidthAndHeight"
+        ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner"
+        MinWidth="360"
+        MaxWidth="680"
+        Background="{StaticResource PanelBrush}"
+        Foreground="{StaticResource TextBrush}"
+        FontFamily="Segoe UI"
+        FontSize="12"
+        UseLayoutRounding="True"
+        TextOptions.TextFormattingMode="Display">
+    <!--
+        Themed replacement for MessageBox (D-029). Borderless, so the 1 px frame and the title strip are drawn here;
+        drag the title strip to move it. Buttons are created by ThrongDialog.ShowMessage.
+    -->
+    <Border x:Name="Frame" BorderBrush="{StaticResource AccentBrush}" BorderThickness="1">
+        <DockPanel>
+            <Border x:Name="TitleStrip" DockPanel.Dock="Top" Background="{StaticResource PanelAltBrush}" Padding="14,6" Cursor="SizeAll">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock x:Name="ToneGlyph" FontFamily="{StaticResource GlyphFont}" FontSize="14" VerticalAlignment="Center"
+                               Foreground="{StaticResource AccentBrush}" Margin="0,0,9,0" />
+                    <TextBlock x:Name="TitleText" FontFamily="{DynamicResource RetroFont}" FontSize="20"
+                               Foreground="{StaticResource AccentBrush}" VerticalAlignment="Center" />
+                </StackPanel>
+            </Border>
+
+            <StackPanel x:Name="ButtonPanel" DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="14,4,14,14" />
+
+            <ScrollViewer MaxHeight="440" VerticalScrollBarVisibility="Auto" Margin="18,14,18,10">
+                <TextBlock x:Name="MessageText" TextWrapping="Wrap" LineHeight="18" />
+            </ScrollViewer>
+        </DockPanel>
+    </Border>
+</Window>

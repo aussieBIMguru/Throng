@@ -1,0 +1,63 @@
+<UserControl x:Class="Throng.App.Views.ViewportView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:editing="clr-namespace:Throng.App.Editing"
+             Background="{StaticResource WindowBrush}"
+             Focusable="True">
+    <!--
+        The GLWpfControl is inserted at index 0 of Root from code-behind. Everything else here is a WPF overlay,
+        which works because GLWpfControl renders through D3DImage (no airspace problem).
+    -->
+    <Grid x:Name="Root" ClipToBounds="True">
+
+        <!-- Captures mouse and keyboard input over the whole viewport. -->
+        <Border x:Name="InputLayer" Background="Transparent" Focusable="True" FocusVisualStyle="{x:Null}" />
+
+        <!-- Plan editing overlay: selection, grips, previews, snap markers (never hit-testable). -->
+        <editing:EditorOverlay x:Name="Overlay" />
+
+        <!-- HUD: view mode and active level. -->
+        <StackPanel Margin="14,10" HorizontalAlignment="Left" VerticalAlignment="Top" IsHitTestVisible="False">
+            <TextBlock x:Name="ModeText" FontFamily="{DynamicResource RetroFont}" FontSize="24" Foreground="{StaticResource AccentBrush}" Text="3D ORBIT" />
+            <TextBlock x:Name="LevelText" FontFamily="{DynamicResource RetroFont}" FontSize="17" Foreground="{StaticResource TextDimBrush}" />
+            <TextBlock x:Name="FlashText" FontFamily="{DynamicResource RetroFont}" FontSize="19" Foreground="{StaticResource OrangeBrush}"
+                       Margin="0,6,0,0" Visibility="Collapsed" />
+        </StackPanel>
+
+        <!-- Typed dimensions (D-038): appears near the cursor when you type a number while drawing. -->
+        <Canvas IsHitTestVisible="True" ClipToBounds="True">
+            <Border x:Name="TypedBox" Visibility="Collapsed" Background="{StaticResource PanelBrush}"
+                    BorderBrush="{StaticResource AccentBrush}" BorderThickness="1" Padding="6,4">
+                <StackPanel>
+                    <TextBlock x:Name="TypedHint" FontFamily="{DynamicResource RetroFont}" FontSize="14" Foreground="{StaticResource TextDimBrush}" />
+                    <TextBox x:Name="TypedInput" MinWidth="130" Margin="0,3,0,0" />
+                </StackPanel>
+            </Border>
+        </Canvas>
+
+        <!-- Navigation and tool hint. -->
+        <TextBlock x:Name="HintText"
+                   Margin="14,10"
+                   HorizontalAlignment="Left"
+                   VerticalAlignment="Bottom"
+                   FontSize="11"
+                   Foreground="{StaticResource TextDimBrush}"
+                   IsHitTestVisible="False" />
+
+        <!-- Shown if OpenGL can't start, instead of a blank or crashing viewport. -->
+        <Border x:Name="ErrorPanel"
+                Visibility="Collapsed"
+                MaxWidth="520"
+                Padding="18"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                Background="{StaticResource PanelBrush}"
+                BorderBrush="{StaticResource RedBrush}"
+                BorderThickness="1">
+            <StackPanel>
+                <TextBlock FontFamily="{DynamicResource RetroFont}" FontSize="22" Foreground="{StaticResource RedBrush}" Text="VIEWPORT OFFLINE" />
+                <TextBlock x:Name="ErrorText" Margin="0,8,0,0" Foreground="{StaticResource TextBrush}" TextWrapping="Wrap" />
+            </StackPanel>
+        </Border>
+    </Grid>
+</UserControl>

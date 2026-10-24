@@ -1,0 +1,176 @@
+using System.IO.Compression;
+using System.Reflection;
+using System.Text.Json;
+using Throng.Core.Common;
+using Throng.Core.Library;
+using Throng.Core.Model;
+using Throng.Core.Serialization;
+
+namespace Throng.IO;
+
+/// <summary>
+/// Reads and writes .throng study files: a zip containing manifest.json, study.json and library.json (§14.2).
+/// Never throws to callers; failures come back as <see cref="Result"/> messages.
+/// </summary>
+public static class ThrongFile
+{
+    /// <summary>File extension including the dot.</summary>
+    public const string Extension = ".throng";
+
+    /// <summary>Format marker written into the manifest.</summary>
+    public const string FormatName = "throng-study";
+
+    /// <summary>Format version written by this build. Bump it and add a migration when the schema changes.</summary>
+    public const int CurrentFormatVersion = 1;
+
+    private const string ManifestEntry = "manifest.json";
+    private const string StudyEntry = "study.json";
+    private const string LibraryEntry = "library.json";
+
+    /// <summary>
+    /// Saves a study. Writes to a temporary file first and then swaps it into place, so a crash mid-save
+    /// never corrupts the existing file.
+    /// </summary>
+    /// <param name="study">Study to save.</param>
+    /// <param name="path">Destination path.</param>
+    /// <param name="createdUtc">Original creation time to preserve; now when null.</param>
+    public static Result Save(Study study, string path, DateTime? createdUtc = null)
+    {
+        string tempPath = path + ".tmp";
+        try
+        {
+            string? directory = Path.GetDirectoryName(Path.GetFullPath(path));
+            if (!string.IsNullOrEmpty(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+
+            DateTime now = DateTime.UtcNow;
+            var manifest = new ThrongManifest
+            {
+                AppVersion = GetAppVersion(),
+                CreatedUtc = createdUtc ?? now,
+                ModifiedUtc = now,
+                Seed = study.Settings.Seed,
+            };
+
+            using (FileStream stream = File.Create(tempPath))
+            using (var zip = new ZipArchive(stream, ZipArchiveMode.Create))
+            {
+                WriteEntry(zip, ManifestEntry, manifest);
+                WriteEntry(zip, StudyEntry, study);
+                WriteEntry(zip, LibraryEntry, study.Library);
+            }
+
+            File.Move(tempPath, path, overwrite: true);
+            return Result.Ok();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or NotSupportedException)
+        {
+            TryDelete(tempPath);
+            return Result.Fail($"Couldn't save '{Path.GetFileName(path)}': {ex.Message}");
+        }
+    }
+
+    /// <summary>Loads a study, migrating older formats where possible.</summary>
+    public static Result<Study> Load(string path)
+    {
+        if (!File.Exists(path))
+        {
+            return Result<Study>.Fail($"File not found: {path}");
+        }
+
+        try
+        {
+            using FileStream stream = File.OpenRead(path);
+            using var zip = new ZipArchive(stream, ZipArchiveMode.Read);
+
+            ThrongManifest? manifest = ReadEntry<ThrongManifest>(zip, ManifestEntry);
+            if (manifest is null || !string.Equals(manifest.Format, FormatName, StringComparison.Ordinal))
+            {
+                return Result<Study>.Fail($"'{Path.GetFileName(path)}' isn't a Throng study.");
+            }
+
+            if (manifest.FormatVersion > CurrentFormatVersion)
+            {
+                return Result<Study>.Fail(
+                    $"'{Path.GetFileName(path)}' was saved by a newer version of Throng (format {manifest.FormatVersion}). Please update the app.");
+            }
+
+            Study? study = ReadEntry<Study>(zip, StudyEntry);
+            if (study is null)
+            {
+                return Result<Study>.Fail($"'{Path.GetFileName(path)}' has no study data.");
+            }
+
+            study.Library = ReadEntry<TemplateLibrary>(zip, LibraryEntry) ?? new TemplateLibrary();
+            FormatMigrations.Apply(study, manifest.FormatVersion);
+            return Result<Study>.Ok(study);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or JsonException or NotSupportedException)
+        {
+            return Result<Study>.Fail($"Couldn't open '{Path.GetFileName(path)}': {ex.Message}");
+        }
+    }
+
+    /// <summary>Reads just the manifest, for created-date preservation and quick inspection.</summary>
+    public static Result<ThrongManifest> ReadManifest(string path)
+    {
+        try
+        {
+            using FileStream stream = File.OpenRead(path);
+            using var zip = new ZipArchive(stream, ZipArchiveMode.Read);
+            ThrongManifest? manifest = ReadEntry<ThrongManifest>(zip, ManifestEntry);
+            return manifest is null ? Result<ThrongManifest>.Fail("No manifest.") : Result<ThrongManifest>.Ok(manifest);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or JsonException or NotSupportedException)
+        {
+            return Result<ThrongManifest>.Fail(ex.Message);
+        }
+    }
+
+    private static void WriteEntry<T>(ZipArchive zip, string name, T value)
+    {
+        ZipArchiveEntry entry = zip.CreateEntry(name, CompressionLevel.Optimal);
+        using Stream entryStream = entry.Open();
+        JsonSerializer.Serialize(entryStream, value, JsonDefaults.Options);
+    }
+
+    private static T? ReadEntry<T>(ZipArchive zip, string name)
+        where T : class
+    {
+        ZipArchiveEntry? entry = zip.GetEntry(name);
+        if (entry is null)
+        {
+            return null;
+        }
+
+        using Stream entryStream = entry.Open();
+        return JsonSerializer.Deserialize<T>(entryStream, JsonDefaults.Options);
+    }
+
+    private static string GetAppVersion()
+    {
+        Assembly assembly = Assembly.GetEntryAssembly() ?? typeof(ThrongFile).Assembly;
+        return assembly.GetName().Version?.ToString() ?? "0.0.0";
+    }
+
+    private static void TryDelete(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch (IOException)
+        {
+            // Best effort: a leftover .tmp file is harmless.
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // Best effort.
+        }
+    }
+}
