@@ -14,6 +14,17 @@ using Throng.Render.Scene;
 
 namespace Throng.App.Views;
 
+/// <summary>Supplies the agents to draw this frame (D-102): fills the buffer and returns the count.</summary>
+/// <param name="mode">Current view mode (plan shows the active level only).</param>
+/// <param name="buffer">Buffer to fill (grown by the callee when needed).</param>
+public delegate int AgentFeed(ViewMode mode, ref float[] buffer);
+
+/// <summary>A LIBRARY row dropped on the viewport (D-098).</summary>
+/// <param name="Data">The dragged item.</param>
+/// <param name="PlanPoint">Plan point under the drop in plan view; null when dropped on the 3D view.</param>
+/// <param name="MetresPerDip">Plan zoom at the drop.</param>
+public sealed record TemplateDropEventArgs(object Data, Point2? PlanPoint, double MetresPerDip);
+
 /// <summary>
 /// Hosts the OpenGL viewport (GLWpfControl) plus WPF overlays, owns the cameras and mouse navigation, and routes
 /// left-button and keyboard input to the <see cref="PlanEditor"/> in plan view.
@@ -41,6 +52,7 @@ public partial class ViewportView : UserControl
     private Point _lastMouse;
     private PlanEditor? _editor;
     private EditorTool _lastTool = EditorTool.Select;
+    private float[] _agentBuffer = new float[640];
 
     /// <summary>Creates the viewport and starts the GL control.</summary>
     public ViewportView()
@@ -81,8 +93,22 @@ public partial class ViewportView : UserControl
         InputLayer.LostMouseCapture += OnLostMouseCapture;
         TypedInput.PreviewKeyDown += OnTypedInputKeyDown;
         TypedInput.LostKeyboardFocus += (_, _) => CloseTypedBox(refocus: false);
+
+        // LIBRARY drag-and-drop (D-098).
+        InputLayer.AllowDrop = true;
+        InputLayer.DragOver += OnDragOver;
+        InputLayer.Drop += OnDrop;
         UpdateHint();
     }
+
+    /// <summary>Raised when a LIBRARY row is dropped on the viewport.</summary>
+    public event EventHandler<TemplateDropEventArgs>? TemplateDropped;
+
+    /// <summary>Format name of dragged LIBRARY rows.</summary>
+    public const string TemplateDragFormat = "Throng.LibraryTemplate";
+
+    /// <summary>Agents source, read every frame (null = none).</summary>
+    public AgentFeed? Agents { get; set; }
 
     /// <summary>Plan editor driven by this viewport (set once by the main window).</summary>
     public PlanEditor? Editor
@@ -95,6 +121,7 @@ public partial class ViewportView : UserControl
                 _editor.OverlayChanged -= OnEditorOverlayChanged;
                 _editor.Flash -= OnEditorFlash;
                 _editor.ToolChanged -= OnEditorToolChanged;
+                _editor.TypedInputRequested -= OnEditorTypedInputRequested;
             }
 
             _editor = value;
@@ -104,6 +131,7 @@ public partial class ViewportView : UserControl
                 value.OverlayChanged += OnEditorOverlayChanged;
                 value.Flash += OnEditorFlash;
                 value.ToolChanged += OnEditorToolChanged;
+                value.TypedInputRequested += OnEditorTypedInputRequested;
                 _lastTool = value.Tool;
             }
 
@@ -141,6 +169,7 @@ public partial class ViewportView : UserControl
     {
         _scene = scene;
         _renderer.SetScene(scene);
+        Overlay.Labels = scene.PlanLabels;
         LevelScene? active = scene.Levels.FirstOrDefault(l => l.IsActive);
         if (active is not null)
         {
@@ -206,6 +235,8 @@ public partial class ViewportView : UserControl
                 ? _planCamera.ViewProjection(width, height)
                 : _orbitCamera.ViewProjection(width, height);
 
+            int agents = Agents?.Invoke(_mode, ref _agentBuffer) ?? 0;
+            _renderer.SetAgents(_agentBuffer, agents);
             _renderer.Render(pixelWidth, pixelHeight, viewProjection, _mode, (float)dpi.DpiScaleX);
         }
         catch (Exception ex)
@@ -366,6 +397,27 @@ public partial class ViewportView : UserControl
         e.Handled = true;
     }
 
+    // ------------------------------------------------------------------ drag and drop (D-098)
+
+    private void OnDragOver(object sender, DragEventArgs e)
+    {
+        e.Effects = e.Data.GetDataPresent(TemplateDragFormat) ? DragDropEffects.Copy : DragDropEffects.None;
+        e.Handled = true;
+    }
+
+    private void OnDrop(object sender, DragEventArgs e)
+    {
+        if (e.Data.GetData(TemplateDragFormat) is not { } data)
+        {
+            return;
+        }
+
+        InputLayer.Focus();
+        Point2? point = _mode == ViewMode.Plan ? ScreenToPlan(e.GetPosition(InputLayer)) : null;
+        TemplateDropped?.Invoke(this, new TemplateDropEventArgs(data, point, _planCamera.MetresPerDip));
+        e.Handled = true;
+    }
+
     // ------------------------------------------------------------------ keyboard and typed dimensions
 
     private void OnKeyDown(object sender, KeyEventArgs e)
@@ -400,8 +452,13 @@ public partial class ViewportView : UserControl
 
         TypedHint.Text = (_editor.Tool, _editor.DrawPoints.Count) switch
         {
+            (EditorTool.Connect, 0) => "BOTTOM LANDING  X,Y",
+            (EditorTool.Calibrate, _) => "REAL DISTANCE  m",
+            (EditorTool.Place, 0) => "POSITION  X,Y",
             (_, 0) => "FIRST POINT  X,Y",
-            (EditorTool.Rectangle, _) => "SIZE  W,H",
+            (EditorTool.Connect, _) => "ANGLE °  or  DX,DY",
+            (EditorTool.Place, _) => _editor.IsPlacingTravelator ? "LENGTH  or  DX,DY" : "FACING °  or  DX,DY",
+            (EditorTool.Rectangle or EditorTool.Shaft, _) => "SIZE  W,H",
             (EditorTool.Circle, _) => "RADIUS",
             _ => "LENGTH  or  DX,DY",
         };
@@ -461,6 +518,14 @@ public partial class ViewportView : UserControl
 
     private void OnEditorOverlayChanged(object? sender, EventArgs e) => Overlay.InvalidateVisual();
 
+    private void OnEditorTypedInputRequested(object? sender, string hint)
+    {
+        if (IsEditing && TypedBox.Visibility != Visibility.Visible)
+        {
+            OpenTypedBox(string.Empty);
+        }
+    }
+
     private void OnEditorFlash(object? sender, string message)
     {
         FlashText.Text = message;
@@ -494,7 +559,11 @@ public partial class ViewportView : UserControl
             EditorTool.Polygon => "POLY: click points · Enter/double-click/first point closes · Backspace undoes a point · type a length",
             EditorTool.Circle => "CIRCLE: click centre, then radius · type a radius",
             EditorTool.Wall => "WALL: click points · Enter/double-click finishes · type a length",
-            _ => "SELECT: click · Shift adds · Ctrl toggles · drag box (→ window, ← crossing) · drag to move · grips/arrows reshape · H hide · I isolate",
+            EditorTool.Connect => "CONNECT: click the bottom landing, aim up the run, click · 15° steps (Shift: free) · Tab flips a switchback · type an angle",
+            EditorTool.Shaft => "SHAFT: click two corners or drag · type W,H · spans every level until you set base/top",
+            EditorTool.Place => "PLACE: click the position, aim the service side (travelator: click the far end), click · 15° steps (Shift: free) · type an angle",
+            EditorTool.Calibrate => "SET SCALE: click two points on the image a known distance apart, type that distance, Enter · Shift squares the second point",
+            _ => "SELECT: click · Shift adds · Ctrl toggles · drag box (→ window, ← crossing) · drag to move · grips/arrows reshape · round grip rotates a connector · H hide · I isolate",
         };
 
         HintText.Text = $"{tool}   ·   Shift: ortho   ·   Esc: cancel   ·   Wheel: zoom   ·   Middle/Right-drag: pan";

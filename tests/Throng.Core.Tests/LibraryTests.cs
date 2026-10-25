@@ -11,10 +11,10 @@ public sealed class LibraryTests
         TemplateLibrary lib = BuiltInLibrary.Build();
         Assert.AreEqual(8, lib.AgentProfiles.Count, "Agent profiles");
         Assert.AreEqual(12, lib.Devices.Count, "Devices");
-        Assert.AreEqual(8, lib.Connectors.Count, "Connectors");
+        Assert.AreEqual(9, lib.Connectors.Count, "Connectors");
         Assert.AreEqual(4, lib.Lifts.Count, "Lifts");
         Assert.AreEqual(13, lib.Schedules.Count, "Schedules");
-        Assert.AreEqual(45, lib.Count);
+        Assert.AreEqual(46, lib.Count);
     }
 
     [TestMethod]

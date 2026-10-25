@@ -1,5 +1,6 @@
 using System.Windows;
 using Microsoft.Win32;
+using Throng.App.ViewModels;
 using Throng.App.Views;
 using Throng.IO;
 
@@ -22,6 +23,15 @@ public interface IDialogService
 
     /// <summary>Shows an informational message.</summary>
     void ShowInfo(string title, string message);
+
+    /// <summary>Asks for a PNG or JPEG to use as an underlay (D-083); null when cancelled.</summary>
+    string? PickImagePath();
+
+    /// <summary>Asks which levels to use (Copy to Levels, D-060); null when cancelled.</summary>
+    /// <param name="title">Dialog title.</param>
+    /// <param name="message">Explanation above the checklist.</param>
+    /// <param name="levels">Levels to offer, in display order.</param>
+    IReadOnlyList<Guid>? PickLevels(string title, string message, IReadOnlyList<LevelOption> levels);
 }
 
 /// <summary>
@@ -59,6 +69,18 @@ public sealed class DialogService : IDialogService
     }
 
     /// <inheritdoc />
+    public string? PickImagePath()
+    {
+        var dialog = new OpenFileDialog
+        {
+            Filter = "Plan images (*.png;*.jpg;*.jpeg)|*.png;*.jpg;*.jpeg|All files (*.*)|*.*",
+            Title = "Add underlay image",
+            CheckFileExists = true,
+        };
+        return dialog.ShowDialog(_owner) == true ? dialog.FileName : null;
+    }
+
+    /// <inheritdoc />
     public bool? AskSaveChanges(string studyName)
     {
         int choice = ThrongDialog.ShowMessage(
@@ -82,4 +104,8 @@ public sealed class DialogService : IDialogService
     /// <inheritdoc />
     public void ShowInfo(string title, string message) =>
         ThrongDialog.ShowMessage(_owner, title, message, DialogTone.Info, [new DialogButton("OK", IsDefault: true, IsCancel: true)]);
+
+    /// <inheritdoc />
+    public IReadOnlyList<Guid>? PickLevels(string title, string message, IReadOnlyList<LevelOption> levels) =>
+        LevelPickerDialog.Show(_owner, title, message, levels);
 }

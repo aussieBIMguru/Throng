@@ -1,5 +1,7 @@
 using System.IO.Compression;
 using System.Text;
+using Throng.Core.Geometry;
+using Throng.Core.Library;
 using Throng.Core.Model;
 using Throng.Core.Validation;
 using Throng.Core.World;
@@ -58,6 +60,79 @@ public sealed class ThrongFileTests
         CollectionAssert.AreEqual(original.Outline, copy.Outline);
         Assert.AreEqual(original.Kind, copy.Kind);
         Assert.AreEqual(demo.Library.AgentProfiles[0].Speed.Mean, study.Library.AgentProfiles[0].Speed.Mean);
+
+        // Format v2 content (D-064).
+        Assert.AreEqual(demo.Connectors.Count, study.Connectors.Count);
+        Assert.AreEqual(demo.Shafts.Count, study.Shafts.Count);
+        Connector stair = demo.Connectors[0];
+        Connector stairCopy = study.Connectors.Single(c => c.Id == stair.Id);
+        Assert.AreEqual(stair.BottomLanding, stairCopy.BottomLanding);
+        Assert.AreEqual(stair.Kind, stairCopy.Kind);
+        Assert.AreEqual(stair.Shape, stairCopy.Shape);
+        Assert.AreEqual(stair.PairId, stairCopy.PairId);
+        CollectionAssert.AreEqual(demo.Shafts[0].Outline, study.Shafts[0].Outline);
+    }
+
+    [TestMethod]
+    public void Load_FormatV1_MigratesWithEmptyConnectorsAndShafts()
+    {
+        string path = Path.Combine(_folder, "old.throng");
+        Level level = new() { Name = "Ground" };
+        string study = $"{{\"name\":\"Old\",\"levels\":[{{\"id\":\"{level.Id}\",\"name\":\"Ground\"}}],\"regions\":[]}}";
+        WriteZip(path, ("manifest.json", "{\"format\":\"throng-study\",\"formatVersion\":1}"), ("study.json", study));
+
+        var result = ThrongFile.Load(path);
+        Assert.IsTrue(result.IsSuccess, result.Error);
+        Assert.AreEqual("Old", result.Value!.Name);
+        Assert.IsNotNull(result.Value.Connectors);
+        Assert.IsNotNull(result.Value.Shafts);
+        Assert.AreEqual(0, result.Value.Connectors.Count);
+        Assert.AreEqual(0, result.Value.Shafts.Count);
+    }
+
+    [TestMethod]
+    public void Save_WritesFormatV5()
+    {
+        string path = Path.Combine(_folder, "v5" + ThrongFile.Extension);
+        Assert.IsTrue(ThrongFile.Save(DemoStudyBuilder.Build(), path).IsSuccess);
+        Assert.AreEqual(5, ThrongFile.ReadManifest(path).Value!.FormatVersion);
+    }
+
+    [TestMethod]
+    public void V3_RoundTripsDevicesSpansAndUnderlayImages()
+    {
+        Study demo = DemoStudyBuilder.Build();
+        var underlay = new Underlay { Name = "Plan", LevelId = demo.Levels[0].Id, PixelWidth = 2, PixelHeight = 1, MetresPerPixel = 0.5 };
+        underlay.ImageEntry = ThrongFile.UnderlayEntryName(underlay.Id, "plan.png");
+        demo.Underlays.Add(underlay);
+        demo.UnderlayImages[underlay.Id] = [1, 2, 3, 4, 5];
+        string path = Path.Combine(_folder, "rt3" + ThrongFile.Extension);
+        Assert.IsTrue(ThrongFile.Save(demo, path).IsSuccess);
+
+        Study study = ThrongFile.Load(path).Value!;
+        Assert.AreEqual(demo.Devices.Count, study.Devices.Count);
+        Assert.AreEqual(demo.Devices[0].Position, study.Devices[0].Position);
+        Region core = study.Regions.Single(r => r.Name == "Lift core walls");
+        Assert.IsNotNull(core.TopLevelId);
+        Assert.AreEqual(RegionHeightMode.FullStorey, core.HeightMode);
+        Assert.IsTrue(study.Connectors.Any(c => c.PerLevelCircuits));
+        CollectionAssert.AreEqual(new byte[] { 1, 2, 3, 4, 5 }, study.UnderlayImages[underlay.Id]);
+        Assert.AreEqual(0.5, study.Underlays.Single().MetresPerPixel);
+    }
+
+    [TestMethod]
+    public void Load_FormatV2_KeepsOldBehaviour()
+    {
+        string path = Path.Combine(_folder, "v2.throng");
+        Level a = new() { Name = "A", ElevationM = 0 };
+        string study = $"{{\"levels\":[{{\"id\":\"{a.Id}\"}}],\"regions\":[{{\"levelId\":\"{a.Id}\",\"kind\":\"Wall\",\"outline\":[{{\"x\":0,\"y\":0}},{{\"x\":1,\"y\":0}}]}}],\"connectors\":[{{\"kind\":\"Stair\",\"shape\":\"Switchback\"}}]}}";
+        WriteZip(path, ("manifest.json", "{\"format\":\"throng-study\",\"formatVersion\":2}"), ("study.json", study));
+
+        Study loaded = ThrongFile.Load(path).Value!;
+        Assert.AreEqual(RegionHeightMode.Fixed, loaded.Regions[0].HeightMode, "Old walls keep their fixed height.");
+        Assert.IsNull(loaded.Regions[0].TopLevelId);
+        Assert.IsFalse(loaded.Connectors[0].PerLevelCircuits, "Old switchbacks stay one long run.");
+        Assert.AreEqual(0, loaded.Devices.Count);
     }
 
     [TestMethod]
@@ -154,16 +229,39 @@ public sealed class DemoStudyTests
     }
 
     [TestMethod]
-    public void Demo_CompilesToOneFloorSurfacePerLevel()
+    public void Demo_CompilesToOneFloorSurfacePerLevelPlusConnectorPieces()
     {
         Study demo = DemoStudyBuilder.Build();
         var world = WorldCompiler.Compile(demo);
         Assert.IsTrue(world.IsSuccess, world.Error);
-        Assert.AreEqual(3, world.Value!.Surfaces.Count);
-        Assert.IsTrue(world.Value.Surfaces.All(s => s.Kind == SurfaceKind.Floor && s.Walkable.Count > 0));
+        List<Surface> floors = [.. world.Value!.Surfaces.Where(s => s.Kind == SurfaceKind.Floor)];
+        Assert.AreEqual(3, floors.Count);
+        Assert.IsTrue(floors.All(s => s.Walkable.Count > 0));
 
-        Surface concourse = world.Value.Surfaces.Single(s => s.Name == "Concourse");
+        Surface concourse = floors.Single(s => s.Name == "Concourse");
         Assert.AreEqual(-5.0, concourse.ToWorld(10, 10).Z, 1e-9);
+
+        // Every connector piece is a surface whose far end meets the next piece's height (§7.1).
+        List<Surface> pieces = [.. world.Value.Surfaces.Where(s => s.Kind == SurfaceKind.Connector)];
+        Assert.IsTrue(pieces.Count >= demo.Connectors.Count * 3);
+        Surface firstFlight = pieces.First(s => s.SourceId == demo.Connectors[0].Id);
+        Assert.AreEqual(-5.0, firstFlight.ToWorld(0, 0).Z, 1e-9, "Street stair starts on the concourse.");
+    }
+
+    [TestMethod]
+    public void Demo_HasItsVerticalSet()
+    {
+        Study demo = DemoStudyBuilder.Build();
+        Assert.AreEqual(7, demo.Connectors.Count, "Three stairs and two escalator pairs.");
+        Assert.AreEqual(4, demo.Connectors.Count(c => c.Kind == ConnectorKind.Escalator));
+        Assert.AreEqual(2, demo.Connectors.Count(c => c.Shape == ConnectorShape.Switchback));
+        Assert.AreEqual(2, demo.Shafts.Count);
+        Assert.IsTrue(demo.Connectors.Any(c => ConnectorLayout.Compute(c, demo).Value!.Circuits.Count == 2), "The back-of-house core has one circuit per storey (three levels, two storeys).");
+        Assert.IsTrue(demo.Shafts.Any(s => s.NoStopLevelIds.Count == 1), "The goods lift skips the concourse.");
+        Assert.IsTrue(demo.Regions.Any(r => r.TopLevelId is not null && r.Kind == RegionKind.Wall), "Lift core walls span two levels.");
+        Assert.AreEqual(9, demo.Devices.Count);
+        Assert.IsFalse(demo.Regions.Any(r => string.Equals(r.Tag, "Void", StringComparison.OrdinalIgnoreCase)), "Auto openings replace the voids (D-061).");
+        Assert.IsTrue(demo.Connectors.All(c => c.TemplateId is { } id && demo.Library.Find(id) is not null), "Presets are embedded.");
     }
 
     [TestMethod]

@@ -20,8 +20,18 @@ public static class ThrongFile
     /// <summary>Format marker written into the manifest.</summary>
     public const string FormatName = "throng-study";
 
-    /// <summary>Format version written by this build. Bump it and add a migration when the schema changes.</summary>
-    public const int CurrentFormatVersion = 1;
+    /// <summary>
+    /// Format version written by this build. Bump it and add a migration when the schema changes.
+    /// v1: levels and regions (rounds 001–003). v2: adds <c>connectors</c> and <c>shafts</c> (round 004, D-064).
+    /// v3: region spans and height modes, exclusions, per-level stairs, travelators, <c>devices</c> and
+    /// <c>underlays</c> with their images under <c>underlays/</c> (round 005, D-086).
+    /// v4: emission rules on spawn zones, keep side, staff-only connectors (round 006, D-099, D-105, D-110).
+    /// v5: rate curves on emission rules (round 007, D-129).
+    /// </summary>
+    public const int CurrentFormatVersion = 5;
+
+    /// <summary>Zip folder holding underlay images (§14.2, D-083).</summary>
+    public const string UnderlayFolder = "underlays/";
 
     private const string ManifestEntry = "manifest.json";
     private const string StudyEntry = "study.json";
@@ -60,6 +70,15 @@ public static class ThrongFile
                 WriteEntry(zip, ManifestEntry, manifest);
                 WriteEntry(zip, StudyEntry, study);
                 WriteEntry(zip, LibraryEntry, study.Library);
+                foreach (Underlay underlay in study.Underlays)
+                {
+                    if (study.UnderlayImages.TryGetValue(underlay.Id, out byte[]? bytes) && IsUnderlayEntry(underlay.ImageEntry))
+                    {
+                        ZipArchiveEntry entry = zip.CreateEntry(underlay.ImageEntry, CompressionLevel.NoCompression);
+                        using Stream entryStream = entry.Open();
+                        entryStream.Write(bytes, 0, bytes.Length);
+                    }
+                }
             }
 
             File.Move(tempPath, path, overwrite: true);
@@ -94,7 +113,7 @@ public static class ThrongFile
             if (manifest.FormatVersion > CurrentFormatVersion)
             {
                 return Result<Study>.Fail(
-                    $"'{Path.GetFileName(path)}' was saved by a newer version of Throng (format {manifest.FormatVersion}). Please update the app.");
+                    $"'{Path.GetFileName(path)}' was saved by a newer version of Throng (file format {manifest.FormatVersion}; this version reads up to {CurrentFormatVersion}). Please update the app to open it.");
             }
 
             Study? study = ReadEntry<Study>(zip, StudyEntry);
@@ -105,6 +124,18 @@ public static class ThrongFile
 
             study.Library = ReadEntry<TemplateLibrary>(zip, LibraryEntry) ?? new TemplateLibrary();
             FormatMigrations.Apply(study, manifest.FormatVersion);
+            study.UnderlayImages = new Dictionary<Guid, byte[]>();
+            foreach (Underlay underlay in study.Underlays)
+            {
+                // A missing image leaves the underlay in place (CHECK warns); it draws as an outline.
+                if (IsUnderlayEntry(underlay.ImageEntry) && zip.GetEntry(underlay.ImageEntry) is { } entry)
+                {
+                    using Stream entryStream = entry.Open();
+                    using var buffer = new MemoryStream();
+                    entryStream.CopyTo(buffer);
+                    study.UnderlayImages[underlay.Id] = buffer.ToArray();
+                }
+            }
             return Result<Study>.Ok(study);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or JsonException or NotSupportedException)
@@ -128,6 +159,23 @@ public static class ThrongFile
             return Result<ThrongManifest>.Fail(ex.Message);
         }
     }
+
+    /// <summary>Zip entry name for a new underlay image, keeping the original extension.</summary>
+    public static string UnderlayEntryName(Guid underlayId, string originalFileName)
+    {
+        string extension = Path.GetExtension(originalFileName).ToLowerInvariant();
+        if (extension is not (".png" or ".jpg" or ".jpeg"))
+        {
+            extension = ".png";
+        }
+
+        return $"{UnderlayFolder}{underlayId:N}{extension}";
+    }
+
+    /// <summary>Only plain names inside the underlays folder are read or written (no path tricks from a hand-edited file).</summary>
+    private static bool IsUnderlayEntry(string name) =>
+        name.StartsWith(UnderlayFolder, StringComparison.Ordinal) && name.IndexOf("..", StringComparison.Ordinal) < 0
+        && name.IndexOf('/', UnderlayFolder.Length) < 0 && name.Length > UnderlayFolder.Length;
 
     private static void WriteEntry<T>(ZipArchive zip, string name, T value)
     {

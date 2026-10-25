@@ -20,6 +20,7 @@ internal sealed class ShaderProgram : IDisposable
     private int _alphaLocation;
     private int _viewportLocation;
     private int _lineWidthLocation;
+    private int _timeLocation;
 
     /// <summary>Creates a program from vertex, optional geometry, and fragment sources (compiled in <see cref="Initialise"/>).</summary>
     public ShaderProgram(string vertexSource, string? geometrySource, string fragmentSource)
@@ -93,6 +94,7 @@ internal sealed class ShaderProgram : IDisposable
         _alphaLocation = GL.GetUniformLocation(_handle, "uAlpha");
         _viewportLocation = GL.GetUniformLocation(_handle, "uViewport");
         _lineWidthLocation = GL.GetUniformLocation(_handle, "uLineWidth");
+        _timeLocation = GL.GetUniformLocation(_handle, "uTime");
         return Result.Ok();
     }
 
@@ -120,6 +122,9 @@ internal sealed class ShaderProgram : IDisposable
 
     /// <summary>Line width in framebuffer pixels (thick-line program).</summary>
     public void SetLineWidth(float pixels) => GL.Uniform1(_lineWidthLocation, pixels);
+
+    /// <summary>Seconds for animated effects (the agent program's stuck ring).</summary>
+    public void SetTime(float seconds) => GL.Uniform1(_timeLocation, seconds);
 
     /// <inheritdoc />
     public void Dispose()

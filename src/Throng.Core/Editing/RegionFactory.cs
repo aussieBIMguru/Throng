@@ -1,4 +1,3 @@
-using System.Globalization;
 using Throng.Core.Geometry;
 using Throng.Core.Model;
 
@@ -36,8 +35,10 @@ public static class RegionFactory
 
         if (kind == RegionKind.Wall)
         {
+            // Walls default to floor to floor (D-078); the fixed height is kept for when it's switched back.
             region.HeightM = DefaultWallHeightM;
             region.ThicknessM = DefaultWallThicknessM;
+            region.HeightMode = RegionHeightMode.FullStorey;
         }
 
         return region;
@@ -58,23 +59,12 @@ public static class RegionFactory
         ThicknessM = source.ThicknessM,
         SpeedFactor = source.SpeedFactor,
         Tag = source.Tag,
+        HeightMode = source.HeightMode,
+        TopLevelId = source.TopLevelId,
+        ExcludedLevelIds = [.. source.ExcludedLevelIds],
+        EmissionRules = [.. source.EmissionRules.Select(r => r.CopyWithNewId())],
     };
 
     /// <summary>Next free "Prefix N" name, one above the highest N already used in the study.</summary>
-    public static string NextName(Study study, string prefix)
-    {
-        int highest = 0;
-        string start = prefix + " ";
-        foreach (Region region in study.Regions)
-        {
-            if (region.Name.StartsWith(start, StringComparison.Ordinal)
-                && int.TryParse(region.Name.AsSpan(start.Length), NumberStyles.None, CultureInfo.InvariantCulture, out int n)
-                && n > highest)
-            {
-                highest = n;
-            }
-        }
-
-        return string.Create(CultureInfo.InvariantCulture, $"{prefix} {highest + 1}");
-    }
+    public static string NextName(Study study, string prefix) => Naming.Next(study.Regions.Select(r => r.Name), prefix);
 }

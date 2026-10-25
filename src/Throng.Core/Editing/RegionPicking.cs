@@ -55,17 +55,41 @@ public static class RegionPicking
         return best;
     }
 
+    /// <summary>
+    /// Pick score for a closed outline: rank 0 when within <paramref name="tolerance"/> of an edge, rank 1 when
+    /// inside, null when missed. Area breaks ties so smaller shapes win.
+    /// </summary>
+    public static (int Rank, double Area)? Score(IReadOnlyList<Point2> outline, Point2 point, double tolerance)
+    {
+        if (outline.Count < 3)
+        {
+            return null;
+        }
+
+        if (SegmentMath.DistanceToOutline(outline, point, closed: true) <= tolerance)
+        {
+            return (0, PolygonMath.Area(outline));
+        }
+
+        return PolygonMath.Contains(outline, point) ? (1, PolygonMath.Area(outline)) : null;
+    }
+
     /// <summary>Window test: every vertex of the region lies inside the box.</summary>
-    public static bool IsInside(Region region, Bounds2 box) =>
-        region.Outline.Count > 0 && region.Outline.All(box.Contains);
+    public static bool IsInside(Region region, Bounds2 box) => IsInside(region.Outline, box);
+
+    /// <summary>Window test for any outline: every vertex lies inside the box.</summary>
+    public static bool IsInside(IReadOnlyList<Point2> outline, Bounds2 box) =>
+        outline.Count > 0 && outline.All(box.Contains);
 
     /// <summary>
     /// Crossing test: the region touches the box at all (a vertex inside, an edge crossing the box boundary, or the
     /// box sitting entirely inside a closed region).
     /// </summary>
-    public static bool Touches(Region region, Bounds2 box)
+    public static bool Touches(Region region, Bounds2 box) => Touches(region.Outline, IsClosed(region), box);
+
+    /// <summary>Crossing test for any outline (see <see cref="Touches(Region, Bounds2)"/>).</summary>
+    public static bool Touches(IReadOnlyList<Point2> outline, bool closed, Bounds2 box)
     {
-        List<Point2> outline = region.Outline;
         if (outline.Count == 0 || box.IsEmpty)
         {
             return false;
@@ -77,7 +101,6 @@ public static class RegionPicking
         }
 
         Point2[] corners = [new(box.MinX, box.MinY), new(box.MaxX, box.MinY), new(box.MaxX, box.MaxY), new(box.MinX, box.MaxY)];
-        bool closed = IsClosed(region);
         int n = outline.Count;
         int edges = closed ? n : n - 1;
         for (int i = 0; i < edges; i++)

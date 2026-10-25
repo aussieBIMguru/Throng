@@ -3,13 +3,13 @@ using System.Windows;
 using System.Windows.Media;
 using Throng.Core.Editing;
 using Throng.Core.Geometry;
-using Throng.Core.Model;
+using Throng.Render.Scene;
 
 namespace Throng.App.Editing;
 
 /// <summary>
-/// Immediate-mode WPF overlay drawn over the GL viewport in plan view: hover and selection outlines, vertex grips,
-/// rubber bands, shape previews, snap markers and a dimension readout. Redrawn whenever the editor or the plan
+/// Immediate-mode WPF overlay drawn over the GL viewport in plan view: connector UP/DN labels, hover and selection
+/// outlines, vertex and rotate grips, rubber bands, shape and connector previews, snap markers and readouts. Redrawn whenever the editor or the plan
 /// camera changes. Never hit-testable, so mouse input goes to the viewport's input layer underneath.
 /// </summary>
 public sealed class EditorOverlay : FrameworkElement
@@ -54,6 +54,9 @@ public sealed class EditorOverlay : FrameworkElement
     /// <summary>True in plan view; the overlay draws nothing in 3D.</summary>
     public bool IsPlanActive { get; set; }
 
+    /// <summary>Text labels for the active level from the scene (connector UP / DN, D-062).</summary>
+    public IReadOnlyList<PlanLabel> Labels { get; set; } = [];
+
     /// <summary>Creates the overlay.</summary>
     public EditorOverlay()
     {
@@ -72,12 +75,15 @@ public sealed class EditorOverlay : FrameworkElement
         // Clip so previews can't spill over the HUD panels outside the viewport.
         dc.PushClip(new RectangleGeometry(new Rect(0, 0, ActualWidth, ActualHeight)));
 
-        if (editor.Hover is { } hover && editor.SelectedRegions.All(r => r.Id != hover.Id))
+        DrawSceneLabels(dc, map);
+
+        if (editor.Hover is { } hover)
         {
-            DrawOutline(dc, map, hover.Outline, RegionPicking.IsClosed(hover), HoverPen);
+            DrawOutline(dc, map, hover.Outline, hover.Closed, HoverPen);
         }
 
         DrawSelection(dc, map, editor);
+        DrawRotateGrip(dc, map, editor);
         DrawRubberBand(dc, map, editor);
         DrawShapePreview(dc, map, editor);
         DrawSnapMarker(dc, map, editor);
@@ -89,32 +95,84 @@ public sealed class EditorOverlay : FrameworkElement
     {
         Point2? delta = editor.MoveDelta;
         var vertexPreview = editor.VertexPreview;
+        IReadOnlyDictionary<Guid, IReadOnlyList<Point2>>? rotatePreview = editor.RotatePreview;
 
-        foreach (Region region in editor.SelectedRegions)
+        foreach ((Guid id, IReadOnlyList<Point2> outline, bool closed) in editor.SelectedOutlines)
         {
-            bool closed = RegionPicking.IsClosed(region);
             if (delta is { } d)
             {
                 // Ghost where it was, solid where it's going.
-                DrawOutline(dc, map, region.Outline, closed, GhostPen);
-                DrawOutline(dc, map, ShapeFactory.Translate(region.Outline, d), closed, SelectionPen);
+                DrawOutline(dc, map, outline, closed, GhostPen);
+                DrawOutline(dc, map, ShapeFactory.Translate(outline, d), closed, SelectionPen);
             }
-            else if (vertexPreview is { } vp && vp.Region.Id == region.Id)
+            else if (vertexPreview is { } vp && vp.Id == id)
             {
-                DrawOutline(dc, map, region.Outline, closed, GhostPen);
+                DrawOutline(dc, map, outline, closed, GhostPen);
                 DrawOutline(dc, map, vp.Outline, closed, SelectionPen);
+            }
+            else if (rotatePreview is not null && rotatePreview.TryGetValue(id, out IReadOnlyList<Point2>? rotated))
+            {
+                DrawOutline(dc, map, outline, closed, GhostPen);
+                DrawOutline(dc, map, rotated, closed, SelectionPen);
             }
             else
             {
-                DrawOutline(dc, map, region.Outline, closed, SelectionPen);
+                DrawOutline(dc, map, outline, closed, SelectionPen);
             }
         }
 
-        if (delta is null && editor.GripRegion is { } gripRegion)
+        // A paired escalator's partner moves and rotates with it (D-059): show it ghosted.
+        if (rotatePreview is not null)
         {
-            IReadOnlyList<Point2> outline = vertexPreview is { } vp && vp.Region.Id == gripRegion.Id ? vp.Outline : gripRegion.Outline;
-            DrawGrips(dc, map, outline, RegionPicking.IsClosed(gripRegion), editor.SelectedVertex, editor.MetresPerDip);
+            foreach ((Guid id, IReadOnlyList<Point2> rotated) in rotatePreview)
+            {
+                if (editor.SelectedOutlines.All(o => o.Id != id))
+                {
+                    DrawOutline(dc, map, rotated, closed: true, SelectionPen);
+                }
+            }
         }
+
+        if (delta is null && editor.GripTarget is { } target)
+        {
+            IReadOnlyList<Point2> outline = vertexPreview is { } vp && vp.Id == target.Id ? vp.Outline : target.Outline;
+            DrawGrips(dc, map, outline, target.Closed, editor.SelectedVertex, editor.MetresPerDip);
+        }
+    }
+
+    /// <summary>The rotate grip of a single selected connector: a stem from its far end and a round handle (D-063).</summary>
+    private static void DrawRotateGrip(DrawingContext dc, Func<Point2, Point> map, PlanEditor editor)
+    {
+        if (editor.MoveDelta is not null || editor.RotateGrip is not { } grip)
+        {
+            return;
+        }
+
+        Point anchor = map(grip.Anchor);
+        Point handle = map(grip.Grip);
+        dc.DrawLine(EdgeStemPen, anchor, handle);
+        dc.DrawEllipse(Panel, GripPen, handle, GripSize * 0.6, GripSize * 0.6);
+        dc.DrawEllipse(Yellow, null, handle, 1.6, 1.6);
+    }
+
+    private void DrawSceneLabels(DrawingContext dc, Func<Point2, Point> map)
+    {
+        foreach (PlanLabel label in Labels)
+        {
+            Point at = map(label.Position);
+            Brush brush = BrushFor(label.Color);
+            double pixelsPerDip = VisualTreeHelper.GetDpi(this).PixelsPerDip;
+            var formatted = new FormattedText(label.Text, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, LabelFace, 10, brush, pixelsPerDip);
+            var origin = new Point(at.X - (formatted.Width * 0.5), at.Y - (formatted.Height * 0.5));
+            dc.DrawRectangle(LabelBack, null, new Rect(origin.X - 2, origin.Y, formatted.Width + 4, formatted.Height));
+            dc.DrawText(formatted, origin);
+        }
+    }
+
+    private static Brush BrushFor(ColorF color)
+    {
+        static byte Channel(float v) => (byte)Math.Clamp((int)Math.Round(v * 255), 0, 255);
+        return Frozen(Color.FromArgb(Channel(color.A), Channel(color.R), Channel(color.G), Channel(color.B)));
     }
 
     private static void DrawGrips(DrawingContext dc, Func<Point2, Point> map, IReadOnlyList<Point2> outline, bool closed, int? selectedVertex, double metresPerDip)
@@ -207,7 +265,28 @@ public sealed class EditorOverlay : FrameworkElement
 
         switch (editor.Tool)
         {
-            case EditorTool.Rectangle when points.Count == 1:
+            case EditorTool.Connect:
+                DrawConnectPreview(dc, map, editor);
+                label = editor.ConnectPreviewText;
+                break;
+
+            case EditorTool.Place:
+                DrawPlacePreview(dc, map, editor);
+                label = editor.PlacePreviewText;
+                break;
+
+            case EditorTool.Calibrate when editor.CalibrationLine is { } line:
+            {
+                Point a = map(line.A);
+                Point b = map(line.B);
+                dc.DrawLine(SnapPen, a, b);
+                dc.DrawEllipse(null, SnapPen, a, 4, 4);
+                dc.DrawEllipse(null, SnapPen, b, 4, 4);
+                label = string.Create(CultureInfo.InvariantCulture, $"{Point2.Distance(line.A, line.B):0.###} m on the image");
+                break;
+            }
+
+            case EditorTool.Rectangle or EditorTool.Shaft when points.Count == 1:
             {
                 DrawOutline(dc, map, ShapeFactory.Rectangle(points[0], cursor), closed: true, PreviewPen);
                 Point2 size = cursor - points[0];
@@ -261,10 +340,64 @@ public sealed class EditorOverlay : FrameworkElement
         }
     }
 
+    /// <summary>Footprint and service arrow of the device being placed, or the travelator belt (D-090).</summary>
+    private static void DrawPlacePreview(DrawingContext dc, Func<Point2, Point> map, PlanEditor editor)
+    {
+        if (editor.PlaceDevicePreview is { } device)
+        {
+            DrawOutline(dc, map, DeviceGeometry.Footprint(device), closed: true, PreviewPen);
+            foreach ((Point2 a, Point2 b) in DeviceGeometry.LaneLines(device))
+            {
+                dc.DrawLine(PreviewClosePen, map(a), map(b));
+            }
+
+            Point2 front = DeviceGeometry.ServicePoint(device);
+            Point2 tip = front + (device.Facing() * Math.Max(0.3, device.DepthM * 0.5));
+            dc.DrawLine(PreviewPen, map(front), map(tip));
+            dc.DrawEllipse(Accent, null, map(tip), 3, 3);
+        }
+
+        if (editor.PlaceTravelatorPreview is { } belt)
+        {
+            DrawOutline(dc, map, belt.Layout.Footprint, closed: true, PreviewPen);
+            DrawOutline(dc, map, [.. belt.Layout.Centreline.Select(p => p.Point)], closed: false, PreviewClosePen);
+            Point top = map(belt.Layout.TopLanding);
+            dc.DrawRectangle(Accent, null, new Rect(top.X - 3, top.Y - 3, 6, 6));
+        }
+    }
+
+    /// <summary>Footprint, pieces and centreline of the connector(s) being placed (D-054).</summary>
+    private static void DrawConnectPreview(DrawingContext dc, Func<Point2, Point> map, PlanEditor editor)
+    {
+        foreach (ConnectorPreview preview in editor.ConnectPreviews)
+        {
+            foreach (ConnectorPiece piece in preview.Layout.Pieces)
+            {
+                DrawOutline(dc, map, piece.Outline(), closed: true, PreviewClosePen);
+            }
+
+            DrawOutline(dc, map, preview.Layout.Footprint, closed: true, PreviewPen);
+            var path = preview.Layout.Centreline.Select(p => p.Point).ToList();
+            DrawOutline(dc, map, path, closed: false, PreviewClosePen);
+
+            Point bottom = map(preview.Layout.BottomLanding);
+            dc.DrawEllipse(null, PreviewPen, bottom, 4, 4);
+            Point top = map(preview.Layout.TopLanding);
+            dc.DrawRectangle(Accent, null, new Rect(top.X - 3, top.Y - 3, 6, 6));
+        }
+    }
+
     private void DrawSnapMarker(DrawingContext dc, Func<Point2, Point> map, PlanEditor editor)
     {
         if (!editor.HasCursor)
         {
+            return;
+        }
+
+        if (editor.RotateAngle is { } angle)
+        {
+            Point at = map(editor.CursorSnap.Point);
+            DrawLabel(dc, string.Create(CultureInfo.InvariantCulture, $"↻ {angle:0.#}°  (Shift: free)"), new Point(at.X + 14, at.Y + 12));
             return;
         }
 

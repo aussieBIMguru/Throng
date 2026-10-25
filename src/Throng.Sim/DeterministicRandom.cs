@@ -37,6 +37,18 @@ public sealed class DeterministicRandom
     /// <summary>Uniform integer in [0, exclusiveMax).</summary>
     public int NextInt(int exclusiveMax) => exclusiveMax <= 0 ? 0 : (int)(NextUInt64() % (ulong)exclusiveMax);
 
+    /// <summary>Standard normal sample (mean 0, standard deviation 1) by the Box–Muller transform.</summary>
+    public double NextGaussian()
+    {
+        // 1 − u keeps the logarithm's argument in (0, 1].
+        double u1 = 1.0 - NextDouble();
+        double u2 = NextDouble();
+        return Math.Sqrt(-2.0 * Math.Log(u1)) * Math.Cos(2.0 * Math.PI * u2);
+    }
+
+    /// <summary>Exponential sample with the given mean (0 when the mean isn't positive).</summary>
+    public double NextExponential(double mean) => mean > 0 ? -mean * Math.Log(1.0 - NextDouble()) : 0;
+
     private static ulong Mix(ulong z)
     {
         z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9UL;

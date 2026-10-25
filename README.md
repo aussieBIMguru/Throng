@@ -6,8 +6,8 @@ Throng is a Windows desktop app (WPF, .NET 10) for testing circulation in early-
 stations, lobbies, stadium edges. It favours fast setup and legible, "roughly right" behaviour over scientific
 fidelity. Results are indicative only and are **not** compliance evidence.
 
-> Status: **Round 003 — panel tabs, hide/isolate, edge push/pull, 2 px lines + MSAA, pinned packages.**
-> Next: round 004 — stairs/escalators/ramps, shafts, Copy to Levels (queries answered: `ai/rounds/round-004.md`).
+> Status: **Round 007 — crowd rules at connector ends, boarding near the escalator cap, rate curves on emission rules (AM/PM peak, event surge); format v5.**
+> Round 006 is unbuilt (written without a .NET SDK); round 005 builds and runs. Next: round 007 — full demand and the demo end to end.
 > Round notes live in `ai/rounds/`, the product brief and roadmap in `ai/BRIEF.md`.
 > **How rounds work:** queries first (with recommendations), then build only what's decided. See `ai/PROTOCOL.md`.
 
@@ -36,6 +36,12 @@ before zipping the project. `clean.bat /q` skips the pause.
 | Key / action | What it does |
 |---|---|
 | `V` `R` `P` `C` `W` | Select, Rectangle, Polygon, Circle, Wall (or the DRAW strip under the toolbar) |
+| `T` CONNECT | Stair, escalator or ramp: pick a preset and a level above on the DRAW strip (or double-click one in LIBRARY ▸ VERTICAL), click the bottom landing, aim up the run (15° steps, Shift free), click. `Tab` flips a switchback's return side; type an angle for an exact direction |
+| `D` PLACE | Device or travelator: pick a preset on the DRAW strip (or double-click one in LIBRARY), click its position, aim the service side (travelator: click the far end), click |
+| Spanning | Obstacles and walls: set Top level in SELECTION (default "This level only"), Height = Fixed or FullStorey, untick levels to skip them. Shafts: untick "Lift stops here" |
+| Underlays | LEVEL tab ▸ ADD IMAGE…; SELECTION ▸ SET SCALE (click two points, type the distance); drag, rotate grip, opacity, lock |
+| `O` SHAFT | Shaft / atrium / void: two corners or a drag. It spans every level until you set base and top in SELECTION |
+| Round grip | On a selected connector: drag to rotate (15° steps, Shift free). Escalator pairs move, rotate and resize together |
 | Click / drag (select) | Click picks; Shift adds, Ctrl toggles; drag left→right = window, right→left = crossing; drag a region to move it |
 | Grips | Drag a vertex square; click or drag an edge-midpoint diamond to insert a vertex; Del removes the selected vertex |
 | Edge arrows | Drag the arrow outside an edge to push/pull it; neighbouring edges keep their angle |
@@ -45,10 +51,33 @@ before zipping the project. `clean.bat /q` skips the pause.
 | Backspace / Esc | Remove the last point / cancel (again to return to Select) |
 | Shift | Force ortho while drawing or moving |
 | Ctrl+C / X / V / D / A, Del | Copy, cut, paste in place (active level), duplicate (+1 grid step), select all, delete |
+| Ctrl+Shift+V | Copy to Levels…: paste the selection in place on every ticked level, one undo step. Connectors and shafts keep their span |
 
 Snaps: 0.5 m grid, endpoint, midpoint and ortho (toggle on the DRAW strip). Snap points come from the active
 level and the level below. Locked levels can't be edited but still snap. The green outline is the net walkable
-area (walkable union minus obstacles and walls).
+area (walkable union minus obstacles, walls, connector footprints and openings, and shafts).
+
+Connectors draw as architectural symbols in plan: the lower level shows the part below mid-rise, the upper
+level the part above, with treads, a belt line on escalators and an UP / DN arrow. In 3D they're true sloped
+pieces. Each connector cuts its own opening in the upper level (0.3 m clearance, editable).
+
+---
+
+## Running (round 006)
+
+| Control | What it does |
+|---|---|
+| PLAY / PAUSE | The first PLAY checks the study (errors block and are listed), builds the navigation and starts; editing is locked until RESET |
+| STEP | Pause and advance one 0.1 s step (starts a paused run when none is active) |
+| RESET | End the run, clear the agents and unlock editing |
+| ×½ ×1 ×2 ×4 ×8 MAX | Run speed |
+| SELECTION ▸ EMISSION RULES | On a spawn zone: profile, people per minute, constant or Poisson, nearest sink or weighted chosen sinks |
+| STUDY ▸ RUN | Start time, end (fixed duration or until stopped), seed + RE-ROLL, keep side |
+| Staff only | On a connector in SELECTION: public agents won't use it |
+| Drag from LIBRARY | Drop a device on the plan to place it; drop a stair, escalator, ramp or travelator to start it at the drop point |
+
+The status bar shows speed, agents walking, emitted, arrived, mean journey time and stuck agents (no progress for
+30 s: a flashing ring; removed after 120 s). Agents are capsules coloured by profile in 3D and discs in plan.
 
 ---
 
@@ -58,7 +87,7 @@ area (walkable union minus obstacles and walls).
 Throng.sln
 ├─ src/
 │  ├─ Throng.Core        Model, geometry (Clipper2 behind IPolygonOps), library, undo + editing actions, validation, world
-│  ├─ Throng.Sim         Engine (clock and deterministic RNG in M0; movement from M2)
+│  ├─ Throng.Sim         Clock, RNG, Nav (grids, portals, flow fields, route choice), Engine (social force), SimRunner
 │  ├─ Throng.Analysis    Level of Service classification (heatmaps and stats from M5)
 │  ├─ Throng.IO          .throng file format, migrations, demo study builder
 │  ├─ Throng.Render      OpenGL renderer, cameras, scene building
@@ -78,7 +107,7 @@ references, so the engine can run headless.
 
 | Extension | What |
 |---|---|
-| `.throng` | Study: zip of `manifest.json`, `study.json`, `library.json` |
+| `.throng` | Study: zip of `manifest.json`, `study.json`, `library.json` (file format v5 since round 007; v1–v4 files still open; underlay images inside `underlays/`) |
 | `.throngprofile` | Single exported agent profile (M7) |
 | `.thronglib` | Template library exchange (M3) |
 

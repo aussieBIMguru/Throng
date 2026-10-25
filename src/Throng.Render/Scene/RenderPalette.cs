@@ -21,6 +21,30 @@ public static class RenderPalette
     public static readonly ColorF VoidFill = ColorF.FromHex("#06080D");
     public static readonly ColorF VoidEdge = ColorF.FromHex("#FB923C");
 
+    /// <summary>Stairs and ramps: plan symbol and 3D surface (D-062).</summary>
+    public static readonly ColorF Connector = ColorF.FromHex("#FB923C");
+
+    /// <summary>Escalators: plan symbol and 3D surface.</summary>
+    public static readonly ColorF Escalator = ColorF.FromHex("#F97316");
+
+    /// <summary>Connector plan symbol on a level it only passes through.</summary>
+    public static readonly ColorF ConnectorThrough = ColorF.FromHex("#FB923C", 0.45f);
+
+    /// <summary>Linked floor openings: outline in plan and 3D.</summary>
+    public static readonly ColorF OpeningEdge = ColorF.FromHex("#FDBA74", 0.9f);
+
+    /// <summary>Shafts: hatch in plan and edges in 3D (D-067).</summary>
+    public static readonly ColorF Shaft = ColorF.FromHex("#38BDF8");
+
+    /// <summary>Shaft fill: dark in plan, faint translucent box in 3D.</summary>
+    public static readonly ColorF ShaftPlanFill = ColorF.FromHex("#07111C");
+
+    /// <summary>Faint outline round an underlay image in plan.</summary>
+    public static readonly ColorF UnderlayEdge = ColorF.FromHex("#8A96AD", 0.35f);
+
+    /// <summary>Alpha of the translucent shaft box faces in 3D (D-067).</summary>
+    public const float ShaftBoxAlpha = 0.10f;
+
     public static readonly ColorF WallSide = ColorF.FromHex("#4B5568");
     public static readonly ColorF WallTop = ColorF.FromHex("#9AA7C0");
 

@@ -96,10 +96,21 @@ public sealed class Portal
 
     /// <summary>Portal segment start/end on surface B, local coordinates.</summary>
     public (Point2 Start, Point2 End) EdgeOnB { get; init; }
+
+    /// <summary>True when people may cross from A to B (false at the exit end of a one-way belt, D-107).</summary>
+    public bool AllowsAToB { get; init; } = true;
+
+    /// <summary>True when people may cross from B to A.</summary>
+    public bool AllowsBToA { get; init; } = true;
+
+    /// <summary>Connector the portal belongs to, if any.</summary>
+    public Guid? ConnectorId { get; init; }
 }
 
 /// <summary>
-/// The compiled simulation world: surfaces and portals. The portal graph for route choice is built from this in M2.
+/// The compiled simulation world: surfaces and portals (floor ↔ connector piece and piece ↔ piece, M2). The
+/// simulation builds its navigation grids and portal graph from the study directly (Throng.Sim.Nav); this model is
+/// the engine-neutral description used by diagnostics and tests.
 /// </summary>
 public sealed class WorldModel
 {

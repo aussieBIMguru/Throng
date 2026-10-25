@@ -33,9 +33,21 @@ public sealed class SceneRenderer : IDisposable
 
     private readonly ShaderProgram _flat = new(Shaders.FlatVertex, null, Shaders.FlatFragment);
     private readonly ShaderProgram _lines = new(Shaders.FlatVertex, Shaders.LineGeometry, Shaders.LineFragment);
+    private readonly ShaderProgram _textured = new(Shaders.TexturedVertex, null, Shaders.TexturedFragment);
+    private readonly ShaderProgram _agentProgram = new(Shaders.AgentVertex, null, Shaders.AgentFragment);
+    private readonly System.Diagnostics.Stopwatch _clock = System.Diagnostics.Stopwatch.StartNew();
+    private GpuAgents? _agents;
+    private float[]? _pendingAgents;
+    private int _pendingAgentCount;
+    private bool _agentsDirty;
+    private readonly Dictionary<Guid, GpuUnderlay> _underlayCache = new();
+    private readonly List<GpuUnderlay> _underlays = [];
     private float _pixelsPerDip = 1f;
     private readonly List<GpuLevel> _levels = [];
     private GpuMesh? _grid;
+    private GpuMesh? _verticalSolids;
+    private GpuMesh? _verticalLines;
+    private GpuMesh? _shaftBoxes;
     private SceneData? _pendingScene;
     private SceneData _scene = SceneData.Empty;
 
@@ -63,12 +75,42 @@ public sealed class SceneRenderer : IDisposable
             return lines;
         }
 
+        Result textured = _textured.Initialise();
+        if (!textured.IsSuccess)
+        {
+            _flat.Dispose();
+            _lines.Dispose();
+            return textured;
+        }
+
+        Result agents = _agentProgram.Initialise();
+        if (!agents.IsSuccess)
+        {
+            _flat.Dispose();
+            _lines.Dispose();
+            _textured.Dispose();
+            return agents;
+        }
+
+        _agents = GpuAgents.Create();
         IsInitialised = true;
         return Result.Ok();
     }
 
     /// <summary>Queues a new scene; it replaces the current GPU data at the next render.</summary>
     public void SetScene(SceneData scene) => _pendingScene = scene;
+
+    /// <summary>
+    /// Agents to draw from the next render (D-102): <paramref name="count"/> instances of
+    /// <see cref="GpuAgents.FloatsPerInstance"/> floats (the simulation snapshot layout). The caller keeps
+    /// <paramref name="data"/> unchanged until the next render; pass a count of 0 to clear.
+    /// </summary>
+    public void SetAgents(float[] data, int count)
+    {
+        _pendingAgents = data;
+        _pendingAgentCount = count;
+        _agentsDirty = true;
+    }
 
     /// <summary>Draws one frame into the currently bound framebuffer.</summary>
     /// <param name="pixelWidth">Framebuffer width in pixels.</param>
@@ -103,8 +145,18 @@ public sealed class SceneRenderer : IDisposable
         _lines.Use();
         _lines.SetViewProjection(viewProjection);
         _lines.SetViewport(pixelWidth, pixelHeight);
+        _textured.Use();
+        _textured.SetViewProjection(viewProjection);
         _flat.Use();
         _flat.SetViewProjection(viewProjection);
+        _agentProgram.Use();
+        _agentProgram.SetViewProjection(viewProjection);
+        _agentProgram.SetTime((float)_clock.Elapsed.TotalSeconds);
+        if (_agentsDirty && _agents is not null)
+        {
+            _agents.Update(_pendingAgents ?? [], _pendingAgents is null ? 0 : _pendingAgentCount);
+            _agentsDirty = false;
+        }
 
         if (mode == ViewMode.Plan)
         {
@@ -135,21 +187,41 @@ public sealed class SceneRenderer : IDisposable
         }
 
         DrawTriangles(active.Floor, 1f);
+
+        // Underlays sit just above the floor fill and under everything else (D-085).
+        if (_underlays.Count > 0)
+        {
+            _textured.Use();
+            foreach (GpuUnderlay underlay in _underlays)
+            {
+                _textured.SetAlpha(underlay.Opacity);
+                underlay.Draw();
+            }
+        }
+
         DrawLines(_grid, 1f, GridWidthDip);
 
         if (ghost is not null)
         {
             DrawLines(ghost.Lines, GhostAlpha, LineWidthDip);
+            DrawLines(ghost.PlanLines, GhostAlpha, LineWidthDip);
         }
 
         DrawTriangles(active.Overlays, 1f);
+        DrawTriangles(active.PlanOverlays, 1f);
         DrawTriangles(active.Solids, 1f);
         DrawLines(active.Lines, 1f, LineWidthDip);
+
+        // Connector symbols and shaft hatches read over everything else on the level (D-062, D-067).
+        DrawLines(active.PlanLines, 1f, LineWidthDip);
+
+        // Agents last, over everything (the app passes only the active level's band, D-102).
+        DrawAgents();
     }
 
     /// <summary>
     /// Orbit: solids opaque with depth writes, then floors and overlays translucent bottom-up without depth
-    /// writes (so stacked levels read through slightly), then outlines.
+    /// writes (so stacked levels read through slightly), then outlines, then agents behind a depth-only floor pass.
     /// </summary>
     private void RenderOrbit()
     {
@@ -162,6 +234,9 @@ public sealed class SceneRenderer : IDisposable
             DrawTriangles(level.Solids, 1f);
         }
 
+        // Sloped connector pieces are solid geometry (D-054).
+        DrawTriangles(_verticalSolids, 1f);
+
         GL.DepthMask(false);
         foreach (GpuLevel level in _levels)
         {
@@ -173,12 +248,39 @@ public sealed class SceneRenderer : IDisposable
             DrawTriangles(level.Overlays, 1f);
         }
 
+        // Faint shaft boxes after the floors, still without depth writes, so everything reads through them (D-067).
+        DrawTriangles(_shaftBoxes, 1f);
+
         foreach (GpuLevel level in _levels)
         {
             DrawLines(level.Lines, 1f, LineWidthDip);
         }
 
+        DrawLines(_verticalLines, 1f, LineWidthDip);
+
+        // Agents last (D-102): floors first write depth only (no colour), so people on other levels don't show
+        // through a floor (D-117), while outlines and solids below still read through as before.
         GL.DepthMask(true);
+        GL.ColorMask(false, false, false, false);
+        foreach (GpuLevel level in _levels)
+        {
+            DrawTriangles(level.Floor, 1f);
+        }
+
+        GL.ColorMask(true, true, true, true);
+        DrawAgents();
+    }
+
+    /// <summary>Draws the agent instances with the agent program.</summary>
+    private void DrawAgents()
+    {
+        if (_agents is null)
+        {
+            return;
+        }
+
+        _agentProgram.Use();
+        _agents.Draw();
     }
 
     /// <summary>Draws a triangle mesh with the flat program.</summary>
@@ -218,11 +320,48 @@ public sealed class SceneRenderer : IDisposable
                 GpuMesh.Create(level.Floor),
                 GpuMesh.Create(level.Solids),
                 GpuMesh.Create(level.Overlays),
-                GpuMesh.Create(level.Lines)));
+                GpuMesh.Create(level.Lines),
+                GpuMesh.Create(level.PlanOverlays),
+                GpuMesh.Create(level.PlanLines)));
         }
 
         _grid = GpuMesh.Create(scene.Grid);
+        UploadUnderlays(scene.Underlays);
+        _verticalSolids = GpuMesh.Create(scene.VerticalSolids);
+        _verticalLines = GpuMesh.Create(scene.VerticalLines);
+        _shaftBoxes = GpuMesh.Create(scene.ShaftBoxes);
         _scene = scene;
+    }
+
+    /// <summary>Reuses textures whose pixel buffer is unchanged; creates new ones and frees the rest.</summary>
+    private void UploadUnderlays(IReadOnlyList<UnderlayDraw> draws)
+    {
+        _underlays.Clear();
+        var keep = new HashSet<Guid>();
+        foreach (UnderlayDraw draw in draws)
+        {
+            if (draw.Pixels is not { } pixels || pixels.Width <= 0 || pixels.Height <= 0 || pixels.Bgra.Length < pixels.Width * pixels.Height * 4)
+            {
+                continue;
+            }
+
+            if (!_underlayCache.TryGetValue(draw.Id, out GpuUnderlay? gpu) || !ReferenceEquals(gpu.Pixels, pixels))
+            {
+                gpu?.Dispose();
+                gpu = GpuUnderlay.Create(pixels);
+                _underlayCache[draw.Id] = gpu;
+            }
+
+            gpu.Update(draw);
+            _underlays.Add(gpu);
+            keep.Add(draw.Id);
+        }
+
+        foreach (Guid id in _underlayCache.Keys.Where(k => !keep.Contains(k)).ToList())
+        {
+            _underlayCache[id].Dispose();
+            _underlayCache.Remove(id);
+        }
     }
 
     private void ReleaseScene()
@@ -235,6 +374,12 @@ public sealed class SceneRenderer : IDisposable
         _levels.Clear();
         _grid?.Dispose();
         _grid = null;
+        _verticalSolids?.Dispose();
+        _verticalSolids = null;
+        _verticalLines?.Dispose();
+        _verticalLines = null;
+        _shaftBoxes?.Dispose();
+        _shaftBoxes = null;
     }
 
     /// <inheritdoc />
@@ -243,14 +388,26 @@ public sealed class SceneRenderer : IDisposable
         if (IsInitialised)
         {
             ReleaseScene();
+            foreach (GpuUnderlay underlay in _underlayCache.Values)
+            {
+                underlay.Dispose();
+            }
+
+            _underlayCache.Clear();
+            _underlays.Clear();
             _flat.Dispose();
             _lines.Dispose();
+            _textured.Dispose();
+            _agentProgram.Dispose();
+            _agents?.Dispose();
+            _agents = null;
             IsInitialised = false;
         }
     }
 
     /// <summary>GPU meshes for one level.</summary>
-    private sealed record GpuLevel(Guid LevelId, GpuMesh? Floor, GpuMesh? Solids, GpuMesh? Overlays, GpuMesh? Lines) : IDisposable
+    private sealed record GpuLevel(
+        Guid LevelId, GpuMesh? Floor, GpuMesh? Solids, GpuMesh? Overlays, GpuMesh? Lines, GpuMesh? PlanOverlays, GpuMesh? PlanLines) : IDisposable
     {
         public void Dispose()
         {
@@ -258,6 +415,8 @@ public sealed class SceneRenderer : IDisposable
             Solids?.Dispose();
             Overlays?.Dispose();
             Lines?.Dispose();
+            PlanOverlays?.Dispose();
+            PlanLines?.Dispose();
         }
     }
 }

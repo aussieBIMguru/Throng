@@ -48,4 +48,7 @@ public abstract class TemplateBase
 
     /// <summary>One-line summary of the key values, shown in the library browser.</summary>
     public abstract string Summarise();
+
+    /// <inheritdoc />
+    public override string ToString() => Name;
 }

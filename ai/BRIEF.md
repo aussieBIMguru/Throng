@@ -1,8 +1,14 @@
-# Throng — Project Brief (v0.10)
+# Throng — Project Brief (v0.16)
 
 > Conceptual pedestrian simulation for architects. Sketch a space, drop in devices, press play, read the pressure.
 > Status: **all decisions locked** (see §18). Ready for M0. Items marked ⏳ are deliberately deferred to later rounds.
 >
+> **v0.16:** r007k (unbuilt in sandbox): stair and ramp lanes only with real counterflow (D-132); escalators weighted up (boarding-rate seed 0.8 × cap, stalled stair queues count in stair waits; D-133).
+> **v0.15:** round 007 part 2 (r007i, unbuilt in sandbox): boarding spacing at metered belts so crowds approach the step-loading cap (D-128), rate curves on emission rules (presets + editable points, multiplier on the rate, holds the last value; D-129), file format v5 (D-130).
+> **v0.14:** round 007 part 1 built (unbuilt in sandbox): escalator-end rules (keep-clear run-offs, walk clear, boarding hold), deferral to nearby options (per-agent belt cost, measured waits, light balk), one-way Up/Down stairs and ramps, floors hide agents in 3D, dead-end piece walls (D-112–D-118).
+> **v0.13:** round 006 built (unbuilt in sandbox): M2 movement core. Nav grids per floor and connector piece, portals and a portal graph, cached flow fields, social force with keep-side bias, escalator belts with step-loading caps, emission rules on spawn zones (constant / Poisson), RUN toolbar with edit lock and CHECK gate, status counters, instanced capsule agents, LIBRARY drag-and-drop, staff-only connectors, file format v4 (D-095–D-110).
+> **v0.12:** round 005 built (unbuilt in sandbox): multi-level obstacles and walls with Fixed / Full storey heights, excluded levels (shaft "no stop"), stacked per-level switchbacks, devices and travelators placed with PLACE, calibrated image underlays, file format v3 (D-075–D-094).
+> **v0.11:** round 004 built (unbuilt in sandbox): connectors (straight/switchback stairs, escalator pairs, ramps) placed with CONNECT, linked auto openings, shafts spanning levels, Copy to Levels, CHECK rules, file format v2, demo vertical set. Remaining preset values answered (D-069–D-074).
 > **v0.10:** r003 confirmed building and running. Round 004 queries answered (D-053–D-067): connectors (straight + switchback stairs, escalator pairs, ramps) with linked auto openings, multi-level shafts, Copy to Levels, format v2, demo vertical set. Underlays, cores and library placement move to round 005.
 > **v0.9:** round 003 built: right panel tabs, hide/isolate, edge push/pull, 2 px lines + MSAA, packages pinned (D-045–D-052). Rest of M1 plus cross-level elements in round 004.
 > **v0.8:** round 002 built (unbuilt in sandbox): UI polish + M1 core editor (sketch tools, snapping, selection, grips, typed dims, Clipper2 walkable union). Decisions D-028–D-044. Rest of M1 in round 003.
@@ -185,6 +191,12 @@ Multiple queues to one node and one queue to multiple nodes are both supported v
 - Each emission rule references an **agent profile mix** (e.g. 70% Commuter, 20% Tourist, 10% Mobility-impaired).
 - A **train/vehicle event** is a composite: arrival → unload batch → board window → departure. Modelled as a scheduled spawn+sink pair on one object.
 - Emission, absorption and availability rules are normally picked from **schedule templates** (§22.4) and then optionally edited.
+- **As built (round 006, D-096, D-099):** emission rules live on spawn zones (SELECTION ▸ EMISSION RULES): one
+  profile, a rate per minute, constant or Poisson spacing, and either the nearest sink (quickest route, a little noise,
+  never the zone itself) or weighted chosen sinks. Sinks absorb without limit. Round 007 part 2 (D-129) adds a rate
+  curve per rule: minutes from the run start → multiplier on the rate, straight lines between points, the last value
+  held after; presets Flat, AM peak, PM peak and Event surge fill in editable points. Timetables, batches and profile
+  mixes follow.
 
 ---
 
@@ -204,6 +216,22 @@ Multiple queues to one node and one queue to multiple nodes are both supported v
   - Agents render at correct height climbing the stair in 3D.
   - Bidirectional stairs get natural lane formation from the movement model; an optional "keep left/right" bias makes it tidier.
 - Escalator capacity is enforced at the entry portal (step-loading rate) rather than by physics.
+- **As built (round 004):** a `Connector` stores its bottom/top level, bottom landing centre, run angle, width,
+  direction, shape (straight / switchback, return side) and geometry values copied from its preset; the flights,
+  landings and footprint are derived by `ConnectorLayout` from the real level-to-level rise (D-054). Stairs:
+  0.17 m target riser (actual = rise ÷ round(rise ÷ 0.17)), 0.28 m going, max 18 risers per flight, landings as
+  long as the width (min 1.2 m) (D-057, D-069). Escalators: 30°, 1.2 m flats each end, pairs 0.6 m apart (D-071).
+  Ramps: 1:14 with a 1.2 m landing every 9 m (D-072). The upper level loses every part of the connector with
+  less than 2.2 m headroom, plus the clearance (default 0.3 m), except at the exit edge (D-055, D-065); the lower
+  level loses the footprint. Shafts (outline + base/top level) are cut from every level in between (D-056).
+- **Round 005:** switchback stairs and ramps spanning 2+ storeys default to **one circuit per level** (a stacked
+  core at the same landing, each circuit fitted to its storey, D-091–D-092); intermediate levels can be excluded
+  (no exit, still cut, D-093). Travelators are one-level belts placed with PLACE (D-090). Shafts can mark levels as
+  "no stop" for M4 lifts (D-087).
+- **Round 006:** connectors can be **staff only** (D-110): public agents never route on them (staff routes in M3).
+  Escalators carry people at the preset belt speed (0.5 m/s default), standers on the keep side and walkers on the
+  other, and meter entry at the preset throughput (100/min default). Up/down follows the unit; reversible units run
+  up until direction schedules arrive.
 
 ### 7.2 Lifts
 - **Lift bank** = one or more cars sharing hall-call buttons; each car has capacity (persons), speed (m/s), door open/close time, dwell per stop, served levels.
@@ -246,6 +274,16 @@ Steps may be **conditional** on a tag the agent carries (e.g. "has ticket" skips
 - **Local movement:** simplified **social force** (Helbing & Molnár 1995): attraction to the flow-field direction at desired speed, repulsion from nearby agents and walls, plus a mild tangential "sidestep" to break head-on deadlocks.
 - **Spatial hashing** for neighbour queries.
 - **Fixed timestep** (default 0.1 s sim time), decoupled from render rate. Sim speed ×0.5 to ×max (as fast as possible).
+- **As built (round 006):** `Throng.Sim.Nav` rasterises each level's net walkable floor and each connector piece to
+  0.25 m grids; piece joints and floor ends become portal segments and search links. Per served floor end a field on
+  its floor leads to it and a field over its connector leads off at it; per sink a field leads into it (reverse
+  Dijkstra, nominal seconds with stair, ramp and belt factors). A Bellman–Ford pass gives the remaining time from
+  every portal to every sink, per mobility class (step-free profiles skip stairs and escalators). Route choice
+  (D-100) picks the fastest option with decisiveness noise and per-profile stair corrections, at spawn and on
+  stepping onto a served level. `Throng.Sim.Engine` moves structure-of-arrays agents with social force
+  (A 2.1, B 0.3, anisotropy 0.35, walls 3 / 0.2), a keep-side push when meeting oncoming people (D-105), escalator
+  standers and walkers on the belt with a token-bucket entry cap (D-107), and the stuck rule (flag 30 s, remove
+  120 s, D-106). `SimRunner` runs it on its own thread with double-buffered snapshots.
 
 ### 8.4 Frustration and status
 A 0–1 frustration value that rises when:
@@ -349,7 +387,7 @@ Split view (2D + 3D side by side) supported. All views editable where practical;
 Select, move, rotate, scale, copy/paste, duplicate, array (linear), delete, undo/redo (unbounded command stack), group, lock, hide, measure, align. Property panel for the selected object(s) with multi-edit. Object browser tree (levels → regions → nodes → connectors). Library palette of preset devices (ticket machine, 4-lane gate line, security lane, lift bank, escalator pair…).
 
 ### 12.3 Run controls
-A **RUN** group in the toolbar, next to CHECK (D-024): PLAY/PAUSE, STEP, RESET and speed chips ×0.5 ×1 ×2 ×4 ×8 MAX; the status-bar clock ticks live. Later: jump to time, follow-agent camera, click agent for inspector (profile, current task, wait so far, frustration history). A bottom scrubber bar can join in M8 with replay.
+A **RUN** group in the toolbar, next to CHECK (D-024): PLAY/PAUSE, STEP, RESET and speed chips ×0.5 ×1 ×2 ×4 ×8 MAX; the status-bar clock ticks live. **As built (round 006):** PLAY checks and compiles the study first (errors block, D-106) and locks editing until RESET (D-097); the status bar shows speed, agents, emitted, arrived, mean journey and stuck (D-104); the STUDY tab's RUN section sets start time, end (fixed duration or until stopped), seed with RE-ROLL and keep side (D-103, D-105). Later: jump to time, follow-agent camera, click agent for inspector (profile, current task, wait so far, frustration history). A bottom scrubber bar can join in M8 with replay.
 
 ---
 
@@ -375,7 +413,7 @@ Zip archive:
 ```
 study.throng (zip)
 ├─ manifest.json        format version, app version, created/modified, seed, units
-├─ study.json           levels, regions, nodes, connectors, lifts, spawns, settings
+├─ study.json           levels, regions, connectors, shafts (format v2); nodes, lifts, spawns later; settings
 ├─ library.json         embedded copies of every template the study uses, including agent profiles (§22.6)
 ├─ underlays/           calibrated images (+ calibration json)
 ├─ results/ (optional)
@@ -387,7 +425,13 @@ study.throng (zip)
 ```
 
 - Every object has a stable GUID; references by ID.
-- **Format version** in the manifest + migration steps in `Throng.IO` so old files always open.
+- **v4 (round 006, D-099, D-105, D-110)** adds `emissionRules` on regions, `keepSide` in settings and `staffOnly`
+  on connectors; v3 files load with no rules, keep left and public connectors.
+- **v3 (round 005, D-086)** adds region spans and height modes, exclusions, per-level stairs, travelators,
+  `devices`, `underlays` and their images in `underlays/`.
+- **Format version** in the manifest + migration steps in `Throng.IO` so old files always open. v1 = levels and
+  regions; **v2 (round 004, D-064)** adds `connectors` and `shafts` (v1 files load with both empty). Builds that
+  only know v1 refuse v2 files with a "saved by a newer version" message.
 - Save writes to a temp file then swaps (no corruption on crash). Autosave + recovery.
 - Results can be stripped ("Save without results") to keep files small.
 
@@ -535,7 +579,7 @@ A compact two-to-three-level transit station that exercises every system:
 | **Street (0.0 m)** | Two street entrances (spawn/sink zones), taxi/bus stop (scheduled spawn), retail dwell zone, columns and kiosk obstacles |
 | **Concourse (−5.0 m)** | Ticket machines (×4, auto-crowd), staffed ticket counter (×2, shared serpentine queue), gate line (5 lanes + 1 wide accessible gate), info desk, seating wait zone, measurement zone across the gate line |
 | **Platform (−11.0 m)** | Island platform, two train-door spawn/sink zones on 6-minute alternating schedules (unload then board), platform-edge obstacle strip |
-| **Vertical** | Street ↔ concourse: wide stair + escalator pair. Concourse ↔ platform: stair, escalator pair (reversed AM/PM on schedule), one 2-stop accessible lift |
+| **Vertical** | Street ↔ concourse: 3.6 m stair + escalator pair. Concourse ↔ platform: tight 1.5 m switchback stair, escalator pair (AM/PM reversal arrives with schedules), and the shaft of a 2-stop accessible lift (car in M4). Openings are cut automatically (D-061) |
 
 - **Agent mix:** Commuter, Infrequent traveller, Luggage traveller, Mobility-impaired (lift-only), Staff.
 - **Default study:** 07:30–08:30 AM peak, seed fixed, warm-up 5 min.

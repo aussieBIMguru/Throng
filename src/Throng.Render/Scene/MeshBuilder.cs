@@ -127,6 +127,39 @@ public sealed class MeshBuilder
         }
     }
 
+    /// <summary>Adds one 3D triangle (triangle builders).</summary>
+    public void Triangle(Point3 a, Point3 b, Point3 c, ColorF color)
+    {
+        Vertex(a.X, a.Y, a.Z, color);
+        Vertex(b.X, b.Y, b.Z, color);
+        Vertex(c.X, c.Y, c.Z, color);
+    }
+
+    /// <summary>Adds a 3D quad as two triangles, corners in order around the edge (triangle builders).</summary>
+    public void Quad(Point3 a, Point3 b, Point3 c, Point3 d, ColorF color)
+    {
+        Triangle(a, b, c, color);
+        Triangle(a, c, d, color);
+    }
+
+    /// <summary>Adds a dashed line: <paramref name="dash"/> on, <paramref name="gap"/> off (line builders).</summary>
+    public void DashedLine(Point3 a, Point3 b, double dash, double gap, ColorF c)
+    {
+        Point3 d = b - a;
+        double length = d.Length;
+        if (length < 1e-9 || dash <= 0)
+        {
+            return;
+        }
+
+        Point3 unit = d * (1.0 / length);
+        for (double s = 0; s < length; s += dash + Math.Max(0, gap))
+        {
+            double e = Math.Min(length, s + dash);
+            Line(a + (unit * s), a + (unit * e), c);
+        }
+    }
+
     /// <summary>Adds a solid extruded polygon: sides plus top cap (triangle builders).</summary>
     public void Prism(IReadOnlyList<Point2> polygon, double z0, double z1, ColorF side, ColorF top)
     {

@@ -184,23 +184,29 @@ public static class BuiltInLibrary
             lib.Add(Init(new ConnectorTemplate
             {
                 Kind = ConnectorKind.Stair, WidthM = width, Direction = ConnectorDirection.Bidirectional, FlowPerMetrePerMin = 50,
-            }, $"connector.stair-{label}", $"Stair {width.ToString("0.0", CultureInfo.InvariantCulture)} m", cat, "#FB923C", "Bidirectional stair with a width-based flow limit."));
+            }, $"connector.stair-{label}", $"Stair {width.ToString("0.0", CultureInfo.InvariantCulture)} m", cat, "#FB923C", "Bidirectional stair with a width-based flow limit. 170 mm risers, 280 mm goings, 18 risers max per flight."));
         }
 
         lib.Add(Init(new ConnectorTemplate
         {
+            Kind = ConnectorKind.Stair, WidthM = 1.5, Direction = ConnectorDirection.Bidirectional, FlowPerMetrePerMin = 50,
+            Shape = ConnectorShape.Switchback, SwitchbackGapM = 0.2,
+        }, "connector.stair-switchback-1500", "Stair switchback 1.5 m", cat, "#FB923C", "Two 1.5 m runs joined by a half landing; the return run comes back alongside (Tab flips the side while placing)."));
+
+        lib.Add(Init(new ConnectorTemplate
+        {
             Kind = ConnectorKind.Escalator, WidthM = 1.0, Direction = ConnectorDirection.Up, BeltSpeedMps = 0.5, ThroughputPerMin = 100,
-        }, "connector.escalator-up", "Escalator (up)", cat, "#F97316", "1.0 m step escalator running up."));
+        }, "connector.escalator-up", "Escalator (up)", cat, "#F97316", "1.0 m step escalator running up. 30° incline, 1.2 m flat run-off each end."));
 
         lib.Add(Init(new ConnectorTemplate
         {
             Kind = ConnectorKind.Escalator, WidthM = 1.0, Direction = ConnectorDirection.Down, BeltSpeedMps = 0.5, ThroughputPerMin = 100,
-        }, "connector.escalator-down", "Escalator (down)", cat, "#F97316", "1.0 m step escalator running down."));
+        }, "connector.escalator-down", "Escalator (down)", cat, "#F97316", "1.0 m step escalator running down. 30° incline, 1.2 m flat run-off each end."));
 
         lib.Add(Init(new ConnectorTemplate
         {
             Kind = ConnectorKind.Escalator, WidthM = 1.0, Direction = ConnectorDirection.Reversible, BeltSpeedMps = 0.5, ThroughputPerMin = 100, IsPaired = true,
-        }, "connector.escalator-pair", "Escalator pair", cat, "#EA580C", "Linked up + down pair; direction can reverse on a schedule."));
+        }, "connector.escalator-pair", "Escalator pair", cat, "#EA580C", "Linked up + down pair, 0.6 m apart; each unit's direction can be flipped, and reversed on a schedule later."));
 
         lib.Add(Init(new ConnectorTemplate
         {
@@ -210,7 +216,7 @@ public static class BuiltInLibrary
         lib.Add(Init(new ConnectorTemplate
         {
             Kind = ConnectorKind.Ramp, WidthM = 1.8, Direction = ConnectorDirection.Bidirectional, Gradient = 1.0 / 14.0, FlowPerMetrePerMin = 60,
-        }, "connector.ramp-1-14", "Ramp 1:14", cat, "#FED7AA", "Accessible ramp; usable by every profile."));
+        }, "connector.ramp-1-14", "Ramp 1:14", cat, "#FED7AA", "Accessible ramp; usable by every profile. 1.2 m landing every 9 m of run."));
     }
 
     private static void AddLifts(TemplateLibrary lib)

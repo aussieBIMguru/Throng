@@ -31,7 +31,7 @@ public sealed partial class MainViewModel : ObservableObject
     private DateTime? _createdUtc;
     private LevelViewModel? _activeLevel;
     private ViewMode _viewMode = ViewMode.Orbit;
-    private string _ticker = "WELCOME TO THRONG ▸ DEMO LOADS THE INTERCHANGE STATION ▸ R, P, C, W DRAW IN PLAN VIEW";
+    private string _ticker = "WELCOME TO THRONG ▸ DEMO LOADS THE INTERCHANGE STATION ▸ R, P, C, W DRAW ▸ T PLACES STAIRS AND ESCALATORS, O DRAWS SHAFTS";
     private bool _rebuildingLevels;
 
     /// <summary>Creates the view model with a blank study.</summary>
@@ -41,14 +41,15 @@ public sealed partial class MainViewModel : ObservableObject
         _study = Study.CreateDefault();
         Library = new LibraryBrowserViewModel(BuiltInLibrary.Instance);
         InitialiseEditing();
+        InitialiseRun();
 
         NewCommand = new RelayCommand(New);
         NewFromDemoCommand = new RelayCommand(NewFromDemo);
         OpenCommand = new RelayCommand(Open);
         SaveCommand = new RelayCommand(() => Save());
         SaveAsCommand = new RelayCommand(() => SaveAs());
-        UndoCommand = new RelayCommand(Undo, () => _undo.CanUndo);
-        RedoCommand = new RelayCommand(Redo, () => _undo.CanRedo);
+        UndoCommand = new RelayCommand(Undo, () => _undo.CanUndo && !_isRunActive);
+        RedoCommand = new RelayCommand(Redo, () => _undo.CanRedo && !_isRunActive);
         PlanViewCommand = new RelayCommand(() => ViewMode = ViewMode.Plan);
         OrbitViewCommand = new RelayCommand(() => ViewMode = ViewMode.Orbit);
         ZoomExtentsCommand = new RelayCommand(() => ZoomExtentsRequested?.Invoke(this, EventArgs.Empty));
@@ -206,12 +207,12 @@ public sealed partial class MainViewModel : ObservableObject
         }
     }
 
-    /// <summary>Study clock display (start time until the engine lands in M2).</summary>
-    public string ClockText => SimClock.FormatTimeOfDay(_study.Settings.StartTimeOfDay);
+    /// <summary>Study clock: the run's time of day while running (D-104), otherwise the start time.</summary>
+    public string ClockText => RunClockText();
 
     /// <summary>Counts for the status bar.</summary>
     public string SummaryText =>
-        $"{_study.Levels.Count} levels · {_study.Regions.Count} regions · {_study.Library.Count} templates in study";
+        $"{_study.Levels.Count} levels · {_study.Regions.Count} regions · {_study.Connectors.Count} connectors · {_study.Shafts.Count} shafts · {_study.Devices.Count} devices · {_study.Underlays.Count} underlays · {_study.Library.Count} templates in study";
 
     /// <summary>File path or "not saved".</summary>
     public string FileText => _filePath ?? "Not saved yet";
@@ -299,7 +300,7 @@ public sealed partial class MainViewModel : ObservableObject
         int errors = findings.Count(f => f.Severity == ValidationSeverity.Error);
         int warnings = findings.Count(f => f.Severity == ValidationSeverity.Warning);
         LoadStudy(demo, null, null,
-            $"DEMO LOADED ▸ {demo.Levels.Count} levels, {demo.Regions.Count} regions, {demo.Library.Count} templates ▸ validation: {errors} errors, {warnings} warnings");
+            $"DEMO LOADED ▸ {demo.Levels.Count} levels, {demo.Regions.Count} regions, {demo.Connectors.Count} connectors, {demo.Shafts.Count} shafts, {demo.Devices.Count} devices, {demo.Library.Count} templates ▸ validation: {errors} errors, {warnings} warnings");
     }
 
     private void Open()
@@ -345,6 +346,12 @@ public sealed partial class MainViewModel : ObservableObject
 
     private void Undo()
     {
+        if (_isRunActive)
+        {
+            Ticker = "RUNNING ▸ RESET TO EDIT";
+            return;
+        }
+
         string? description = _undo.UndoDescription;
         if (_undo.Undo())
         {
@@ -354,6 +361,12 @@ public sealed partial class MainViewModel : ObservableObject
 
     private void Redo()
     {
+        if (_isRunActive)
+        {
+            Ticker = "RUNNING ▸ RESET TO EDIT";
+            return;
+        }
+
         string? description = _undo.RedoDescription;
         if (_undo.Redo())
         {
@@ -363,6 +376,7 @@ public sealed partial class MainViewModel : ObservableObject
 
     private void Validate()
     {
+        // The static rule set; PLAY adds the reachability checks (D-106).
         IReadOnlyList<ValidationMessage> findings = StudyValidator.Validate(_study);
         if (findings.Count == 0)
         {
@@ -387,6 +401,8 @@ public sealed partial class MainViewModel : ObservableObject
 
     private void LoadStudy(Study study, string? path, DateTime? createdUtc, string message)
     {
+        // A new study ends any run on the old one (D-097).
+        ResetRun();
         _study = study;
         _filePath = path;
         _createdUtc = createdUtc;
@@ -416,6 +432,9 @@ public sealed partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(StartTimeText));
         OnPropertyChanged(nameof(Seed));
         OnPropertyChanged(nameof(DurationMinutes));
+        OnPropertyChanged(nameof(EndCondition));
+        OnPropertyChanged(nameof(HasDuration));
+        OnPropertyChanged(nameof(KeepSide));
         OnPropertyChanged(nameof(ClockText));
         OnPropertyChanged(nameof(SummaryText));
         OnPropertyChanged(nameof(HudLevelText));
@@ -437,6 +456,7 @@ public sealed partial class MainViewModel : ObservableObject
     /// </summary>
     private void RefreshLevels()
     {
+        RefreshLevelOptions();
         IReadOnlyList<Level> ordered = _study.LevelsByElevation();
         Guid? activeId = _activeLevel?.Id;
 

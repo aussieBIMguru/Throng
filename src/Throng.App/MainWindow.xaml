@@ -17,8 +17,8 @@
         TextOptions.TextFormattingMode="Display">
 
     <!--
-        Window-wide shortcuts. Editing shortcuts (R/P/C/W/V tools, Ctrl+C/X/V/D/A, Del, Esc, Enter, Backspace)
-        are handled by the viewport when it has focus, so they never fire while typing in a field.
+        Window-wide shortcuts. Editing shortcuts (R/P/C/W/T/O/V tools, Ctrl+C/X/V/D/A, Ctrl+Shift+V, Del, Esc,
+        Enter, Backspace, Tab) are handled by the viewport when it has focus, so they never fire while typing in a field.
     -->
     <Window.InputBindings>
         <KeyBinding Key="N" Modifiers="Control" Command="{Binding NewCommand}" />
@@ -57,6 +57,7 @@
                 <MenuItem Header="_Copy" InputGestureText="Ctrl+C" Command="{Binding CopyCommand}" />
                 <MenuItem Header="_Paste in Place" InputGestureText="Ctrl+V" Command="{Binding PasteCommand}" />
                 <MenuItem Header="D_uplicate" InputGestureText="Ctrl+D" Command="{Binding DuplicateCommand}" />
+                <MenuItem Header="Copy to _Levels…" InputGestureText="Ctrl+Shift+V" Command="{Binding CopyToLevelsCommand}" />
                 <MenuItem Header="_Delete" InputGestureText="Del" Command="{Binding DeleteCommand}" />
                 <Separator />
                 <MenuItem Header="Select _All" InputGestureText="Ctrl+A" Command="{Binding SelectAllCommand}" />
@@ -78,6 +79,10 @@
                 <MenuItem Header="_Polygon" InputGestureText="P" Command="{Binding SetToolCommand}" CommandParameter="Polygon" />
                 <MenuItem Header="_Circle" InputGestureText="C" Command="{Binding SetToolCommand}" CommandParameter="Circle" />
                 <MenuItem Header="_Wall" InputGestureText="W" Command="{Binding SetToolCommand}" CommandParameter="Wall" />
+                <Separator />
+                <MenuItem Header="Co_nnect (stair, escalator, ramp)" InputGestureText="T" Command="{Binding SetToolCommand}" CommandParameter="Connect" />
+                <MenuItem Header="S_haft" InputGestureText="O" Command="{Binding SetToolCommand}" CommandParameter="Shaft" />
+                <MenuItem Header="Place _device / travelator" InputGestureText="D" Command="{Binding SetToolCommand}" CommandParameter="Place" />
             </MenuItem>
             <MenuItem Header="_Study">
                 <MenuItem Header="_Validate" InputGestureText="F7" Command="{Binding ValidateCommand}" />
@@ -135,12 +140,28 @@
                     <Button Style="{StaticResource ToolButton}" Tag="&#xE740;" Content="FIT" Command="{Binding ZoomExtentsCommand}" ToolTip="Zoom extents (Home)." />
                     <Border Style="{StaticResource ToolSeparator}" />
                     <Button Style="{StaticResource ToolButton}" Tag="&#xE73E;" Content="CHECK" Command="{Binding ValidateCommand}" ToolTip="Validate the study (F7). Catches irrational setups before your agents do." />
+                    <Border Style="{StaticResource ToolSeparator}" />
+
+                    <!-- RUN (D-097, D-104, D-106): PLAY checks and compiles first; editing is locked until RESET. -->
+                    <Button Style="{StaticResource ToolButton}" Tag="{Binding PlayGlyph}" Content="{Binding PlayText}" Command="{Binding PlayPauseCommand}"
+                            ToolTip="Run or pause the study. The first PLAY checks it and builds the navigation; editing is locked until RESET." />
+                    <Button Style="{StaticResource ToolButton}" Tag="&#xE893;" Content="STEP" Command="{Binding StepCommand}" ToolTip="Pause and advance one 0.1 s step." />
+                    <Button Style="{StaticResource ToolButton}" Tag="&#xE72C;" Content="RESET" Command="{Binding ResetRunCommand}" ToolTip="End the run, clear the agents and unlock editing." />
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="6,0,0,0">
+                        <ToggleButton Style="{StaticResource ChipToggle}" Content="×½" IsChecked="{Binding IsSpeedHalf, Mode=TwoWay}" ToolTip="Half real time." />
+                        <ToggleButton Style="{StaticResource ChipToggle}" Content="×1" IsChecked="{Binding IsSpeed1, Mode=TwoWay}" ToolTip="Real time." />
+                        <ToggleButton Style="{StaticResource ChipToggle}" Content="×2" IsChecked="{Binding IsSpeed2, Mode=TwoWay}" ToolTip="Twice real time." />
+                        <ToggleButton Style="{StaticResource ChipToggle}" Content="×4" IsChecked="{Binding IsSpeed4, Mode=TwoWay}" ToolTip="Four times real time." />
+                        <ToggleButton Style="{StaticResource ChipToggle}" Content="×8" IsChecked="{Binding IsSpeed8, Mode=TwoWay}" ToolTip="Eight times real time." />
+                        <ToggleButton Style="{StaticResource ChipToggle}" Content="MAX" IsChecked="{Binding IsSpeedMax, Mode=TwoWay}" ToolTip="As fast as the machine allows." />
+                    </StackPanel>
                 </StackPanel>
             </DockPanel>
         </Border>
 
         <!-- ===== Draw strip: tools, new-shape kind, snaps (plan view, D-026) ===== -->
-        <Border DockPanel.Dock="Top" Background="{StaticResource PanelAltBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1" Padding="8,4">
+        <Border DockPanel.Dock="Top" Background="{StaticResource PanelAltBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1" Padding="8,4"
+                IsEnabled="{Binding IsEditable}">
             <WrapPanel Orientation="Horizontal">
                 <TextBlock Text="DRAW" FontFamily="{DynamicResource RetroFont}" FontSize="16" Foreground="{StaticResource TextDimBrush}" VerticalAlignment="Center" Margin="0,0,6,0" />
                 <ToggleButton Style="{StaticResource ChipToggle}" Tag="&#xE8B3;" Content="SELECT" IsChecked="{Binding IsSelectTool, Mode=TwoWay}" ToolTip="Select, box-select, move and reshape (V)." />
@@ -148,6 +169,30 @@
                 <ToggleButton Style="{StaticResource ChipToggle}" Tag="&#xE70F;" Content="POLY" IsChecked="{Binding IsPolygonTool, Mode=TwoWay}" ToolTip="Polygon: click points; Enter, double-click or the first point closes (P)." />
                 <ToggleButton Style="{StaticResource ChipToggle}" Tag="&#xEA3A;" Content="CIRCLE" IsChecked="{Binding IsCircleTool, Mode=TwoWay}" ToolTip="Circle: centre then radius. Stored as a polygon within 50 mm of true (C)." />
                 <ToggleButton Style="{StaticResource ChipToggle}" Tag="&#xE76F;" Content="WALL" IsChecked="{Binding IsWallTool, Mode=TwoWay}" ToolTip="Wall: an open polyline with thickness. Enter or double-click finishes (W)." />
+                <ToggleButton Style="{StaticResource ChipToggle}" Tag="&#xE70E;" Content="CONNECT" IsChecked="{Binding IsConnectTool, Mode=TwoWay}"
+                              ToolTip="Stair, escalator or ramp to a level above: click the bottom landing, aim up the run, click. Tab flips a switchback (T)." />
+                <ToggleButton Style="{StaticResource ChipToggle}" Tag="&#xE80F;" Content="SHAFT" IsChecked="{Binding IsShaftTool, Mode=TwoWay}"
+                              ToolTip="Shaft, atrium or void through several levels: two corners or a drag. Set its base and top in SELECTION (O)." />
+
+                <ToggleButton Style="{StaticResource ChipToggle}" Tag="&#xE8B7;" Content="PLACE" IsChecked="{Binding IsPlaceTool, Mode=TwoWay}"
+                              ToolTip="Device or travelator from the library: click its position, aim the service side (travelator: the far end), click (D)." />
+
+                <!-- PLACE options (D-090). -->
+                <StackPanel Orientation="Horizontal" Visibility="{Binding IsPlaceTool, Converter={StaticResource BoolToVis}}">
+                    <TextBlock Text="PRESET" FontFamily="{DynamicResource RetroFont}" FontSize="16" Foreground="{StaticResource TextDimBrush}" VerticalAlignment="Center" Margin="10,0,6,0" />
+                    <ComboBox Width="190" VerticalAlignment="Center" ItemsSource="{Binding PlacePresetOptions}" DisplayMemberPath="Name"
+                              SelectedItem="{Binding SelectedPlacePreset, Mode=TwoWay}" ToolTip="Device or travelator preset. Double-clicking one in LIBRARY picks it too." />
+                </StackPanel>
+
+                <!-- CONNECT options: preset and target level (D-054). -->
+                <StackPanel Orientation="Horizontal" Visibility="{Binding IsConnectTool, Converter={StaticResource BoolToVis}}">
+                    <TextBlock Text="PRESET" FontFamily="{DynamicResource RetroFont}" FontSize="16" Foreground="{StaticResource TextDimBrush}" VerticalAlignment="Center" Margin="10,0,6,0" />
+                    <ComboBox Width="170" VerticalAlignment="Center" ItemsSource="{Binding ConnectPresetOptions}" DisplayMemberPath="Name"
+                              SelectedItem="{Binding SelectedConnectPreset, Mode=TwoWay}" ToolTip="Stair, escalator or ramp preset. Double-clicking one in LIBRARY ▸ VERTICAL picks it too." />
+                    <TextBlock Text="TO" FontFamily="{DynamicResource RetroFont}" FontSize="16" Foreground="{StaticResource TextDimBrush}" VerticalAlignment="Center" Margin="10,0,6,0" />
+                    <ComboBox Width="150" VerticalAlignment="Center" ItemsSource="{Binding ConnectTargetOptions}" DisplayMemberPath="Name" SelectedValuePath="Id"
+                              SelectedValue="{Binding ConnectTargetLevelId, Mode=TwoWay}" ToolTip="Level the connector arrives at. It starts on the active level, so pick a level above." />
+                </StackPanel>
 
                 <TextBlock Text="AS" FontFamily="{DynamicResource RetroFont}" FontSize="16" Foreground="{StaticResource TextDimBrush}" VerticalAlignment="Center" Margin="10,0,6,0" />
                 <ComboBox Width="104" VerticalAlignment="Center" ItemsSource="{Binding DrawKindOptions}" SelectedItem="{Binding DrawKind, Mode=TwoWay}"
@@ -171,7 +216,7 @@
                         FontFamily="{DynamicResource RetroFont}" FontSize="16" Foreground="{StaticResource OrangeBrush}"
                         BorderBrush="{StaticResource OrangeBrush}" Focusable="False" VerticalAlignment="Center"
                         Visibility="{Binding HasHiddenRegions, Converter={StaticResource BoolToVis}}"
-                        ToolTip="Show every temporarily hidden region again (Esc with nothing selected)." />
+                        ToolTip="Show everything temporarily hidden again (Esc with nothing selected)." />
             </WrapPanel>
         </Border>
 
@@ -182,14 +227,19 @@
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                     <TextBlock Text="▸ " FontFamily="{DynamicResource RetroFont}" FontSize="17" Foreground="{StaticResource YellowBrush}" />
                     <TextBlock Text="{Binding Ticker}" FontFamily="{DynamicResource RetroFont}" FontSize="17" Foreground="{StaticResource YellowBrush}" TextTrimming="CharacterEllipsis" />
                 </StackPanel>
-                <TextBlock Grid.Column="1" Margin="16,0" VerticalAlignment="Center" Text="{Binding SummaryText}" Style="{StaticResource DimDataText}" />
-                <Border Grid.Column="2" Background="#06090F" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Padding="10,1">
-                    <TextBlock Text="{Binding ClockText}" FontFamily="{DynamicResource RetroFont}" FontSize="20" Foreground="{StaticResource GreenBrush}" ToolTip="Study clock. Shows the start time until the simulation engine arrives (M2)." />
+                <TextBlock Grid.Column="1" Margin="16,0" VerticalAlignment="Center" Text="{Binding SummaryText}" Style="{StaticResource DimDataText}"
+                           Visibility="{Binding IsEditable, Converter={StaticResource BoolToVis}}" />
+                <TextBlock Grid.Column="2" Margin="16,0,12,0" VerticalAlignment="Center" Text="{Binding RunStatusText}" FontFamily="{DynamicResource RetroFont}" FontSize="17"
+                           Foreground="{StaticResource AccentBrush}" Visibility="{Binding IsRunActive, Converter={StaticResource BoolToVis}}"
+                           ToolTip="Speed · agents walking · emitted · arrived · mean journey time · stuck (no progress for 30 s; removed after 120 s)." />
+                <Border Grid.Column="3" Background="#06090F" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Padding="10,1">
+                    <TextBlock Text="{Binding ClockText}" FontFamily="{DynamicResource RetroFont}" FontSize="20" Foreground="{StaticResource GreenBrush}" ToolTip="Study clock: the run's time of day while running, otherwise the start time." />
                 </Border>
             </Grid>
         </Border>
@@ -266,19 +316,20 @@
                         </DataTemplate>
                     </ListBox.ItemTemplate>
                 </ListBox>
-                <ScrollViewer Grid.Row="5" VerticalScrollBarVisibility="Auto">
+                <ScrollViewer Grid.Row="5" VerticalScrollBarVisibility="Auto" IsEnabled="{Binding IsEditable}">
                     <StackPanel Margin="10,2,6,8">
                         <TextBlock Text="{Binding Library.EmptyText}" Style="{StaticResource DimText}" Margin="0,4,0,0"
                                    Visibility="{Binding Library.IsEmpty, Converter={StaticResource BoolToVis}}" />
                         <ItemsControl ItemsSource="{Binding Library.VisibleItems}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
-                                    <Grid Margin="0,3" Background="Transparent">
+                                    <Grid Margin="0,3" Background="Transparent" MouseLeftButtonDown="OnLibraryItemMouseDown" MouseMove="OnLibraryItemMouseMove">
                                         <Grid.ToolTip>
                                             <StackPanel MaxWidth="320">
                                                 <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
                                                 <TextBlock Text="{Binding Description}" TextWrapping="Wrap" Margin="0,4,0,0" />
                                                 <TextBlock Text="{Binding SourceText}" Foreground="{StaticResource TextDimBrush}" Margin="0,4,0,0" />
+                                                <TextBlock Text="Double-click a device, stair, escalator, ramp or travelator to place it, or drag it onto the plan." Foreground="{StaticResource TextDimBrush}" Margin="0,2,0,0" />
                                             </StackPanel>
                                         </Grid.ToolTip>
                                         <Grid.ColumnDefinitions>
@@ -321,7 +372,7 @@
                     </ListBox.ItemTemplate>
                 </ListBox>
 
-                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" IsEnabled="{Binding IsEditable}">
                     <Grid Margin="0,0,0,12">
 
                         <!-- SELECTION -->
@@ -339,9 +390,114 @@
                                         <TextBlock Style="{StaticResource FieldLabel}" Text="Speed factor (Slow zones)" />
                                         <TextBox Text="{Binding SpeedFactor, Mode=TwoWay}" />
                                     </StackPanel>
+
+                                    <!-- Emission rules on spawn zones (D-096, D-099) -->
+                                    <StackPanel Visibility="{Binding IsSpawn, Converter={StaticResource BoolToVis}}">
+                                        <TextBlock Style="{StaticResource PanelHeader}" Text="EMISSION RULES" Margin="0,14,0,2" />
+                                        <TextBlock Style="{StaticResource DimText}" TextWrapping="Wrap" Text="No rules yet: this zone emits no one. Add one to send people to a sink."
+                                                   Visibility="{Binding HasNoRules, Converter={StaticResource BoolToVis}}" />
+                                        <ItemsControl ItemsSource="{Binding EmissionRules}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Border Margin="0,6,0,0" Padding="8,4,8,8" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
+                                                        <StackPanel>
+                                                            <DockPanel>
+                                                                <Button DockPanel.Dock="Right" Content="REMOVE" Command="{Binding RemoveCommand}" Padding="6,0"
+                                                                        FontFamily="{DynamicResource RetroFont}" FontSize="14" ToolTip="Delete this rule." />
+                                                                <TextBlock Text="{Binding Header}" FontFamily="{DynamicResource RetroFont}" FontSize="16" Foreground="{StaticResource AccentBrush}" VerticalAlignment="Center" />
+                                                            </DockPanel>
+                                                            <TextBlock Style="{StaticResource FieldLabel}" Text="Profile" />
+                                                            <ComboBox ItemsSource="{Binding ProfileOptions}" DisplayMemberPath="Name" SelectedValuePath="Id" SelectedValue="{Binding ProfileId, Mode=TwoWay}" />
+                                                            <TextBlock Style="{StaticResource FieldLabel}" Text="People per minute" />
+                                                            <TextBox Text="{Binding RatePerMinute, Mode=TwoWay}" />
+                                                            <TextBlock Style="{StaticResource FieldLabel}" Text="Spacing" />
+                                                            <ComboBox ItemsSource="{Binding PatternOptions}" SelectedItem="{Binding Pattern, Mode=TwoWay}"
+                                                                      ToolTip="Constant: evenly spaced. Poisson: random arrivals at the same average rate." />
+                                                            <TextBlock Style="{StaticResource FieldLabel}" Text="Rate curve" />
+                                                            <ComboBox ItemsSource="{Binding CurveOptions}" SelectedItem="{Binding CurveName, Mode=TwoWay}"
+                                                                      ToolTip="Scales the rate over the run: minutes from the start → multiplier, straight lines between points. Pick a preset, then edit its points." />
+                                                            <TextBlock Style="{StaticResource DimText}" Text="{Binding CurveSummary}" TextWrapping="Wrap" Margin="0,2,0,0" />
+                                                            <StackPanel Visibility="{Binding HasCurve, Converter={StaticResource BoolToVis}}">
+                                                                <Border Margin="0,4,0,0" HorizontalAlignment="Left" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Padding="2">
+                                                                    <Polyline Points="{Binding CurveSparkline}" Stroke="{StaticResource AccentBrush}" StrokeThickness="1.5" Width="160" Height="28" />
+                                                                </Border>
+                                                                <Grid Margin="0,4,0,0">
+                                                                    <Grid.ColumnDefinitions>
+                                                                        <ColumnDefinition Width="*" />
+                                                                        <ColumnDefinition Width="*" />
+                                                                        <ColumnDefinition Width="Auto" />
+                                                                    </Grid.ColumnDefinitions>
+                                                                    <TextBlock Grid.Column="0" Style="{StaticResource DimText}" Text="Minute" />
+                                                                    <TextBlock Grid.Column="1" Style="{StaticResource DimText}" Text="× rate" Margin="4,0,0,0" />
+                                                                </Grid>
+                                                                <ItemsControl ItemsSource="{Binding CurvePoints}">
+                                                                    <ItemsControl.ItemTemplate>
+                                                                        <DataTemplate>
+                                                                            <Grid Margin="0,2">
+                                                                                <Grid.ColumnDefinitions>
+                                                                                    <ColumnDefinition Width="*" />
+                                                                                    <ColumnDefinition Width="*" />
+                                                                                    <ColumnDefinition Width="Auto" />
+                                                                                </Grid.ColumnDefinitions>
+                                                                                <TextBox Grid.Column="0" Text="{Binding Minute, Mode=TwoWay}" ToolTip="Minutes from the start of the run." />
+                                                                                <TextBox Grid.Column="1" Margin="4,0,0,0" Text="{Binding Multiplier, Mode=TwoWay}" ToolTip="Multiplier on the rule's rate (1 = as entered, 0 = no one)." />
+                                                                                <Button Grid.Column="2" Margin="4,0,0,0" Content="×" Command="{Binding RemoveCommand}" Padding="6,0" ToolTip="Remove this point." />
+                                                                            </Grid>
+                                                                        </DataTemplate>
+                                                                    </ItemsControl.ItemTemplate>
+                                                                </ItemsControl>
+                                                            </StackPanel>
+                                                            <Button Margin="0,4,0,0" HorizontalAlignment="Left" Content="ADD POINT" Command="{Binding AddPointCommand}"
+                                                                    FontFamily="{DynamicResource RetroFont}" FontSize="14" ToolTip="Add a curve point 10 minutes after the last, at the same multiplier." />
+                                                            <TextBlock Style="{StaticResource FieldLabel}" Text="Going to" />
+                                                            <ComboBox ItemsSource="{Binding ModeOptions}" SelectedItem="{Binding DestinationMode, Mode=TwoWay}"
+                                                                      ToolTip="NearestSink: the quickest sink (never this zone). ChosenSinks: the ticked sinks, picked by weight." />
+                                                            <StackPanel Visibility="{Binding IsChosenSinks, Converter={StaticResource BoolToVis}}">
+                                                                <TextBlock Style="{StaticResource FieldLabel}" Text="Sinks and weights" />
+                                                                <TextBlock Style="{StaticResource DimText}" Text="There are no other sink zones." Visibility="{Binding HasNoSinks, Converter={StaticResource BoolToVis}}" />
+                                                                <ItemsControl ItemsSource="{Binding Sinks}">
+                                                                    <ItemsControl.ItemTemplate>
+                                                                        <DataTemplate>
+                                                                            <DockPanel Margin="0,2">
+                                                                                <TextBox DockPanel.Dock="Right" Width="48" Text="{Binding Weight, Mode=TwoWay}" IsEnabled="{Binding IsOn}"
+                                                                                         ToolTip="Relative weight: 2 is picked twice as often as 1." />
+                                                                                <CheckBox Content="{Binding Name}" IsChecked="{Binding IsOn, Mode=TwoWay}" VerticalAlignment="Center" />
+                                                                            </DockPanel>
+                                                                        </DataTemplate>
+                                                                    </ItemsControl.ItemTemplate>
+                                                                </ItemsControl>
+                                                            </StackPanel>
+                                                        </StackPanel>
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                        <Button Margin="0,8,0,0" HorizontalAlignment="Left" Content="ADD RULE" Command="{Binding AddRuleCommand}"
+                                                FontFamily="{DynamicResource RetroFont}" FontSize="16"
+                                                ToolTip="Add a stream of people: 10 a minute, random arrivals, to the nearest sink." />
+                                    </StackPanel>
                                     <StackPanel Visibility="{Binding HasHeight, Converter={StaticResource BoolToVis}}">
-                                        <TextBlock Style="{StaticResource FieldLabel}" Text="Height (m)" />
-                                        <TextBox Text="{Binding HeightM, Mode=TwoWay}" />
+                                        <TextBlock Style="{StaticResource FieldLabel}" Text="Height" />
+                                        <ComboBox ItemsSource="{Binding HeightModeOptions}" SelectedItem="{Binding HeightMode, Mode=TwoWay}"
+                                                  ToolTip="Fixed: metres above each level's floor. FullStorey: floor to the next level's floor (D-077)." />
+                                        <StackPanel Visibility="{Binding IsFixedHeight, Converter={StaticResource BoolToVis}}">
+                                            <TextBlock Style="{StaticResource FieldLabel}" Text="Height (m)" />
+                                            <TextBox Text="{Binding HeightM, Mode=TwoWay}" />
+                                        </StackPanel>
+                                        <TextBlock Margin="0,4,0,0" Text="{Binding StoreyHeightText}" Style="{StaticResource DimDataText}" />
+                                        <TextBlock Style="{StaticResource FieldLabel}" Text="Top level" />
+                                        <ComboBox ItemsSource="{Binding TopLevelOptions}" DisplayMemberPath="Name" SelectedValuePath="Id" SelectedValue="{Binding TopLevelId, Mode=TwoWay}"
+                                                  ToolTip="Spans from this level up to the chosen one. Fixed heights repeat on each level; full storey runs floor to floor (D-079)." />
+                                        <StackPanel Visibility="{Binding HasLevelToggles, Converter={StaticResource BoolToVis}}">
+                                            <TextBlock Style="{StaticResource FieldLabel}" Text="On these levels" />
+                                            <ItemsControl ItemsSource="{Binding LevelToggles}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <CheckBox Content="{Binding Name}" IsChecked="{Binding IsOn, Mode=TwoWay}" Margin="0,2" />
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                        </StackPanel>
                                     </StackPanel>
                                     <StackPanel Visibility="{Binding IsWall, Converter={StaticResource BoolToVis}}">
                                         <TextBlock Style="{StaticResource FieldLabel}" Text="Thickness (m)" />
@@ -356,8 +512,138 @@
                                     </StackPanel>
                                 </StackPanel>
                             </Border>
+
+                            <!-- Connector (D-063) -->
+                            <Border Visibility="{Binding HasConnectorSelection, Converter={StaticResource BoolToVis}}">
+                                <StackPanel Margin="12,0" DataContext="{Binding SelectedConnector}">
+                                    <TextBlock Style="{StaticResource FieldLabel}" Text="Name" />
+                                    <TextBox Text="{Binding Name, Mode=TwoWay}" />
+                                    <TextBlock Style="{StaticResource FieldLabel}" Text="Preset" />
+                                    <TextBlock Text="{Binding PresetText}" Style="{StaticResource DataText}" />
+                                    <StackPanel Visibility="{Binding ChangesLevel, Converter={StaticResource BoolToVis}}">
+                                        <TextBlock Style="{StaticResource FieldLabel}" Text="Bottom level" />
+                                        <ComboBox ItemsSource="{Binding LevelOptions}" DisplayMemberPath="Name" SelectedValuePath="Id" SelectedValue="{Binding BottomLevelId, Mode=TwoWay}" />
+                                        <TextBlock Style="{StaticResource FieldLabel}" Text="Top level" />
+                                        <ComboBox ItemsSource="{Binding LevelOptions}" DisplayMemberPath="Name" SelectedValuePath="Id" SelectedValue="{Binding TopLevelId, Mode=TwoWay}" />
+                                    </StackPanel>
+                                    <StackPanel Visibility="{Binding IsTravelator, Converter={StaticResource BoolToVis}}">
+                                        <TextBlock Style="{StaticResource FieldLabel}" Text="Belt length (m)" />
+                                        <TextBox Text="{Binding RunLengthM, Mode=TwoWay}" />
+                                    </StackPanel>
+                                    <TextBlock Style="{StaticResource FieldLabel}" Text="Width (m)" />
+                                    <TextBox Text="{Binding WidthM, Mode=TwoWay}" />
+                                    <TextBlock Style="{StaticResource FieldLabel}" Text="Direction" />
+                                    <ComboBox ItemsSource="{Binding DirectionOptions}" SelectedItem="{Binding Direction, Mode=TwoWay}" />
+                                    <StackPanel Visibility="{Binding CanChangeShape, Converter={StaticResource BoolToVis}}">
+                                        <TextBlock Style="{StaticResource FieldLabel}" Text="Shape" />
+                                        <ComboBox ItemsSource="{Binding ShapeOptions}" SelectedItem="{Binding Shape, Mode=TwoWay}" />
+                                    </StackPanel>
+                                    <StackPanel Visibility="{Binding IsSwitchback, Converter={StaticResource BoolToVis}}">
+                                        <TextBlock Style="{StaticResource FieldLabel}" Text="Return run side (Tab flips)" />
+                                        <ComboBox ItemsSource="{Binding SideOptions}" SelectedItem="{Binding ReturnSide, Mode=TwoWay}" />
+                                        <TextBlock Style="{StaticResource FieldLabel}" Text="Gap between runs (m)" />
+                                        <TextBox Text="{Binding SwitchbackGapM, Mode=TwoWay}" />
+                                    </StackPanel>
+                                    <StackPanel Visibility="{Binding ShowsPerLevelOption, Converter={StaticResource BoolToVis}}">
+                                        <ToggleButton Style="{StaticResource SwitchToggle}" Margin="0,12,0,0" Content="One circuit per level" IsChecked="{Binding PerLevelCircuits, Mode=TwoWay}"
+                                                      ToolTip="On: a stacked stair core, one switchback per storey at the same spot. Off: one long run from bottom to top (D-091)." />
+                                        <StackPanel Visibility="{Binding HasExitToggles, Converter={StaticResource BoolToVis}}">
+                                            <TextBlock Style="{StaticResource FieldLabel}" Text="Exits at intermediate levels" />
+                                            <ItemsControl ItemsSource="{Binding ExitToggles}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <CheckBox Content="{Binding Name}" IsChecked="{Binding IsOn, Mode=TwoWay}" Margin="0,2" />
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                        </StackPanel>
+                                    </StackPanel>
+                                    <ToggleButton Style="{StaticResource SwitchToggle}" Margin="0,12,0,0" Content="Staff only" IsChecked="{Binding StaffOnly, Mode=TwoWay}"
+                                                  ToolTip="Public agents never use it; staff routes arrive in M3 (D-110)." />
+                                    <TextBlock Style="{StaticResource FieldLabel}" Text="Run angle (°)" />
+                                    <TextBox Text="{Binding AngleDeg, Mode=TwoWay}" />
+                                    <TextBlock Style="{StaticResource FieldLabel}" Text="Opening clearance (m)" />
+                                    <TextBox Text="{Binding ClearanceM, Mode=TwoWay}"
+                                             ToolTip="Extra floor cut around the linked opening on the upper level, for a balustrade (D-065)." />
+                                    <TextBlock Margin="0,8,0,0" Text="{Binding LayoutText}" Style="{StaticResource DataText}" TextWrapping="Wrap" />
+                                    <TextBlock Text="{Binding RiseText}" Style="{StaticResource DimDataText}" />
+                                    <TextBlock Margin="0,6,0,0" Text="{Binding PairText}" Style="{StaticResource DimText}" TextWrapping="Wrap" />
+                                </StackPanel>
+                            </Border>
+
+                            <!-- Shaft (D-056) -->
+                            <Border Visibility="{Binding HasShaftSelection, Converter={StaticResource BoolToVis}}">
+                                <StackPanel Margin="12,0" DataContext="{Binding SelectedShaft}">
+                                    <TextBlock Style="{StaticResource FieldLabel}" Text="Name" />
+                                    <TextBox Text="{Binding Name, Mode=TwoWay}" />
+                                    <TextBlock Style="{StaticResource FieldLabel}" Text="Base level" />
+                                    <ComboBox ItemsSource="{Binding LevelOptions}" DisplayMemberPath="Name" SelectedValuePath="Id" SelectedValue="{Binding BaseLevelId, Mode=TwoWay}" />
+                                    <TextBlock Style="{StaticResource FieldLabel}" Text="Top level" />
+                                    <ComboBox ItemsSource="{Binding LevelOptions}" DisplayMemberPath="Name" SelectedValuePath="Id" SelectedValue="{Binding TopLevelId, Mode=TwoWay}" />
+                                    <TextBlock Style="{StaticResource FieldLabel}" Text="Tag (e.g. Lift, Atrium)" />
+                                    <TextBox Text="{Binding Tag, Mode=TwoWay}" />
+                                    <StackPanel Visibility="{Binding HasStopToggles, Converter={StaticResource BoolToVis}}">
+                                        <TextBlock Style="{StaticResource FieldLabel}" Text="Lift stops here" />
+                                        <ItemsControl ItemsSource="{Binding StopToggles}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <CheckBox Content="{Binding Name}" IsChecked="{Binding IsOn, Mode=TwoWay}" Margin="0,2" />
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </StackPanel>
+                                    <TextBlock Margin="0,8,0,0" Text="{Binding SizeText}" Style="{StaticResource DataText}" />
+                                    <TextBlock Margin="0,6,0,0" Style="{StaticResource DimText}" TextWrapping="Wrap"
+                                               Text="Cut from the walkable area of every level from base to top, including levels with no stop. Grips and edge arrows reshape it on any of those levels." />
+                                </StackPanel>
+                            </Border>
+
+                            <!-- Device (D-089) -->
+                            <Border Visibility="{Binding HasDeviceSelection, Converter={StaticResource BoolToVis}}">
+                                <StackPanel Margin="12,0" DataContext="{Binding SelectedDevice}">
+                                    <TextBlock Style="{StaticResource FieldLabel}" Text="Name" />
+                                    <TextBox Text="{Binding Name, Mode=TwoWay}" />
+                                    <TextBlock Style="{StaticResource FieldLabel}" Text="Preset" />
+                                    <TextBlock Text="{Binding PresetText}" Style="{StaticResource DataText}" TextWrapping="Wrap" />
+                                    <TextBlock Style="{StaticResource FieldLabel}" Text="Width (m)" />
+                                    <TextBox Text="{Binding WidthM, Mode=TwoWay}" />
+                                    <TextBlock Style="{StaticResource FieldLabel}" Text="Depth (m)" />
+                                    <TextBox Text="{Binding DepthM, Mode=TwoWay}" />
+                                    <TextBlock Style="{StaticResource FieldLabel}" Text="Lanes / servers" />
+                                    <TextBox Text="{Binding Lanes, Mode=TwoWay}" />
+                                    <TextBlock Style="{StaticResource FieldLabel}" Text="Service side faces (°)" />
+                                    <TextBox Text="{Binding AngleDeg, Mode=TwoWay}" />
+                                    <TextBlock Style="{StaticResource FieldLabel}" Text="Height (m)" />
+                                    <TextBox Text="{Binding HeightM, Mode=TwoWay}" />
+                                    <TextBlock Margin="0,8,0,0" Text="{Binding FlowText}" Style="{StaticResource DimText}" TextWrapping="Wrap" />
+                                    <TextBlock Margin="0,6,0,0" Style="{StaticResource DimText}" TextWrapping="Wrap"
+                                               Text="Queues and service behaviour arrive in M3; placement and footprints are kept as they are." />
+                                </StackPanel>
+                            </Border>
+
+                            <!-- Underlay (D-083–D-085) -->
+                            <Border Visibility="{Binding HasUnderlaySelection, Converter={StaticResource BoolToVis}}">
+                                <StackPanel Margin="12,0" DataContext="{Binding SelectedUnderlay}">
+                                    <TextBlock Style="{StaticResource FieldLabel}" Text="Name" />
+                                    <TextBox Text="{Binding Name, Mode=TwoWay}" />
+                                    <Button Margin="0,10,0,0" Content="SET SCALE" Command="{Binding SetScaleCommand}" FontFamily="{DynamicResource RetroFont}" FontSize="16"
+                                            ToolTip="Click two points on the image a known distance apart, then type that distance (D-084)." />
+                                    <TextBlock Style="{StaticResource FieldLabel}" Text="Width (m)" />
+                                    <TextBox Text="{Binding WidthM, Mode=TwoWay}" />
+                                    <TextBlock Style="{StaticResource FieldLabel}" Text="Rotation (°)" />
+                                    <TextBox Text="{Binding AngleDeg, Mode=TwoWay}" />
+                                    <TextBlock Style="{StaticResource FieldLabel}" Text="Opacity (0–1)" />
+                                    <TextBox Text="{Binding Opacity, Mode=TwoWay}" />
+                                    <ToggleButton Style="{StaticResource SwitchToggle}" Margin="0,12,0,0" Content="Locked" IsChecked="{Binding IsLocked, Mode=TwoWay}"
+                                                  ToolTip="Locked underlays can't be picked, moved or rotated, so you can draw over them." />
+                                    <TextBlock Margin="0,8,0,0" Text="{Binding ScaleText}" Style="{StaticResource DimDataText}" TextWrapping="Wrap" />
+                                    <TextBlock Margin="0,6,0,0" Style="{StaticResource DimText}" TextWrapping="Wrap"
+                                               Text="Drag to move, round grip to rotate. Lock it once it lines up. Plan view only." />
+                                </StackPanel>
+                            </Border>
+
                             <TextBlock Margin="12,14,12,0" Style="{StaticResource DimText}"
-                                       Text="H hides the selection, I isolates it; Esc with nothing selected shows everything again. Hiding is view-only." />
+                                       Text="H hides the selection, I isolates it; Esc with nothing selected shows everything again. Hiding is view-only. Ctrl+Shift+V copies the selection to other levels." />
                         </StackPanel>
 
                         <!-- LEVEL (visibility is the eye on each level row, D-050) -->
@@ -375,6 +661,32 @@
                             </StackPanel>
                             <TextBlock Margin="12,4,12,0" Style="{StaticResource DataText}" Foreground="{StaticResource GreenBrush}" Text="{Binding WalkableAreaText}"
                                        ToolTip="Union of walkable regions minus obstacles and walls; drawn as the green outline in plan." />
+
+                            <!-- Underlays on this level (D-085) -->
+                            <TextBlock Style="{StaticResource PanelHeader}" Text="UNDERLAYS" Margin="12,16,12,4" />
+                            <ItemsControl Margin="12,0" ItemsSource="{Binding UnderlayRows}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid Margin="0,2">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <ToggleButton Style="{StaticResource EyeToggle}" IsChecked="{Binding IsVisible, Mode=TwoWay}" VerticalAlignment="Center" />
+                                            <ToggleButton Grid.Column="1" Style="{StaticResource LockToggle}" IsChecked="{Binding IsLocked, Mode=TwoWay}" VerticalAlignment="Center" Margin="2,0,0,0" />
+                                            <Button Grid.Column="2" Margin="8,0,0,0" Padding="6,1" HorizontalContentAlignment="Left" Content="{Binding Name}" Command="{Binding SelectCommand}"
+                                                    ToolTip="Select it (unlock it first if it's locked)." />
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <TextBlock Margin="12,2,12,0" Style="{StaticResource DimText}" Text="No underlays on this level."
+                                       Visibility="{Binding HasNoUnderlays, Converter={StaticResource BoolToVis}}" />
+                            <Button Margin="12,8,12,0" HorizontalAlignment="Left" Content="ADD IMAGE…" Command="{Binding AddUnderlayCommand}"
+                                    FontFamily="{DynamicResource RetroFont}" FontSize="16"
+                                    ToolTip="Add a PNG or JPEG plan to this level. It's stored inside the .throng file." />
+
                             <TextBlock Margin="12,14,12,0" Style="{StaticResource DimText}"
                                        Text="Show or hide a level with the eye on its row in LEVELS." />
                         </StackPanel>
@@ -384,12 +696,27 @@
                             <StackPanel Margin="12,0">
                                 <TextBlock Style="{StaticResource FieldLabel}" Text="Name" />
                                 <TextBox Text="{Binding StudyName, Mode=TwoWay}" />
+
+                                <!-- RUN (D-103, D-105) -->
+                                <TextBlock Style="{StaticResource PanelHeader}" Text="RUN" Margin="0,14,0,0" />
                                 <TextBlock Style="{StaticResource FieldLabel}" Text="Start time (24 h)" />
                                 <TextBox Text="{Binding StartTimeText, Mode=TwoWay}" />
-                                <TextBlock Style="{StaticResource FieldLabel}" Text="Duration (minutes)" />
-                                <TextBox Text="{Binding DurationMinutes, Mode=TwoWay}" />
+                                <TextBlock Style="{StaticResource FieldLabel}" Text="End" />
+                                <ComboBox ItemsSource="{Binding EndConditionOptions}" SelectedItem="{Binding EndCondition, Mode=TwoWay}"
+                                          ToolTip="FixedDuration: pause at the end of the duration. Indefinite: run until you pause or reset." />
+                                <StackPanel Visibility="{Binding HasDuration, Converter={StaticResource BoolToVis}}">
+                                    <TextBlock Style="{StaticResource FieldLabel}" Text="Duration (minutes)" />
+                                    <TextBox Text="{Binding DurationMinutes, Mode=TwoWay}" />
+                                </StackPanel>
                                 <TextBlock Style="{StaticResource FieldLabel}" Text="Random seed" />
-                                <TextBox Text="{Binding Seed, Mode=TwoWay}" />
+                                <DockPanel>
+                                    <Button DockPanel.Dock="Right" Margin="6,0,0,0" Padding="6,0" Content="RE-ROLL" Command="{Binding ReRollSeedCommand}"
+                                            FontFamily="{DynamicResource RetroFont}" FontSize="15" ToolTip="Pick a new random seed: same study, a different crowd." />
+                                    <TextBox Text="{Binding Seed, Mode=TwoWay}" ToolTip="Same file + same seed = the same run." />
+                                </DockPanel>
+                                <TextBlock Style="{StaticResource FieldLabel}" Text="Keep side" />
+                                <ComboBox ItemsSource="{Binding KeepSideOptions}" SelectedItem="{Binding KeepSide, Mode=TwoWay}"
+                                          ToolTip="Which side people drift to when meeting oncoming flows. Escalators: stand on this side, walk on the other." />
                                 <TextBlock Style="{StaticResource FieldLabel}" Text="File" />
                                 <TextBlock Text="{Binding FileText}" Style="{StaticResource DimDataText}" TextWrapping="Wrap" />
                             </StackPanel>

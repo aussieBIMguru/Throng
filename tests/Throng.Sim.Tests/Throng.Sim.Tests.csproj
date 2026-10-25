@@ -19,6 +19,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Throng.Sim\Throng.Sim.csproj" />
     <ProjectReference Include="..\..\src\Throng.Analysis\Throng.Analysis.csproj" />
+    <ProjectReference Include="..\..\src\Throng.IO\Throng.IO.csproj" />
   </ItemGroup>
 
 </Project>

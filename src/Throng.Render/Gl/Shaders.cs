@@ -93,6 +93,34 @@ internal static class Shaders
         }
         """;
 
+    /// <summary>Textured quads for plan underlays (D-085): position + UV, global alpha.</summary>
+    public const string TexturedVertex = """
+        #version 330 core
+        layout(location = 0) in vec3 aPosition;
+        layout(location = 1) in vec2 aUv;
+        uniform mat4 uViewProjection;
+        out vec2 vUv;
+        void main()
+        {
+            vUv = aUv;
+            gl_Position = uViewProjection * vec4(aPosition, 1.0);
+        }
+        """;
+
+    /// <summary>Samples the underlay texture with the underlay's opacity.</summary>
+    public const string TexturedFragment = """
+        #version 330 core
+        in vec2 vUv;
+        uniform sampler2D uTexture;
+        uniform float uAlpha;
+        out vec4 FragColor;
+        void main()
+        {
+            vec4 c = texture(uTexture, vUv);
+            FragColor = vec4(c.rgb, c.a * uAlpha);
+        }
+        """;
+
     /// <summary>Flat colour for the geometry-shader output.</summary>
     public const string LineFragment = """
         #version 330 core
@@ -101,6 +129,64 @@ internal static class Shaders
         void main()
         {
             FragColor = gColor;
+        }
+        """;
+
+    /// <summary>
+    /// Instanced agents (D-102): a unit capsule mesh (per vertex: position, shade, part) placed per instance by
+    /// position + heading, coloured by profile and scaled by radius and height. Part 3 is the stuck ring (D-106),
+    /// kept at floor height and blinking while the stuck flag is set.
+    /// </summary>
+    public const string AgentVertex = """
+        #version 330 core
+        layout(location = 0) in vec3 aPosition;
+        layout(location = 1) in float aShade;
+        layout(location = 2) in float aPart;
+        layout(location = 3) in vec4 iPosHeading;
+        layout(location = 4) in vec3 iColor;
+        layout(location = 5) in vec3 iSize;
+        uniform mat4 uViewProjection;
+        uniform float uTime;
+        out vec4 vColor;
+        void main()
+        {
+            float c = cos(iPosHeading.w);
+            float s = sin(iPosHeading.w);
+            vec2 local = aPosition.xy * iSize.x;
+            vec2 rotated = vec2(local.x * c - local.y * s, local.x * s + local.y * c);
+            float z = aPart > 2.5 ? aPosition.z : aPosition.z * iSize.y;
+            vec3 world = vec3(iPosHeading.xy + rotated, iPosHeading.z + z);
+
+            vec3 rgb = iColor * aShade;
+            float alpha = 1.0;
+            if (aPart > 2.5)
+            {
+                rgb = vec3(1.0, 0.25, 0.2);
+                alpha = iSize.z * (0.55 + 0.45 * sin(uTime * 6.0));
+            }
+            else if (aPart > 1.5)
+            {
+                rgb = mix(iColor, vec3(1.0), 0.6) * aShade;
+            }
+
+            vColor = vec4(rgb, alpha);
+            gl_Position = uViewProjection * vec4(world, 1.0);
+        }
+        """;
+
+    /// <summary>Agent fragments; fully transparent ones (the ring when not stuck) are discarded so they write no depth.</summary>
+    public const string AgentFragment = """
+        #version 330 core
+        in vec4 vColor;
+        out vec4 FragColor;
+        void main()
+        {
+            if (vColor.a < 0.01)
+            {
+                discard;
+            }
+
+            FragColor = vColor;
         }
         """;
 }

@@ -1,10 +1,19 @@
 # Throng — Handover to the next chat
 
-**Written:** 2026-10-24, after round 003 (built and run by Gavin with no issues) and the round 004 Query phase.
-**Brief:** v0.10. **Decisions:** D-001–D-068.
-**Start here:** read `ai/PROTOCOL.md` (base protocol: queries first, then build), this file, `ai/BRIEF.md`,
-`ai/DECISIONS.md`, then `ai/rounds/round-004.md`. That file holds the answered queries and the build scope; the
-next step is Gavin's go-ahead, then the build.
+**Written:** 2026-10-25, round 007 part 2 (r007o). **Brief:** v0.16. **Decisions:** D-001–D-137.
+**State:** r007j ran on Gavin's machine (escalators good, wide stairs choked; diagnostics not pasted). r007k adds counterflow-gated stair lanes (D-132) and
+higher escalator weighting (D-133: boarding-rate seed 0.8 × cap, stalled stair queues count in stair waits).
+r007l (D-134) adds lanes on stair landings (1.5×) and a 6 m approach lane. r007m (D-135) adds a landing squeeze (30% push same-way on landings). r007n (D-136) adds a stall escape; r007o (D-137) carries people 0.6 m into a landing before turning (Gavin's diagnosis of the corner stall). r007k–o unbuilt; 177 tests expected.
+**Start here:** `ai/PROTOCOL.md`, this file, then the end of `ai/rounds/round-007.md` (r007j, r007k).
+BRIEF and DECISIONS only as needed.
+**Next:** check r007k's diagnostics: saturated pair all on above 56% (else revert D-131 to 0.3 / 1.5 m); STAIR run
+all on vs "no counterflow gate"; wide-stair test result. Then the Query phase for vehicle timetables and batches,
+profile mixes, train door flows and the demo end to end.
+**Tuning loop that works (use it, don't guess):** `Throng.Sim.Tests/Round007Tests.Diagnostics_Round007Rules` runs
+the demo and an escalator pair with each `SimTuning` switch off in turn and prints arrived / stuck / where. Ask Gavin
+to paste its output, change what it points at, add a switch for any new rule.
+**Quota:** Gavin's daily quota is tight. Read only files a change touches, no Python replicas unless asked,
+targeted doc edits, sync docs to the project with `project_write` from `local_path`.
 
 ---
 
@@ -26,7 +35,7 @@ was decided on the zipped project. Summary:
 - Every round updates, at minimum:
   - `ai/rounds/round-NNN.md`: what changed, how to test (numbered checklist), known limitations, watch list, open questions, next.
   - `ai/BRIEF.md`: kept current, version bumped, change line at the top.
-  - `ai/DECISIONS.md`: append numbered decisions (D-069 onwards) with a "why".
+  - `ai/DECISIONS.md`: append numbered decisions (D-095 onwards) with a "why".
   - `README.md` and `THIRD-PARTY-NOTICES.md` when relevant.
 - **Gavin builds and tests in his own Visual Studio** and reports errors back; fix them in the next round.
 - Before handing back he runs **`clean.bat`** (repo root) to strip bin/obj/TestResults. Zips you produce should also
@@ -47,34 +56,29 @@ was decided on the zipped project. Summary:
   `%LocalAppData%\Throng\Logs\throng.log`.
 - Every model edit goes through the undo stack (`MainViewModel.Apply<T>` → `PropertyChangeAction<T>`).
 
-## 4. Current state (end of round 003)
+## 4. Current state (end of round 006, unbuilt)
 
-**r003 compiles, runs and passes in Gavin's Visual Studio.** It has M0, the M1 core editor and the round 003 polish:
+Round 006 adds the **M2 movement core** on top of r005 (which builds and runs):
 
-- 6 projects + 3 MSTest projects (85 test methods). Dependency direction `App → Render/Analysis/IO → Sim → Core`.
-  Core references Clipper2 (D-044).
-- **Packages pinned (D-028):** Clipper2 1.5.4, CommunityToolkit.Mvvm 8.4.2, OpenTK.GLWpfControl 4.3.6,
-  OpenTK.Graphics 4.9.4. Test packages still float. `THIRD-PARTY-NOTICES.md` lists every shipped package; the
-  copyright lines marked *(verify)* still need copying from each package's licence file.
-- **Viewport:** OpenGL 3.3 via GLWpfControl, Plan (F2) / 3D orbit (F3), 2 px lines from a geometry shader with 4× MSAA
-  (`Samples = 4` works on 4.3.6). The green outline is the net walkable area (Clipper2 union minus obstacles/walls).
-- **Editor (plan only, D-026):** `src/Throng.App/Editing/PlanEditor.cs` (state machine) and `EditorOverlay.cs`
-  (WPF immediate-mode overlay):
-  - tools: rect, polygon, circle and wall;
-  - snaps: grid, endpoint, midpoint and ortho, with Shift forcing ortho;
-  - typed dimensions;
-  - selection: window/crossing and hover;
-  - move, vertex grips, midpoint insert, and edge push/pull arrows (`Core/Geometry/EdgePushPull.cs`);
-  - clipboard: Ctrl+C/X/V/D/A and Del;
-  - H/I hide/isolate (view-only) and locked levels.
-  All model edits go through `MainViewModel.Execute`/`Apply` (undoable).
-- **UI:**
-  - Themed throughout: no stock controls, `ThrongDialog` replaces MessageBox, keyboard-only focus outline.
-  - Left panel: LEVELS rows with eye/padlock toggles, and LIBRARY tabs with cross-category search.
-  - Right panel: SELECTION / LEVEL / STUDY tabs, auto-switching to SELECTION.
-  - A DRAW strip under the toolbar.
-- `.throng` file format v1 (manifest/study/library JSON). Round 004 bumps it to v2 (D-064).
-- Demo "Interchange Station": 3 levels, voids hand-drawn as obstacles tagged "Void" (replaced in round 004, D-061).
+- **Core:** `EmissionRule`/`SinkWeight` on `Region.EmissionRules`; `StudySettings.KeepSide`; `Connector.StaffOnly`
+  (D-110); `World/ConnectorPortals` (piece edges, joints, floor ends, one-way rules); `WorldCompiler` emits portals;
+  `Library/StudyTemplates` (profile and preset lookup); demand rules in `StudyValidator`.
+- **IO:** format **v4** (`UpgradeV3ToV4`); demo emission rules (D-109) and a staff-only back-of-house stair.
+- **Sim:** `Nav/` (grids, raster, builder, costs, Dijkstra fields, portal graph, route planner), `Engine/` (SoA agents,
+  spatial hash, social force engine, stats), `SimSetup`, `SimModel`, `SimRunner` (own thread, snapshots).
+- **Render:** `Gl/GpuAgents` + agent shaders; `SceneRenderer.SetAgents`.
+- **App:** `ViewModels/MainViewModel.Run.cs` (RUN group, edit lock, CHECK gate, status, STUDY ▸ RUN),
+  `ViewModels/EmissionRuleViewModels.cs`, `PlanEditor.IsLocked` / `DropAt`, viewport `AgentFeed` + drop target,
+  LIBRARY drag start in `MainWindow.xaml.cs`.
+- **Tests:** 163 methods (136 in r005). Throng.Sim.Tests now references Throng.IO (for the demo).
+- Packages unchanged (no new dependencies).
+
+r005 state, still true: spanning regions (`Region.TopLevelId`, `HeightMode`, `ExcludedLevelIds`), shaft "no stop"
+levels, per-level stair circuits, devices and travelators (PLACE), underlays, format v3 features.
+r004: connectors and shafts, `ConnectorLayout`, `VerticalCuts`, `WalkableArea`, connector symbols, CHECK rules.
+r003: 6 projects + 3 MSTest projects; `App → Render/Analysis/IO → Sim → Core`; Core references Clipper2 (D-044);
+packages pinned (D-028); OpenGL 3.3 via GLWpfControl with 4× MSAA; themed UI; LEVELS + LIBRARY left, SELECTION /
+LEVEL / STUDY right.
 
 ## 5. Lessons learned (avoid repeating)
 
@@ -90,21 +94,24 @@ was decided on the zipped project. Summary:
   subject + clip overload with an empty clip (`ClipperPolygonOps.UnionD`). `Difference`, `Intersect` and
   `InflatePaths` take `precision` as written.
 - Use `CultureInfo.InvariantCulture` for any formatted number that ends up in names, files or tests.
+- Rounds 004 and 005 compiled first time from static review. Keep doing: read every file you touch, keep edits
+  in one place per concern, run a brace/XAML well-formedness check before zipping.
+- Avoid `[]` collection expressions for `Dictionary<,>` (use `new()`); keep `.cs`/`.xaml` files CRLF.
+- Count carefully in tests: N levels = N − 1 storeys (circuits, rises).
+- Flow-field gradients at a grid edge need extrapolation, or agents stall at piece joints (fixed in r006 review).
+- `EmissionRule` is an immutable record: never assign its init-only properties outside an initializer; use `with`.
 
-## 6. Next: round 004 (Query done → build on go-ahead)
+## 6. Next: round 007
 
-Scope and every answer: `ai/rounds/round-004.md` (D-053–D-067). In short:
-- Connectors: stairs (straight with auto mid-landing, plus switchback), escalators (linked pairs) and ramps. Placed by
-  click + aim with auto run length, linked auto openings with 0.3 m clearance, orange plan symbols cut at mid-rise,
-  and true sloped 3D.
-- Shafts spanning base → top level. Copy to Levels… dialog. Validation additions. File format v2 with a migration.
-- The demo gains its full vertical set and a lift shaft.
+1. Done in round 007 part 1 (D-112–D-126): escalator ends, deferral, one-way stairs, floors hide agents, dead-end
+   walls, stair lanes, closed footprint gaps, rule switches + diagnostics.
+2. Round 007 part 2 r007i (D-127–D-130): comb spacing at metered belts, rate curves (`Core/Model/RateCurves.cs`,
+   rule editor in SELECTION), format v5.
+3. Then: tuning from diagnostics, vehicle timetables and batches, profile mixes, train door flows, demo end to end. Round 005's parked questions
+   stay parked until after M2 (D-108).
 
-Round 005 (D-053): image underlays (two-point calibration, D-009), columns/cores spanning levels, and library
-placement of devices.
-
-Gavin also wants to **see people riding a 3D lift car** (planned in M4, BRIEF §7.2) and a **1- or 2-door entry/exit
-typology per served level** (D-068, M4). Keep shafts lift-ready.
+Gavin also wants to **see people riding a 3D lift car** (M4, BRIEF §7.2) with a **1- or 2-door typology per
+served level** (D-068). Shafts already carry "no stop" levels (D-087) for that.
 
 ## 7. File map (where things live)
 
@@ -112,19 +119,28 @@ typology per served level** (D-068, M4). Keep shafts lift-ready.
 |---|---|
 | Model, geometry, library, undo, validation, world | `src/Throng.Core/{Model,Geometry,Library,Editing,Validation,World}` |
 | Built-in templates | `src/Throng.Core/Library/BuiltInLibrary.cs` |
+| Rate curves | `Core/Model/{EmissionRule,RateCurves}.cs`, `App/ViewModels/EmissionRuleViewModels.cs`, `SimEngine.CountArrivals` |
 | File format, demo | `src/Throng.IO/ThrongFile.cs`, `DemoStudyBuilder.cs`, `FormatMigrations.cs` |
 | Renderer, cameras, scene | `src/Throng.Render/{Gl,Cameras,Scene}` |
 | Theme | `src/Throng.App/Themes/Theme.xaml` |
 | Main window / VM | `src/Throng.App/MainWindow.xaml`, `ViewModels/MainViewModel.cs` |
 | Viewport host + navigation | `src/Throng.App/Views/ViewportView.xaml(.cs)` |
 | Logging, paths, font, dialogs | `src/Throng.App/Services/`, `Views/ThrongDialog.xaml` |
-| Plan editor + overlay | `src/Throng.App/Editing/`; Core editing helpers in `src/Throng.Core/Editing/` |
+| Plan editor + overlay | `src/Throng.App/Editing/` (`PlanEditor.cs`, `PlanEditor.Vertical.cs`, `EditorOverlay.cs`); Core editing helpers in `src/Throng.Core/Editing/` |
+| Connectors and shafts | `Core/Model/{Connector,Shaft}.cs`, `Core/Geometry/ConnectorLayout.cs`, `Core/World/VerticalCuts.cs`, `Core/Editing/{ConnectorFactory,StateActions}.cs`, `Render/Scene/ConnectorSymbols.cs`, `App/ViewModels/ConnectorViewModel.cs` |
+| Devices and underlays | `Core/Model/{Device,Underlay}.cs`, `Core/Geometry/DeviceGeometry.cs` (also `UnderlayGeometry`), `App/Editing/PlanEditor.Objects.cs`, `App/ViewModels/ObjectViewModels.cs`, `App/Services/UnderlayImageCache.cs`, `Render/Gl/GpuUnderlay.cs` |
 | Shaders | `src/Throng.Render/Gl/Shaders.cs` |
+| Simulation | `src/Throng.Sim/Nav/` (grids, fields, routes), `src/Throng.Sim/Engine/` (agents, social force), `SimSetup.cs`, `SimRunner.cs` |
+| Run UI | `App/ViewModels/MainViewModel.Run.cs`, `App/ViewModels/EmissionRuleViewModels.cs`, `Render/Gl/GpuAgents.cs` |
 | Clean script | `clean.bat` (repo root) |
 
 ## 8. Don't regress
 
-- Demo loads clean (0 errors, 0 warnings) and all tests pass (85 as of r003).
+- Demo loads clean (0 errors, 0 warnings) and all tests pass (175/176 on r007i; 177 expected for r007k).
+- Test helpers live in classes named for what they test, not the file (`VerticalCutTests.TwoLevelsWithStair` is in
+  `ConnectorTests.cs`): grep for the class before calling a helper.
+- Demo PLAY runs: people cross all three levels; editing locks until RESET.
+- Older files open with their old behaviour (v1/v2: single-level fixed regions, single-run switchbacks; v1–v3: no emission rules; v1–v4: flat rates).
 - Editing shortcuts only fire while the viewport has focus; New from Demo is Ctrl+Shift+D (D-043).
 - Plan view ghosts the level below; 3D shows all visible levels; Home re-frames.
 - Undo/redo for every edit; dirty marker in the title; save → reopen round-trips.
