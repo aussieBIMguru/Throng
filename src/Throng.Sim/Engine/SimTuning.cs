@@ -50,6 +50,18 @@ public sealed record SimTuning
 
     /// <summary>Carry straight on 0.6 m into a landing before turning (D-137).</summary>
     public bool LandingCarry { get; init; } = true;
+
+    /// <summary>
+    /// Stair and ramp waits count stalled queuers at the entry twice (D-133). Off by default since D-138: it made
+    /// stairs look slow and pulled people onto escalators too hard. Kept for the diagnostics.
+    /// </summary>
+    public bool StalledStairWait { get; init; }
+
+    /// <summary>Stair time weighed by each profile's stair effort in route choice (D-174); off = time only.</summary>
+    public bool StairEffort { get; init; } = true;
+
+    /// <summary>Standing belt rides feel 0.6× their time in route choice (D-175); off = full time.</summary>
+    public bool StandingRest { get; init; } = true;
 }
 
 /// <summary>Where and how an agent was removed as stuck (D-106), for diagnostics.</summary>

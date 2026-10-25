@@ -253,6 +253,10 @@ public sealed partial class MainViewModel : IEditorHost
             case ConnectorTemplate:
                 break;
 
+            case JourneyTemplate journey:
+                SelectJourney(journey);
+                return;
+
             default:
                 Ticker = "Agent profiles, lifts and schedules are set up in later milestones.";
                 return;
@@ -413,7 +417,18 @@ public sealed partial class MainViewModel : IEditorHost
         Ticker = $"Underlay {underlay.Name} added ▸ press SET SCALE in SELECTION to calibrate it, then lock it.";
     }
 
-    /// <summary>Selects an object by id (e.g. from the LEVEL tab's underlay list).</summary>
+    /// <summary>Starts DRAW QUEUE on a device (D-153), switching to plan view first.</summary>
+    public void StartQueuePath(Guid deviceId)
+    {
+        if (ViewMode != ViewMode.Plan)
+        {
+            ViewMode = ViewMode.Plan;
+        }
+
+        Editor.StartQueuePath(deviceId);
+    }
+
+        /// <summary>Selects an object by id (e.g. from the LEVEL tab's underlay list).</summary>
     public void SelectObject(Guid id) => Editor.Select(id);
 
     /// <summary>Kinds offered for new rectangles, polygons and circles.</summary>
@@ -486,7 +501,7 @@ public sealed partial class MainViewModel : IEditorHost
     public bool HasUnderlaySelection => _selectedUnderlay is not null;
 
     /// <summary>Selection summary for the properties panel.</summary>
-    public string SelectionText => Editor.SelectionCount switch
+    public string SelectionText => _selectedJourney is not null ? string.Empty : Editor.SelectionCount switch
     {
         0 => _activeLevel?.IsLocked == true
             ? "Level locked. Unlock it to select or draw."
@@ -576,6 +591,7 @@ public sealed partial class MainViewModel : IEditorHost
         _selectedUnderlay?.Refresh();
         RefreshConnectTargets();
         RefreshUnderlayRows();
+        RefreshJourneys();
         OnPropertyChanged(nameof(SelectionText));
     }
 
@@ -616,6 +632,7 @@ public sealed partial class MainViewModel : IEditorHost
             EditorTool.Shaft => "SHAFT ▸ click two corners or drag; it spans every level until you set base and top in SELECTION.",
             EditorTool.Place => "PLACE ▸ pick a device or travelator, click its position, aim the service side (or the belt's far end), click.",
             EditorTool.Calibrate => "SET SCALE ▸ click two points on the image a known distance apart, then type the real distance.",
+            EditorTool.QueuePath => "DRAW QUEUE ▸ click points out from the device's service side; Enter or double-click finishes, Esc cancels.",
             _ => "SELECT ▸ click, Shift adds, Ctrl toggles; drag a box or drag a region to move it.",
         };
     }
@@ -674,9 +691,11 @@ public sealed partial class MainViewModel : IEditorHost
             OnPropertyChanged(nameof(HasShaftSelection));
         }
 
-        // Selecting anything brings the SELECTION tab forward; clearing leaves the current tab alone (D-045).
+        // Selecting anything brings the SELECTION tab forward (and replaces a journey shown there); clearing leaves
+        // the current tab alone (D-045).
         if (Editor.SelectionCount > 0)
         {
+            ClearJourneySelection();
             PropertiesTabIndex = PropertiesTabSelection;
         }
 

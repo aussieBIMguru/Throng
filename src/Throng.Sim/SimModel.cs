@@ -25,6 +25,15 @@ public sealed class SimProfile
 
     /// <summary>Display colour, 0..1.</summary>
     public required float B { get; init; }
+
+    /// <summary>
+    /// Seconds off each device's choice cost for this profile (D-166), indexed like <see cref="SimModel.Devices"/>;
+    /// empty when the run has no devices.
+    /// </summary>
+    public double[] DeviceBonusS { get; set; } = [];
+
+    /// <summary>The profile's bonus for a device (0 when none).</summary>
+    public double BonusFor(int device) => device >= 0 && device < DeviceBonusS.Length ? DeviceBonusS[device] : 0;
 }
 
 /// <summary>One emission rule ready to run: where people appear and where they may go.</summary>
@@ -42,8 +51,23 @@ public sealed class SimEmitter
     /// <summary>The rule.</summary>
     public required EmissionRule Rule { get; init; }
 
-    /// <summary>Index into <see cref="SimModel.Profiles"/>.</summary>
-    public required int Profile { get; init; }
+    /// <summary>The rule's mix lines with a positive share (D-151); at least one.</summary>
+    public required SimMixLine[] Lines { get; init; }
+
+    /// <summary>Sum of the lines' shares.</summary>
+    public double TotalShare
+    {
+        get
+        {
+            double total = 0;
+            foreach (SimMixLine line in Lines)
+            {
+                total += line.Share;
+            }
+
+            return total;
+        }
+    }
 
     /// <summary>Floor surface of the zone.</summary>
     public required int Floor { get; init; }
@@ -69,6 +93,15 @@ public sealed class SimModel
 
     /// <summary>Emission rules in use.</summary>
     public required IReadOnlyList<SimEmitter> Emitters { get; init; }
+
+    /// <summary>Journeys in use (D-149).</summary>
+    public IReadOnlyList<SimJourney> Journeys { get; init; } = [];
+
+    /// <summary>Devices with queues (D-152, D-153); only those some journey can use.</summary>
+    public IReadOnlyList<SimDevice> Devices { get; init; } = [];
+
+    /// <summary>Tag names by bit position (D-150; at most 64 per run).</summary>
+    public IReadOnlyList<string> TagNames { get; init; } = [];
 
     /// <summary>RNG seed.</summary>
     public required int Seed { get; init; }

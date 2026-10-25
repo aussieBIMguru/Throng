@@ -32,7 +32,7 @@ public sealed class Round006Tests
     public void ValidRule_HasNoFindings()
     {
         var (study, spawn, sink) = OneLevel();
-        spawn.EmissionRules.Add(new EmissionRule { ProfileId = Commuter, DestinationMode = DestinationMode.ChosenSinks, Destinations = [new SinkWeight { SinkId = sink.Id }] });
+        spawn.EmissionRules.Add(new EmissionRule { Mix = [MixLine.Of(Commuter)], DestinationMode = DestinationMode.ChosenSinks, Destinations = [new SinkWeight { SinkId = sink.Id }] });
         Assert.AreEqual(0, Demand(study).Count());
     }
 
@@ -40,7 +40,7 @@ public sealed class Round006Tests
     public void MissingSink_IsAnError()
     {
         var (study, spawn, _) = OneLevel();
-        spawn.EmissionRules.Add(new EmissionRule { ProfileId = Commuter, DestinationMode = DestinationMode.ChosenSinks, Destinations = [new SinkWeight { SinkId = Guid.NewGuid() }] });
+        spawn.EmissionRules.Add(new EmissionRule { Mix = [MixLine.Of(Commuter)], DestinationMode = DestinationMode.ChosenSinks, Destinations = [new SinkWeight { SinkId = Guid.NewGuid() }] });
         Assert.IsTrue(Demand(study).Any(m => m.Severity == ValidationSeverity.Error && m.Message.Contains("no longer exists", StringComparison.Ordinal)));
     }
 
@@ -50,7 +50,7 @@ public sealed class Round006Tests
         var (study, spawn, sink) = OneLevel();
         study.Regions.Remove(sink);
         spawn.ZoneKind = ZoneKind.SpawnSink;
-        spawn.EmissionRules.Add(new EmissionRule { ProfileId = Commuter, DestinationMode = DestinationMode.NearestSink });
+        spawn.EmissionRules.Add(new EmissionRule { Mix = [MixLine.Of(Commuter)], DestinationMode = DestinationMode.NearestSink });
         Assert.IsTrue(Demand(study).Any(m => m.Severity == ValidationSeverity.Error));
     }
 
@@ -58,8 +58,8 @@ public sealed class Round006Tests
     public void ZeroRate_RulesOnANonSpawn_AndUnknownProfiles_AreWarnings()
     {
         var (study, spawn, sink) = OneLevel();
-        spawn.EmissionRules.Add(new EmissionRule { ProfileId = Guid.NewGuid(), RatePerMinute = 0, DestinationMode = DestinationMode.NearestSink });
-        sink.EmissionRules.Add(new EmissionRule { ProfileId = Commuter });
+        spawn.EmissionRules.Add(new EmissionRule { Mix = [MixLine.Of(Guid.NewGuid())], RatePerMinute = 0, DestinationMode = DestinationMode.NearestSink });
+        sink.EmissionRules.Add(new EmissionRule { Mix = [MixLine.Of(Commuter)] });
         List<ValidationMessage> found = [.. Demand(study)];
         Assert.IsTrue(found.All(m => m.Severity == ValidationSeverity.Warning), string.Join("\n", found.Select(m => m.Message)));
         Assert.IsTrue(found.Any(m => m.Message.Contains("rate of zero", StringComparison.Ordinal)));
@@ -71,7 +71,7 @@ public sealed class Round006Tests
     public void CopiedRegion_GetsNewRuleIds()
     {
         var (_, spawn, sink) = OneLevel();
-        spawn.EmissionRules.Add(new EmissionRule { ProfileId = Commuter, Destinations = [new SinkWeight { SinkId = sink.Id }] });
+        spawn.EmissionRules.Add(new EmissionRule { Mix = [MixLine.Of(Commuter)], Destinations = [new SinkWeight { SinkId = sink.Id }] });
         Region copy = RegionFactory.Copy(spawn, spawn.LevelId, Point2.Zero);
         Assert.AreEqual(1, copy.EmissionRules.Count);
         Assert.AreNotEqual(spawn.EmissionRules[0].Id, copy.EmissionRules[0].Id);

@@ -63,7 +63,15 @@ public sealed class DeviceViewModel : ObservableObject
     {
         Model = model;
         _owner = owner;
+        DrawQueueCommand = new RelayCommand(() => _owner.StartQueuePath(Model.Id));
+        ClearQueueCommand = new RelayCommand(() => _owner.Editor.ClearQueuePath(Model.Id));
     }
+
+    /// <summary>Starts DRAW QUEUE in the plan editor (D-153, D-163).</summary>
+    public RelayCommand DrawQueueCommand { get; }
+
+    /// <summary>Removes the drawn queue path, back to the automatic lines.</summary>
+    public RelayCommand ClearQueueCommand { get; }
 
     /// <summary>The wrapped device.</summary>
     public Device Model { get; }
@@ -145,7 +153,57 @@ public sealed class DeviceViewModel : ObservableObject
                 return;
             }
 
-            _owner.Apply("Rotate device", () => Model.AngleDeg, v => Model.AngleDeg = v, ConnectorFactory.NormaliseAngle(value));
+            double angle = ConnectorFactory.NormaliseAngle(value);
+            if (Model.QueuePath is { Count: > 0 } && Math.Abs(angle - Model.AngleDeg) > 1e-9)
+            {
+                // A drawn queue turns with the device about its centre.
+                _owner.Execute(StateActions.Devices("Rotate device", [(Model, DeviceFactory.Rotated(Model, Model.Position, angle - Model.AngleDeg))], _owner.NotifyModelChanged));
+                return;
+            }
+
+            _owner.Apply("Rotate device", () => Model.AngleDeg, v => Model.AngleDeg = v, angle);
+        }
+    }
+
+    /// <summary>Longest queue per lane or server (1–500, D-153); a drawn snake holds this many per lane.</summary>
+    public int MaxQueue
+    {
+        get => Model.MaxQueue;
+        set
+        {
+            if (value is < 1 or > QueueLines.MaxSlots)
+            {
+                Reject(string.Create(CultureInfo.InvariantCulture, $"Max queue must be between 1 and {QueueLines.MaxSlots} people."));
+                return;
+            }
+
+            _owner.Apply("Change device max queue", () => Model.MaxQueue, v => Model.MaxQueue = v, value);
+        }
+    }
+
+    /// <summary>True when the device has a drawn queue path (shows CLEAR QUEUE).</summary>
+    public bool HasDrawnQueue => Model.QueuePath is { Count: >= 2 };
+
+    /// <summary>How its queue is laid out.</summary>
+    public string QueueText
+    {
+        get
+        {
+            CultureInfo c = CultureInfo.InvariantCulture;
+            if (HasDrawnQueue)
+            {
+                double length = 0;
+                for (int k = 1; k < Model.QueuePath.Count; k++)
+                {
+                    length += Point2.Distance(Model.QueuePath[k - 1], Model.QueuePath[k]);
+                }
+
+                string lanes = Model.Lanes > 1 ? string.Create(c, $", feeding all {Model.Lanes} lanes") : string.Empty;
+                return string.Create(c, $"Drawn queue: one snake, {length:0.0} m{lanes} (D-163).{(Model.PassThrough ? " The far side keeps its automatic lines." : string.Empty)}");
+            }
+
+            string sides = Model.PassThrough ? " on both sides" : string.Empty;
+            return string.Create(c, $"Automatic lines: one per lane{sides}, straight out and bending along walls, up to {Model.MaxQueue} people each. DRAW QUEUE for a shared snake.");
         }
     }
 

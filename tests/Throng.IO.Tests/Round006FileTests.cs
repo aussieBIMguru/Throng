@@ -53,7 +53,8 @@ public sealed class Round006FileTests
             EmissionRule a = west.EmissionRules[i];
             EmissionRule b = westLoaded.EmissionRules[i];
             Assert.AreEqual(a.Id, b.Id);
-            Assert.AreEqual(a.ProfileId, b.ProfileId);
+            Assert.AreEqual(a.Mix.Count, b.Mix.Count);
+            Assert.AreEqual(a.Mix[0].ProfileId, b.Mix[0].ProfileId);
             Assert.AreEqual(a.RatePerMinute, b.RatePerMinute);
             Assert.AreEqual(a.Pattern, b.Pattern);
             Assert.AreEqual(a.DestinationMode, b.DestinationMode);

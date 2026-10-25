@@ -271,7 +271,12 @@ public sealed class RegionViewModel : ObservableObject
         get
         {
             List<IdOption> profiles = [.. StudyTemplates.AvailableProfiles(_owner.Study).Select(p => new IdOption(p.Id, p.Name))];
-            return [.. Model.EmissionRules.Select((rule, i) => new EmissionRuleViewModel(this, i, rule, profiles))];
+            List<IdOption> journeys =
+            [
+                new IdOption(Guid.Empty, "None: straight to a sink"),
+                .. StudyTemplates.AvailableJourneys(_owner.Study).Select(j => new IdOption(j.Id, j.Name)),
+            ];
+            return [.. Model.EmissionRules.Select((rule, i) => new EmissionRuleViewModel(this, i, rule, profiles, journeys))];
         }
     }
 
@@ -316,6 +321,15 @@ public sealed class RegionViewModel : ObservableObject
         }
     }
 
+    /// <summary>Embeds a built-in journey in the study library when a mix line first uses it (D-154).</summary>
+    internal void EmbedJourney(Guid journeyId)
+    {
+        if (_owner.Study.Library.Find(journeyId) is null && BuiltInLibrary.Instance.Find(journeyId) is JourneyTemplate builtIn)
+        {
+            _owner.Study.Library.AddCopy(builtIn, TemplateSource.Embedded);
+        }
+    }
+
     /// <summary>Shows a validation message in the ticker.</summary>
     internal void Reject(string message) => _owner.Ticker = message;
 
@@ -323,7 +337,7 @@ public sealed class RegionViewModel : ObservableObject
     {
         AgentProfileTemplate profile = StudyTemplates.ProfileOrFallback(_owner.Study, TemplateIds.FromKey(StudyTemplates.FallbackProfileKey));
         EmbedProfile(profile.Id);
-        List<EmissionRule> next = [.. Model.EmissionRules, new EmissionRule { ProfileId = profile.Id }];
+        List<EmissionRule> next = [.. Model.EmissionRules, EmissionRule.ForProfile(profile.Id)];
         _owner.Apply($"Add emission rule ({Model.Name})", () => Model.EmissionRules, v => Model.EmissionRules = v, next);
     }
 

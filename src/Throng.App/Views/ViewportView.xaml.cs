@@ -97,6 +97,7 @@ public partial class ViewportView : UserControl
         // LIBRARY drag-and-drop (D-098).
         InputLayer.AllowDrop = true;
         InputLayer.DragOver += OnDragOver;
+        InputLayer.DragLeave += OnDragLeave;
         InputLayer.Drop += OnDrop;
         UpdateHint();
     }
@@ -109,6 +110,13 @@ public partial class ViewportView : UserControl
 
     /// <summary>Agents source, read every frame (null = none).</summary>
     public AgentFeed? Agents { get; set; }
+
+    /// <summary>What agent bodies are coloured by (D-146).</summary>
+    public AgentColoring AgentColoring
+    {
+        get => _renderer.AgentColoring;
+        set => _renderer.AgentColoring = value;
+    }
 
     /// <summary>Plan editor driven by this viewport (set once by the main window).</summary>
     public PlanEditor? Editor
@@ -402,11 +410,22 @@ public partial class ViewportView : UserControl
     private void OnDragOver(object sender, DragEventArgs e)
     {
         e.Effects = e.Data.GetDataPresent(TemplateDragFormat) ? DragDropEffects.Copy : DragDropEffects.None;
+
+        // Ghost of what would drop here (D-144).
+        if (e.Data.GetData(TemplateDragFormat) is Throng.App.ViewModels.TemplateItemViewModel item)
+        {
+            Point2? point = _mode == ViewMode.Plan ? ScreenToPlan(e.GetPosition(InputLayer)) : null;
+            _editor?.DragHover(item.Template, point, _planCamera.MetresPerDip);
+        }
+
         e.Handled = true;
     }
 
+    private void OnDragLeave(object sender, DragEventArgs e) => _editor?.EndDragHover();
+
     private void OnDrop(object sender, DragEventArgs e)
     {
+        _editor?.EndDragHover();
         if (e.Data.GetData(TemplateDragFormat) is not { } data)
         {
             return;
@@ -563,6 +582,7 @@ public partial class ViewportView : UserControl
             EditorTool.Shaft => "SHAFT: click two corners or drag · type W,H · spans every level until you set base/top",
             EditorTool.Place => "PLACE: click the position, aim the service side (travelator: click the far end), click · 15° steps (Shift: free) · type an angle",
             EditorTool.Calibrate => "SET SCALE: click two points on the image a known distance apart, type that distance, Enter · Shift squares the second point",
+            EditorTool.QueuePath => "DRAW QUEUE: click points out from the service side · Enter/double-click finishes · Backspace undoes a point · type a length · one snake feeds every lane",
             _ => "SELECT: click · Shift adds · Ctrl toggles · drag box (→ window, ← crossing) · drag to move · grips/arrows reshape · round grip rotates a connector · H hide · I isolate",
         };
 

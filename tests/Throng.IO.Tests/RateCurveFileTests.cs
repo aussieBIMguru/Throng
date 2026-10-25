@@ -40,6 +40,7 @@ public sealed class RateCurveFileTests
         Study loaded = ThrongFile.Load(path).Value!;
         Region westLoaded = loaded.FindRegion(west.Id)!;
         CollectionAssert.AreEqual(west.EmissionRules[0].RateCurve, westLoaded.EmissionRules[0].RateCurve);
-        Assert.AreEqual(0, westLoaded.EmissionRules[1].RateCurve.Count, "Rules without a curve stay flat.");
+        Region east = loaded.Regions.Single(r => r.Name == "East entrance");
+        Assert.AreEqual(0, east.EmissionRules[0].RateCurve.Count, "Rules without a curve stay flat.");
     }
 }

@@ -32,6 +32,12 @@ public interface IDialogService
     /// <param name="message">Explanation above the checklist.</param>
     /// <param name="levels">Levels to offer, in display order.</param>
     IReadOnlyList<Guid>? PickLevels(string title, string message, IReadOnlyList<LevelOption> levels);
+
+    /// <summary>Asks to go ahead with a destructive step; true when confirmed.</summary>
+    /// <param name="title">Dialog title.</param>
+    /// <param name="message">What will happen.</param>
+    /// <param name="confirmText">Label of the confirming button, e.g. "DELETE".</param>
+    bool Confirm(string title, string message, string confirmText);
 }
 
 /// <summary>
@@ -104,6 +110,15 @@ public sealed class DialogService : IDialogService
     /// <inheritdoc />
     public void ShowInfo(string title, string message) =>
         ThrongDialog.ShowMessage(_owner, title, message, DialogTone.Info, [new DialogButton("OK", IsDefault: true, IsCancel: true)]);
+
+    /// <inheritdoc />
+    public bool Confirm(string title, string message, string confirmText) =>
+        ThrongDialog.ShowMessage(
+            _owner,
+            title,
+            message,
+            DialogTone.Warning,
+            [new DialogButton(confirmText), new DialogButton("CANCEL", IsDefault: true, IsCancel: true)]) == 0;
 
     /// <inheritdoc />
     public IReadOnlyList<Guid>? PickLevels(string title, string message, IReadOnlyList<LevelOption> levels) =>

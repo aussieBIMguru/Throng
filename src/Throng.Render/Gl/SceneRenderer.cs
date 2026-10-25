@@ -100,6 +100,9 @@ public sealed class SceneRenderer : IDisposable
     /// <summary>Queues a new scene; it replaces the current GPU data at the next render.</summary>
     public void SetScene(SceneData scene) => _pendingScene = scene;
 
+    /// <summary>What agent bodies are coloured by (D-146); read at every render.</summary>
+    public AgentColoring AgentColoring { get; set; }
+
     /// <summary>
     /// Agents to draw from the next render (D-102): <paramref name="count"/> instances of
     /// <see cref="GpuAgents.FloatsPerInstance"/> floats (the simulation snapshot layout). The caller keeps
@@ -152,6 +155,7 @@ public sealed class SceneRenderer : IDisposable
         _agentProgram.Use();
         _agentProgram.SetViewProjection(viewProjection);
         _agentProgram.SetTime((float)_clock.Elapsed.TotalSeconds);
+        _agentProgram.SetColorMode(AgentColoring == AgentColoring.Stress ? 1 : 0);
         if (_agentsDirty && _agents is not null)
         {
             _agents.Update(_pendingAgents ?? [], _pendingAgents is null ? 0 : _pendingAgentCount);

@@ -15,8 +15,9 @@ namespace Throng.IO;
 /// pair, and the accessible lift's shaft (the lift itself arrives in M4). Openings are cut automatically by the
 /// connectors. Round 005 adds devices, floor-to-floor columns, lift core walls spanning two levels, a goods lift
 /// shaft that skips the concourse and a back-of-house stair core with one circuit per level (staff only, D-110).
-/// Round 006 adds constant-rate emission rules between the street entrances and the platform doors (D-109). The agent
-/// profiles, schedules, connector and device presets used are embedded in the study library.
+/// Round 006 adds constant-rate emission rules between the street entrances and the platform doors (D-109); round
+/// 009 gives them journeys through the ticket machines, retail and gates (D-155). The agent profiles, schedules,
+/// journeys, connector and device presets used are embedded in the study library.
 /// Plan origin is the south-west corner of the concourse; X runs east, Y north.
 /// </remarks>
 public static class DemoStudyBuilder
@@ -26,6 +27,12 @@ public static class DemoStudyBuilder
 
     /// <summary>Fixed seed so demo runs are reproducible.</summary>
     public const int DemoSeed = 20261024;
+
+    /// <summary>Zone tag of the demo's retail areas, used by the "Browse then gates" journey (D-155).</summary>
+    public const string RetailTag = "Retail";
+
+    /// <summary>Tag that lets people skip the ticket machines (D-150, D-155).</summary>
+    public const string TicketTag = "ticket";
 
     /// <summary>Builds a fresh demo study.</summary>
     public static Study Build()
@@ -83,7 +90,7 @@ public static class DemoStudyBuilder
         Add(study, level, "West entrance", RegionKind.Zone, ZoneKind.SpawnSink, Rect(0, 9, 1.5, 17));
         Add(study, level, "East entrance", RegionKind.Zone, ZoneKind.SpawnSink, Rect(58.5, 6, 60, 14));
         Add(study, level, "Bus stop", RegionKind.Zone, ZoneKind.SpawnSink, Rect(20, 24.5, 32, 26));
-        Add(study, level, "Retail frontage", RegionKind.Zone, ZoneKind.Dwell, Rect(38, 2, 52, 7));
+        Add(study, level, "Retail frontage", RegionKind.Zone, ZoneKind.Dwell, Rect(38, 2, 52, 7), tag: RetailTag);
     }
 
     private static void BuildConcourse(Study study, Level level)
@@ -107,6 +114,9 @@ public static class DemoStudyBuilder
         Add(study, level, "Ticket machine crowd", RegionKind.Zone, ZoneKind.Queue, Rect(3, 1.5, 13, 6));
         Add(study, level, "Ticket counter queue", RegionKind.Zone, ZoneKind.Queue, Rect(4, 20, 12, 28));
         Add(study, level, "Seating area", RegionKind.Zone, ZoneKind.Wait, Rect(50, 3, 58, 9));
+
+        // Unpaid-side kiosks for the "Browse then gates" journey (D-155).
+        Add(study, level, "Concourse kiosks", RegionKind.Zone, ZoneKind.Dwell, Rect(16, 25.5, 24, 29.5), tag: RetailTag);
     }
 
     private static void BuildPlatform(Study study, Level level)
@@ -156,12 +166,13 @@ public static class DemoStudyBuilder
     }
 
     /// <summary>
-    /// Devices (D-089): ticket machines along the south wall, two staffed counters on the north wall, the gate line
-    /// and accessible gate in the barrier gap, and the information desk. Queues and behaviour arrive in M3.
+    /// Devices (D-089): eight ticket machines along the south wall (four until round 009; the journeys need the
+    /// capacity, D-155), two staffed counters on the north wall, the gate line and accessible gate in the barrier
+    /// gap, and the information desk. People queue at them from round 009 (D-152, D-153).
     /// </summary>
     private static void BuildDevices(Study study, Level concourse)
     {
-        foreach (double x in new[] { 5.0, 7.0, 9.0, 11.0 })
+        foreach (double x in new[] { 5.0, 7.0, 9.0, 11.0, 15.0, 17.0, 19.0, 21.0 })
         {
             PlaceDevice(study, "device.ticket-machine", concourse, new Point2(x, 0.3), 90);
         }
@@ -207,14 +218,19 @@ public static class DemoStudyBuilder
     }
 
     /// <summary>
-    /// Constant-rate flows across all three levels (D-109): each street entrance sends commuters and some
-    /// infrequent travellers to the twelve platform doors (equal weights); each door sends people back up to the
-    /// entrances and the bus stop (west 40, east 40, bus 20). Train timetables replace the door flows in round 007.
+    /// Constant-rate flows across all three levels (D-109, D-155): each street entrance sends 20 people a minute to
+    /// the twelve platform doors (equal weights): 70% commuters already holding a ticket, straight to the gates;
+    /// 30% infrequent travellers, half of whom need a ticket from a machine first, and a third of whom browse the
+    /// retail first. Each door sends commuters back up through the gates to the entrances and the bus stop (west 40,
+    /// east 40, bus 20). Train timetables replace the door flows in a later round.
     /// </summary>
     private static void BuildDemand(Study study)
     {
         Guid commuter = TemplateIds.FromKey("agent.commuter");
         Guid infrequent = TemplateIds.FromKey("agent.infrequent");
+        Guid throughGates = TemplateIds.FromKey("journey.through-gates");
+        Guid ticketGates = TemplateIds.FromKey("journey.ticket-gates");
+        Guid browseGates = TemplateIds.FromKey("journey.browse-gates");
         List<Region> doors = [.. study.Regions.Where(r => r.Name.Contains(" door ", StringComparison.Ordinal) && r.IsSink)];
         Region? west = study.Regions.FirstOrDefault(r => r.Name == "West entrance");
         Region? east = study.Regions.FirstOrDefault(r => r.Name == "East entrance");
@@ -225,10 +241,15 @@ public static class DemoStudyBuilder
         }
 
         List<SinkWeight> toDoors = [.. doors.Select(d => new SinkWeight { SinkId = d.Id, Weight = 1 })];
+        List<MixLine> inbound =
+        [
+            MixLine.Of(commuter, ticketGates, 70, SpawnTag.Of(TicketTag)),
+            MixLine.Of(infrequent, ticketGates, 20, SpawnTag.Of(TicketTag, 50)),
+            MixLine.Of(infrequent, browseGates, 10, SpawnTag.Of(TicketTag, 50)),
+        ];
         foreach (Region entrance in new[] { west, east, bus })
         {
-            entrance.EmissionRules.Add(Rule(commuter, 16, toDoors));
-            entrance.EmissionRules.Add(Rule(infrequent, 4, toDoors));
+            entrance.EmissionRules.Add(Rule(inbound, 20, toDoors));
         }
 
         List<SinkWeight> toStreet =
@@ -237,15 +258,16 @@ public static class DemoStudyBuilder
             new() { SinkId = east.Id, Weight = 40 },
             new() { SinkId = bus.Id, Weight = 20 },
         ];
+        List<MixLine> outbound = [MixLine.Of(commuter, throughGates, 1, SpawnTag.Of(TicketTag))];
         foreach (Region door in doors)
         {
-            door.EmissionRules.Add(Rule(commuter, 3, toStreet));
+            door.EmissionRules.Add(Rule(outbound, 3, toStreet));
         }
     }
 
-    private static EmissionRule Rule(Guid profileId, double perMinute, List<SinkWeight> destinations) => new()
+    private static EmissionRule Rule(List<MixLine> mix, double perMinute, List<SinkWeight> destinations) => new()
     {
-        ProfileId = profileId,
+        Mix = [.. mix.Select(m => m with { SpawnTags = [.. m.SpawnTags] })],
         RatePerMinute = perMinute,
         Pattern = EmissionPattern.Constant,
         DestinationMode = DestinationMode.ChosenSinks,
@@ -294,6 +316,7 @@ public static class DemoStudyBuilder
         [
             "agent.commuter", "agent.infrequent", "agent.luggage", "agent.mobility", "agent.staff",
             "schedule.always-open", "schedule.am-peak", "schedule.train-6min", "schedule.bus-10min", "schedule.escalator-reversal",
+            "journey.through-gates", "journey.ticket-gates", "journey.browse-gates",
         ];
 
         foreach (string key in keys)

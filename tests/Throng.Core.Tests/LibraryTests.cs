@@ -14,7 +14,8 @@ public sealed class LibraryTests
         Assert.AreEqual(9, lib.Connectors.Count, "Connectors");
         Assert.AreEqual(4, lib.Lifts.Count, "Lifts");
         Assert.AreEqual(13, lib.Schedules.Count, "Schedules");
-        Assert.AreEqual(46, lib.Count);
+        Assert.AreEqual(4, lib.Journeys.Count, "Journeys");
+        Assert.AreEqual(50, lib.Count);
     }
 
     [TestMethod]

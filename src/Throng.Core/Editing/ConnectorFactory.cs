@@ -279,30 +279,33 @@ public static class DeviceFactory
         ColorHex = template.ColorHex,
     };
 
-    /// <summary>A copy with a new id on the given level, moved by <paramref name="offset"/>.</summary>
+    /// <summary>A copy with a new id on the given level, moved by <paramref name="offset"/> (its drawn queue too).</summary>
     public static Device Copy(Device source, Guid levelId, Point2 offset)
     {
         Device copy = source.Clone();
         copy.Id = Guid.NewGuid();
         copy.LevelId = levelId;
         copy.Position = source.Position + offset;
+        copy.QueuePath = [.. (source.QueuePath ?? []).Select(p => p + offset)];
         return copy;
     }
 
-    /// <summary>A snapshot moved by <paramref name="delta"/> (same id).</summary>
+    /// <summary>A snapshot moved by <paramref name="delta"/> (same id); a drawn queue path moves with it.</summary>
     public static Device Translated(Device source, Point2 delta)
     {
         Device next = source.Clone();
         next.Position = source.Position + delta;
+        next.QueuePath = [.. (source.QueuePath ?? []).Select(p => p + delta)];
         return next;
     }
 
-    /// <summary>A snapshot rotated about <paramref name="pivot"/> (same id).</summary>
+    /// <summary>A snapshot rotated about <paramref name="pivot"/> (same id); a drawn queue path turns with it.</summary>
     public static Device Rotated(Device source, Point2 pivot, double deltaDeg)
     {
         Device next = source.Clone();
         next.Position = ConnectorFactory.RotatePoint(source.Position, pivot, deltaDeg);
         next.AngleDeg = ConnectorFactory.NormaliseAngle(source.AngleDeg + deltaDeg);
+        next.QueuePath = [.. (source.QueuePath ?? []).Select(p => ConnectorFactory.RotatePoint(p, pivot, deltaDeg))];
         return next;
     }
 }

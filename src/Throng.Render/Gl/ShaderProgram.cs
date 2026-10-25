@@ -21,6 +21,7 @@ internal sealed class ShaderProgram : IDisposable
     private int _viewportLocation;
     private int _lineWidthLocation;
     private int _timeLocation;
+    private int _colorModeLocation;
 
     /// <summary>Creates a program from vertex, optional geometry, and fragment sources (compiled in <see cref="Initialise"/>).</summary>
     public ShaderProgram(string vertexSource, string? geometrySource, string fragmentSource)
@@ -95,6 +96,7 @@ internal sealed class ShaderProgram : IDisposable
         _viewportLocation = GL.GetUniformLocation(_handle, "uViewport");
         _lineWidthLocation = GL.GetUniformLocation(_handle, "uLineWidth");
         _timeLocation = GL.GetUniformLocation(_handle, "uTime");
+        _colorModeLocation = GL.GetUniformLocation(_handle, "uColorMode");
         return Result.Ok();
     }
 
@@ -125,6 +127,9 @@ internal sealed class ShaderProgram : IDisposable
 
     /// <summary>Seconds for animated effects (the agent program's stuck ring).</summary>
     public void SetTime(float seconds) => GL.Uniform1(_timeLocation, seconds);
+
+    /// <summary>Sets <c>uColorMode</c> (agents: 0 profile, 1 stress; D-146).</summary>
+    public void SetColorMode(int mode) => GL.Uniform1(_colorModeLocation, mode);
 
     /// <inheritdoc />
     public void Dispose()

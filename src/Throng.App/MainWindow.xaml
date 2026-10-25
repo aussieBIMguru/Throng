@@ -155,6 +155,13 @@
                         <ToggleButton Style="{StaticResource ChipToggle}" Content="×8" IsChecked="{Binding IsSpeed8, Mode=TwoWay}" ToolTip="Eight times real time." />
                         <ToggleButton Style="{StaticResource ChipToggle}" Content="MAX" IsChecked="{Binding IsSpeedMax, Mode=TwoWay}" ToolTip="As fast as the machine allows." />
                     </StackPanel>
+                    <!-- COLOUR (D-146): profile colours or a stress ramp; works while paused. Stuck people always blink a red ring. -->
+                    <Border Style="{StaticResource ToolSeparator}" />
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="6,0,0,0">
+                        <ToggleButton Style="{StaticResource ChipToggle}" Content="PROFILE" IsChecked="{Binding IsColourProfile, Mode=TwoWay}" ToolTip="Colour people by profile (commuter, luggage…)." />
+                        <ToggleButton Style="{StaticResource ChipToggle}" Content="STRESS" IsChecked="{Binding IsColourStress, Mode=TwoWay}"
+                                      ToolTip="Colour people by stress: blue calm, yellow tense, red fed up. Builds after half their patience is spent held up below half speed." />
+                    </StackPanel>
                 </StackPanel>
             </DockPanel>
         </Border>
@@ -237,7 +244,7 @@
                            Visibility="{Binding IsEditable, Converter={StaticResource BoolToVis}}" />
                 <TextBlock Grid.Column="2" Margin="16,0,12,0" VerticalAlignment="Center" Text="{Binding RunStatusText}" FontFamily="{DynamicResource RetroFont}" FontSize="17"
                            Foreground="{StaticResource AccentBrush}" Visibility="{Binding IsRunActive, Converter={StaticResource BoolToVis}}"
-                           ToolTip="Speed · agents walking · emitted · arrived · mean journey time · stuck (no progress for 30 s; removed after 120 s)." />
+                           ToolTip="Speed · agents walking · emitted · arrived · mean journey time · in device queues · stressed (stress 0.5 or more) · gave up (patience ran out, left) · stuck (no progress for 30 s; removed after 120 s)." />
                 <Border Grid.Column="3" Background="#06090F" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Padding="10,1">
                     <TextBlock Text="{Binding ClockText}" FontFamily="{DynamicResource RetroFont}" FontSize="20" Foreground="{StaticResource GreenBrush}" ToolTip="Study clock: the run's time of day while running, otherwise the start time." />
                 </Border>
@@ -265,7 +272,18 @@
                     <RowDefinition Height="3*" />
                 </Grid.RowDefinitions>
 
-                <TextBlock Style="{StaticResource PanelHeader}" Text="LEVELS" />
+                <DockPanel>
+                    <!-- Add above / below, delete (D-142, D-143); locked while a run is active. -->
+                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="0,8,8,0" VerticalAlignment="Center" TextElement.FontSize="11" IsEnabled="{Binding IsEditable}">
+                        <Button Padding="6,0" Margin="2,0" Content="+ ABOVE" Command="{Binding AddLevelAboveCommand}"
+                                ToolTip="Add a level above the active one. Between two levels it goes at mid-height and nothing moves." />
+                        <Button Padding="6,0" Margin="2,0" Content="+ BELOW" Command="{Binding AddLevelBelowCommand}"
+                                ToolTip="Add a level below the active one. Between two levels it goes at mid-height and nothing moves." />
+                        <Button Padding="6,0" Margin="2,0" Content="DELETE" Command="{Binding DeleteLevelCommand}"
+                                ToolTip="Delete the active level and everything on it (asks first; undo brings it back)." />
+                    </StackPanel>
+                    <TextBlock Style="{StaticResource PanelHeader}" Text="LEVELS" />
+                </DockPanel>
                 <ListBox Grid.Row="1" ItemsSource="{Binding Levels}" SelectedItem="{Binding ActiveLevel, Mode=TwoWay}">
                     <ListBox.ItemTemplate>
                         <DataTemplate>
@@ -323,13 +341,23 @@
                         <ItemsControl ItemsSource="{Binding Library.VisibleItems}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
-                                    <Grid Margin="0,3" Background="Transparent" MouseLeftButtonDown="OnLibraryItemMouseDown" MouseMove="OnLibraryItemMouseMove">
+                                    <Grid Margin="0,3" MouseLeftButtonDown="OnLibraryItemMouseDown" MouseMove="OnLibraryItemMouseMove">
+                                        <Grid.Style>
+                                            <Style TargetType="Grid">
+                                                <Setter Property="Background" Value="Transparent" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                                        <Setter Property="Background" Value="#2622D3EE" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Grid.Style>
                                         <Grid.ToolTip>
                                             <StackPanel MaxWidth="320">
                                                 <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
                                                 <TextBlock Text="{Binding Description}" TextWrapping="Wrap" Margin="0,4,0,0" />
                                                 <TextBlock Text="{Binding SourceText}" Foreground="{StaticResource TextDimBrush}" Margin="0,4,0,0" />
-                                                <TextBlock Text="Double-click a device, stair, escalator, ramp or travelator to place it, or drag it onto the plan." Foreground="{StaticResource TextDimBrush}" Margin="0,2,0,0" />
+                                                <TextBlock Text="Double-click a device, stair, escalator, ramp or travelator to place it, or drag it onto the plan. Click a journey to see or edit its steps in SELECTION." Foreground="{StaticResource TextDimBrush}" Margin="0,2,0,0" TextWrapping="Wrap" />
                                             </StackPanel>
                                         </Grid.ToolTip>
                                         <Grid.ColumnDefinitions>
@@ -406,8 +434,38 @@
                                                                         FontFamily="{DynamicResource RetroFont}" FontSize="14" ToolTip="Delete this rule." />
                                                                 <TextBlock Text="{Binding Header}" FontFamily="{DynamicResource RetroFont}" FontSize="16" Foreground="{StaticResource AccentBrush}" VerticalAlignment="Center" />
                                                             </DockPanel>
-                                                            <TextBlock Style="{StaticResource FieldLabel}" Text="Profile" />
-                                                            <ComboBox ItemsSource="{Binding ProfileOptions}" DisplayMemberPath="Name" SelectedValuePath="Id" SelectedValue="{Binding ProfileId, Mode=TwoWay}" />
+                                                            <TextBlock Style="{StaticResource FieldLabel}" Text="Mix (who, their journey and share)" />
+                                                            <TextBlock Style="{StaticResource DimText}" TextWrapping="Wrap" Text="No mix lines: this rule emits no one."
+                                                                       Visibility="{Binding HasNoLines, Converter={StaticResource BoolToVis}}" />
+                                                            <ItemsControl ItemsSource="{Binding MixLines}">
+                                                                <ItemsControl.ItemTemplate>
+                                                                    <DataTemplate>
+                                                                        <Border Margin="0,4,0,0" Padding="4" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1,0,0,0">
+                                                                            <StackPanel>
+                                                                                <Grid>
+                                                                                    <Grid.ColumnDefinitions>
+                                                                                        <ColumnDefinition Width="*" />
+                                                                                        <ColumnDefinition Width="56" />
+                                                                                        <ColumnDefinition Width="44" />
+                                                                                        <ColumnDefinition Width="Auto" />
+                                                                                    </Grid.ColumnDefinitions>
+                                                                                    <ComboBox Grid.Column="0" ItemsSource="{Binding ProfileOptions}" DisplayMemberPath="Name" SelectedValuePath="Id"
+                                                                                              SelectedValue="{Binding ProfileId, Mode=TwoWay}" ToolTip="Agent profile." />
+                                                                                    <TextBox Grid.Column="1" Margin="4,0,0,0" Text="{Binding Share, Mode=TwoWay}" ToolTip="Relative share of the rule's arrivals." />
+                                                                                    <TextBlock Grid.Column="2" Margin="4,0,0,0" Style="{StaticResource DimText}" Text="{Binding SharePercent}" VerticalAlignment="Center" />
+                                                                                    <Button Grid.Column="3" Margin="4,0,0,0" Content="×" Command="{Binding RemoveCommand}" Padding="6,0" ToolTip="Remove this line." />
+                                                                                </Grid>
+                                                                                <ComboBox Margin="0,2,0,0" ItemsSource="{Binding JourneyOptions}" DisplayMemberPath="Name" SelectedValuePath="Id"
+                                                                                          SelectedValue="{Binding JourneyId, Mode=TwoWay}" ToolTip="The steps they work through before leaving (LIBRARY ▸ JOURNEYS)." />
+                                                                                <TextBox Margin="0,2,0,0" Text="{Binding SpawnTagsText, Mode=TwoWay}"
+                                                                                         ToolTip="Tags some of them start with, e.g. &quot;ticket 50%, vip&quot; (no % means everyone). Journey steps can need, skip on or grant tags." />
+                                                                            </StackPanel>
+                                                                        </Border>
+                                                                    </DataTemplate>
+                                                                </ItemsControl.ItemTemplate>
+                                                            </ItemsControl>
+                                                            <Button Margin="0,4,0,0" HorizontalAlignment="Left" Content="ADD LINE" Command="{Binding AddLineCommand}"
+                                                                    FontFamily="{DynamicResource RetroFont}" FontSize="14" ToolTip="Add a mix line: another profile or journey in this stream." />
                                                             <TextBlock Style="{StaticResource FieldLabel}" Text="People per minute" />
                                                             <TextBox Text="{Binding RatePerMinute, Mode=TwoWay}" />
                                                             <TextBlock Style="{StaticResource FieldLabel}" Text="Spacing" />
@@ -616,8 +674,110 @@
                                     <TextBlock Style="{StaticResource FieldLabel}" Text="Height (m)" />
                                     <TextBox Text="{Binding HeightM, Mode=TwoWay}" />
                                     <TextBlock Margin="0,8,0,0" Text="{Binding FlowText}" Style="{StaticResource DimText}" TextWrapping="Wrap" />
-                                    <TextBlock Margin="0,6,0,0" Style="{StaticResource DimText}" TextWrapping="Wrap"
-                                               Text="Queues and service behaviour arrive in M3; placement and footprints are kept as they are." />
+
+                                    <!-- Queue (D-153, D-163, D-164) -->
+                                    <TextBlock Style="{StaticResource PanelHeader}" Text="QUEUE" Margin="0,14,0,2" />
+                                    <TextBlock Style="{StaticResource FieldLabel}" Text="Max queue per lane" />
+                                    <TextBox Text="{Binding MaxQueue, Mode=TwoWay}" ToolTip="Longest line per lane or server, in people. A drawn snake holds this many per lane it feeds." />
+                                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                        <Button Content="DRAW QUEUE" Command="{Binding DrawQueueCommand}" Padding="6,0" FontFamily="{DynamicResource RetroFont}" FontSize="15"
+                                                ToolTip="Draw the queue path from the service side, click by click; Enter or double-click finishes, Esc cancels. One shared snake feeds every lane." />
+                                        <Button Margin="6,0,0,0" Content="CLEAR QUEUE" Command="{Binding ClearQueueCommand}" Padding="6,0" FontFamily="{DynamicResource RetroFont}" FontSize="15"
+                                                Visibility="{Binding HasDrawnQueue, Converter={StaticResource BoolToVis}}" ToolTip="Back to the automatic lines." />
+                                    </StackPanel>
+                                    <TextBlock Margin="0,6,0,0" Text="{Binding QueueText}" Style="{StaticResource DimText}" TextWrapping="Wrap" />
+                                    <TextBlock Margin="0,4,0,0" Style="{StaticResource DimText}" TextWrapping="Wrap"
+                                               Text="The faint dots in plan are where people stand in line." />
+                                </StackPanel>
+                            </Border>
+
+                            <!-- Journey from LIBRARY ▸ JOURNEYS (D-154, D-161, D-162, D-165) -->
+                            <Border Visibility="{Binding HasJourneySelection, Converter={StaticResource BoolToVis}}">
+                                <StackPanel Margin="12,0" DataContext="{Binding SelectedJourney}">
+                                    <TextBlock Style="{StaticResource PanelHeader}" Text="JOURNEY" Margin="0,4,0,2" />
+                                    <TextBlock Text="{Binding SourceText}" Style="{StaticResource DimText}" TextWrapping="Wrap" />
+                                    <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                                        <Button Content="DUPLICATE" Command="{Binding DuplicateCommand}" Padding="6,0" FontFamily="{DynamicResource RetroFont}" FontSize="15"
+                                                ToolTip="Make an editable copy in this study (new name and key)." />
+                                        <Button Margin="6,0,0,0" Content="DELETE" Command="{Binding DeleteCommand}" Padding="6,0" FontFamily="{DynamicResource RetroFont}" FontSize="15"
+                                                Visibility="{Binding IsEditable, Converter={StaticResource BoolToVis}}" ToolTip="Delete this journey (only when no mix line uses it)." />
+                                    </StackPanel>
+                                    <StackPanel IsEnabled="{Binding IsEditable}">
+                                        <TextBlock Style="{StaticResource FieldLabel}" Text="Name" />
+                                        <TextBox Text="{Binding Name, Mode=TwoWay}" />
+                                        <TextBlock Style="{StaticResource FieldLabel}" Text="Description" />
+                                        <TextBox Text="{Binding Description, Mode=TwoWay}" TextWrapping="Wrap" />
+                                        <TextBlock Style="{StaticResource FieldLabel}" Text="Steps (in order; steps whose tags don't match are skipped)" />
+                                        <ItemsControl ItemsSource="{Binding Steps}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Border Margin="0,4,0,0" Padding="6,4,6,6" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
+                                                        <StackPanel>
+                                                            <Grid>
+                                                                <Grid.ColumnDefinitions>
+                                                                    <ColumnDefinition Width="Auto" />
+                                                                    <ColumnDefinition Width="*" />
+                                                                    <ColumnDefinition Width="Auto" />
+                                                                    <ColumnDefinition Width="Auto" />
+                                                                    <ColumnDefinition Width="Auto" />
+                                                                </Grid.ColumnDefinitions>
+                                                                <TextBlock Text="{Binding NumberText}" FontFamily="{DynamicResource RetroFont}" FontSize="16" Foreground="{StaticResource AccentBrush}"
+                                                                           VerticalAlignment="Center" Margin="0,0,6,0" />
+                                                                <ComboBox Grid.Column="1" ItemsSource="{Binding KindOptions}" DisplayMemberPath="Label" SelectedValuePath="Value"
+                                                                          SelectedValue="{Binding Kind, Mode=TwoWay}" ToolTip="What this step asks people to do." />
+                                                                <Button Grid.Column="2" Margin="4,0,0,0" Content="▲" Command="{Binding MoveUpCommand}" Padding="5,0" ToolTip="Move up." />
+                                                                <Button Grid.Column="3" Margin="2,0,0,0" Content="▼" Command="{Binding MoveDownCommand}" Padding="5,0" ToolTip="Move down." />
+                                                                <Button Grid.Column="4" Margin="2,0,0,0" Content="×" Command="{Binding RemoveCommand}" Padding="6,0" ToolTip="Remove this step." />
+                                                            </Grid>
+                                                            <StackPanel Visibility="{Binding HasTarget, Converter={StaticResource BoolToVis}}">
+                                                                <TextBlock Style="{StaticResource FieldLabel}" Text="{Binding TargetLabel}" />
+                                                                <ComboBox IsEditable="True" ItemsSource="{Binding TargetOptions}" Text="{Binding Target, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"
+                                                                          ToolTip="Device steps: a device type tag (Gate, TicketMachine…). Zone steps: a zone tag (Retail…), empty for any." />
+                                                                <TextBlock Text="{Binding PinnedText}" Style="{StaticResource DimText}" TextWrapping="Wrap"
+                                                                           Visibility="{Binding HasPinned, Converter={StaticResource BoolToVis}}" />
+                                                            </StackPanel>
+                                                            <StackPanel Visibility="{Binding IsDwell, Converter={StaticResource BoolToVis}}">
+                                                                <TextBlock Style="{StaticResource FieldLabel}" Text="Dwell (s, e.g. 60 or 30-180)" />
+                                                                <TextBox Text="{Binding DwellText, Mode=TwoWay}" />
+                                                            </StackPanel>
+                                                            <Grid Margin="0,2,0,0">
+                                                                <Grid.ColumnDefinitions>
+                                                                    <ColumnDefinition Width="*" />
+                                                                    <ColumnDefinition Width="*" />
+                                                                    <ColumnDefinition Width="*" />
+                                                                </Grid.ColumnDefinitions>
+                                                                <StackPanel>
+                                                                    <TextBlock Style="{StaticResource FieldLabel}" Text="Needs tag" />
+                                                                    <TextBox Text="{Binding NeedsTag, Mode=TwoWay}" ToolTip="Only people with this tag do the step (empty = everyone)." />
+                                                                </StackPanel>
+                                                                <StackPanel Grid.Column="1" Margin="4,0,0,0">
+                                                                    <TextBlock Style="{StaticResource FieldLabel}" Text="Lacks tag" />
+                                                                    <TextBox Text="{Binding LacksTag, Mode=TwoWay}" ToolTip="Only people without this tag do the step, e.g. ticket at a ticket machine." />
+                                                                </StackPanel>
+                                                                <StackPanel Grid.Column="2" Margin="4,0,0,0">
+                                                                    <TextBlock Style="{StaticResource FieldLabel}" Text="Grants tag" />
+                                                                    <TextBox Text="{Binding GrantsTag, Mode=TwoWay}" ToolTip="Tag given when the step is done, e.g. ticket." />
+                                                                </StackPanel>
+                                                            </Grid>
+                                                            <StackPanel Visibility="{Binding IsDevice, Converter={StaticResource BoolToVis}}">
+                                                                <TextBlock Style="{StaticResource FieldLabel}" Text="If patience runs out in the queue" />
+                                                                <ComboBox ItemsSource="{Binding GiveUpOptions}" DisplayMemberPath="Label" SelectedValuePath="Value" SelectedValue="{Binding GiveUp, Mode=TwoWay}"
+                                                                          ToolTip="Patience is the profile's (Commuter 180 s). Keep waiting: stress only. Leave: walk out, counted as gave up. Jump: carry on from another step." />
+                                                                <StackPanel Visibility="{Binding IsJump, Converter={StaticResource BoolToVis}}">
+                                                                    <TextBlock Style="{StaticResource FieldLabel}" Text="Jump to step" />
+                                                                    <TextBox Text="{Binding GiveUpStepNumber, Mode=TwoWay}" ToolTip="Step number to carry on from (no tag is granted)." />
+                                                                </StackPanel>
+                                                            </StackPanel>
+                                                        </StackPanel>
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                        <Button Margin="0,6,0,0" HorizontalAlignment="Left" Content="ADD STEP" Command="{Binding AddStepCommand}"
+                                                FontFamily="{DynamicResource RetroFont}" FontSize="14" ToolTip="Add a device step before the exit." />
+                                    </StackPanel>
+                                    <TextBlock Margin="0,8,0,0" Text="{Binding Summary}" Style="{StaticResource DimDataText}" TextWrapping="Wrap" />
+                                    <TextBlock Margin="0,4,0,0" Text="{Binding UsageText}" Style="{StaticResource DimText}" TextWrapping="Wrap" />
                                 </StackPanel>
                             </Border>
 

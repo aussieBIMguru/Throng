@@ -1,8 +1,14 @@
-# Throng — Project Brief (v0.16)
+# Throng — Project Brief (v0.22)
 
 > Conceptual pedestrian simulation for architects. Sketch a space, drop in devices, press play, read the pressure.
 > Status: **all decisions locked** (see §18). Ready for M0. Items marked ⏳ are deliberately deferred to later rounds.
 >
+> **v0.22:** 009c (unbuilt in sandbox): stair effort in route choice, per profile (stairs up feel ×2.0, down ×1.4 by default; commuters milder, luggage/elderly/family stronger), so escalators win unless queued (D-174). 009b fixes: device fields close other gates' lanes (D-172), balk counts the current device's preference (D-173).
+> **v0.21:** 009b built (unbuilt in sandbox, format stays v6, D-169): journey editor in SELECTION (LIBRARY ▸ JOURNEYS rows open it; built-ins read-only with DUPLICATE; steps add / remove / reorder, kind, target, needs / lacks / grants, dwell, give-up), give-up per device step (keep waiting / leave / jump to step, D-165), profile device preferences (wheelchair and luggage favour the accessible gate, D-166), DRAW QUEUE as one shared snake feeding every lane with slot dots on the selected device (D-163, D-164), hold points 2 m out beside the lane mouths (D-167), status bar QUEUING / STRESSED / GAVE UP (D-168).
+> **v0.20:** 009a built (unbuilt in sandbox): journeys (go to device type, pass zone, dwell, exit) with need / lack / grant tags, mix lines on emission rules, device queues as automatic lines per lane and side with one direction per gate lane, walk + wait device choice with balk, format v6, demo ticket/gate/retail journeys with eight machines (D-159).
+> **v0.19:** round 009 queries answered (D-148–D-158): journeys with tags (need / lack / grant) instead of % per step, profile mix lines (profile + journey + share), device queues as automatic lines with drawn overrides, fastest walk + queue device choice, format v6, demo ticket/gate journeys with retail dwell. Built in two parts (009a, 009b). M3 task lists brought forward.
+> **v0.18:** round 008 (unbuilt in sandbox): add/remove levels with storey split and undo (D-142, D-143), hover highlight for pick and snap targets plus a LIBRARY drag ghost (D-144), per-agent stress with a PROFILE / STRESS colour toggle (D-145, D-146). Journey templates planned as library steps with chances (D-141).
+> **v0.17:** r007p (unbuilt in sandbox): per-profile mechanised preference scales escalator/travelator ride and queue in route choice (D-138); stalled-queue stair wait off by default (D-139). Gaps found: no add/remove level command (M1 scope); hover highlight wanted in the editor. Stretch goal noted: visual node editor for profiles and journeys (§8.2).
 > **v0.16:** r007k (unbuilt in sandbox): stair and ramp lanes only with real counterflow (D-132); escalators weighted up (boarding-rate seed 0.8 × cap, stalled stair queues count in stair waits; D-133).
 > **v0.15:** round 007 part 2 (r007i, unbuilt in sandbox): boarding spacing at metered belts so crowds approach the step-loading cap (D-128), rate curves on emission rules (presets + editable points, multiplier on the rate, holds the last value; D-129), file format v5 (D-130).
 > **v0.14:** round 007 part 1 built (unbuilt in sandbox): escalator-end rules (keep-clear run-offs, walk clear, boarding hold), deferral to nearby options (per-agent belt cost, measured waits, light balk), one-way Up/Down stairs and ramps, floors hide agents in 3D, dead-end piece walls (D-112–D-118).
@@ -255,7 +261,7 @@ Multiple queues to one node and one queue to multiple nodes are both supported v
 |---|---|
 | Body | Radius (default 0.25 m), height (visual only) |
 | Movement | Desired speed distribution (default normal, mean 1.34 m/s, SD 0.26, clamped 0.6–2.0), stair factors |
-| Behaviour | Patience (s), decisiveness (choice noise), personal space preference, lift/stair preference, walking-on-escalator probability |
+| Behaviour | Patience (s), decisiveness (choice noise), personal space preference, lift/stair preference, mechanised preference (escalators, travelators, lifts; D-138), walking-on-escalator probability |
 | Tasks | Ordered or unordered task list (see 8.2) |
 | Thresholds | Acceptable journey time, acceptable wait per node type — used for "acceptable journey" metrics |
 | Display | Colour, label |
@@ -267,7 +273,14 @@ An agent's itinerary is a list of **steps**:
 - `PassThrough(waypoint)` — forced routing via a point (for prescribed routes)
 - `Exit(sinkType | specific sink)`
 
+**Stretch goal (Gavin, r007p):** a visual node editor for profiles and journey types: steps as nodes, wired in
+sequence, with chances on the links (e.g. 30% need a ticket machine). The journey model should stay a plain graph
+so such an editor can sit on it later.
+
 Steps may be **conditional** on a tag the agent carries (e.g. "has ticket" skips ticket machine; X% of profile spawns with the tag). This covers "get a ticket before using the gate" without a scripting language.
+
+**As built (009a, D-149–D-155, D-159):** journeys are library templates of steps GoToDevice(type), PassZone(tag or zone), Dwell(tag or zone, time), Exit; each step can need, lack or grant a tag. Emission rules hold mix lines (profile + journey + share + spawn tags). Zone steps match `Region.Tag`, so built-in journeys work in any study. Prescribed waypoints (`PassThrough(waypoint)`) wait for a later round.
+**As built (009b, D-161–D-169):** clicking a journey in LIBRARY ▸ JOURNEYS shows its step grid in SELECTION; built-ins (and the copies a study embeds) are read-only, DUPLICATE makes an editable copy in the study library. Device steps carry "if patience runs out": keep waiting (stress only), leave the study (counted as gave up) or jump to step N; patience is the profile's and counts from first stopping at the device. Profiles carry device preferences (preset key or type tag → seconds off the choice cost). A drawn queue is one shared snake feeding every service-side lane (bank style).
 
 ### 8.3 Movement model
 - **Global path:** the agent plans on the **portal graph** (§3.0) to get a sequence of surfaces/portals, then follows per-target **flow fields** (Dijkstra / fast-marching on each surface's nav grid) toward the next portal or final target. Flow fields are computed per target per surface and cached.
@@ -387,7 +400,7 @@ Split view (2D + 3D side by side) supported. All views editable where practical;
 Select, move, rotate, scale, copy/paste, duplicate, array (linear), delete, undo/redo (unbounded command stack), group, lock, hide, measure, align. Property panel for the selected object(s) with multi-edit. Object browser tree (levels → regions → nodes → connectors). Library palette of preset devices (ticket machine, 4-lane gate line, security lane, lift bank, escalator pair…).
 
 ### 12.3 Run controls
-A **RUN** group in the toolbar, next to CHECK (D-024): PLAY/PAUSE, STEP, RESET and speed chips ×0.5 ×1 ×2 ×4 ×8 MAX; the status-bar clock ticks live. **As built (round 006):** PLAY checks and compiles the study first (errors block, D-106) and locks editing until RESET (D-097); the status bar shows speed, agents, emitted, arrived, mean journey and stuck (D-104); the STUDY tab's RUN section sets start time, end (fixed duration or until stopped), seed with RE-ROLL and keep side (D-103, D-105). Later: jump to time, follow-agent camera, click agent for inspector (profile, current task, wait so far, frustration history). A bottom scrubber bar can join in M8 with replay.
+A **RUN** group in the toolbar, next to CHECK (D-024): PLAY/PAUSE, STEP, RESET and speed chips ×0.5 ×1 ×2 ×4 ×8 MAX; the status-bar clock ticks live. **As built (round 006):** PLAY checks and compiles the study first (errors block, D-106) and locks editing until RESET (D-097); the status bar shows speed, agents, emitted, arrived, mean journey, queuing, stressed, gave up and stuck (D-104, D-168); the STUDY tab's RUN section sets start time, end (fixed duration or until stopped), seed with RE-ROLL and keep side (D-103, D-105). Later: jump to time, follow-agent camera, click agent for inspector (profile, current task, wait so far, frustration history). A bottom scrubber bar can join in M8 with replay.
 
 ---
 

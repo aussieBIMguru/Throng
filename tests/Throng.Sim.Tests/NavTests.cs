@@ -86,7 +86,10 @@ public sealed class NavTests
         Assert.AreEqual(0, result.Findings.Count(f => f.Severity == ValidationSeverity.Error));
 
         SimModel model = result.Model!;
-        Assert.AreEqual((3 * 2) + 12, model.Emitters.Count, "Two rules per street entrance, one per platform door.");
+        Assert.AreEqual(3 + 12, model.Emitters.Count, "One rule per street entrance (a three-line mix, D-155), one per platform door.");
+        Assert.IsTrue(model.Devices.Count(d => d.TypeTag == "TicketMachine") == 8 && model.Devices.Count(d => d.TypeTag == "Gate") == 2,
+            "Journeys use the eight machines and both gates.");
+        Assert.IsTrue(model.Devices.All(d => d.Slots.Any(line => line.Length >= 5)), "Every device has a usable queue line.");
         Assert.IsTrue(model.Emitters.All(e => e.Destinations.Length > 0));
 
         // Every chosen destination is reachable (no rule lost a sink to an unreachable route).

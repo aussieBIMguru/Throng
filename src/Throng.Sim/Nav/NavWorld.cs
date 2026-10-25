@@ -112,14 +112,34 @@ public sealed class NavPortal
     }
 }
 
-/// <summary>A sink zone: where agents leave the study.</summary>
+/// <summary>What a route target is for (round 009).</summary>
+public enum NavTargetRole
+{
+    /// <summary>A sink zone: people leave the study here.</summary>
+    Exit,
+
+    /// <summary>A device's service area or lanes (journey device steps, D-152).</summary>
+    Device,
+
+    /// <summary>A zone a journey passes through or dwells in (D-149).</summary>
+    Zone,
+}
+
+/// <summary>
+/// A route target: a sink zone where agents leave the study, or (round 009) a device or zone a journey step sends
+/// them to. Every target gets a flow field and a row in the remaining-cost tables, so route choice works the same
+/// for all of them.
+/// </summary>
 public sealed class NavSink
 {
     /// <summary>Position in <see cref="NavWorld.Sinks"/>.</summary>
     public required int Index { get; init; }
 
-    /// <summary>Source region id.</summary>
+    /// <summary>Source region id (exits and zones) or device id (devices).</summary>
     public required Guid RegionId { get; init; }
+
+    /// <summary>What the target is for; only <see cref="NavTargetRole.Exit"/> targets remove people.</summary>
+    public NavTargetRole Role { get; init; } = NavTargetRole.Exit;
 
     /// <summary>Display name.</summary>
     public required string Name { get; init; }
@@ -129,6 +149,13 @@ public sealed class NavSink
 
     /// <summary>Walkable floor cells inside the zone.</summary>
     public required int[] Cells { get; init; }
+
+    /// <summary>
+    /// Floor cells this target's field treats as closed: for a device target, the lanes of every other pass-through
+    /// device on the floor, so people heading for one gate don't walk through another unserved (r009b). Set once by
+    /// the simulation set-up, before the fields are built.
+    /// </summary>
+    public int[] AvoidCells { get; set; } = [];
 }
 
 /// <summary>A directed step from a cell on one surface to a cell on another (joints and floor ends).</summary>
@@ -157,7 +184,7 @@ public sealed class NavWorld
     /// <summary>Served floor ends.</summary>
     public required IReadOnlyList<NavPortal> Portals { get; init; }
 
-    /// <summary>Sink zones.</summary>
+    /// <summary>Route targets: sink zones first, then any device and zone targets added for journeys.</summary>
     public required IReadOnlyList<NavSink> Sinks { get; init; }
 
     /// <summary>First global cell index of each surface.</summary>
@@ -177,6 +204,30 @@ public sealed class NavWorld
 
     /// <summary>Floor surface of each level.</summary>
     public required IReadOnlyDictionary<Guid, int> FloorByLevel { get; init; }
+
+    /// <summary>
+    /// A copy of this world with more route targets after the existing ones (round 009: devices and zones that
+    /// journeys use). The extra targets must be numbered from <see cref="Sinks"/>.Count on.
+    /// </summary>
+    public NavWorld WithTargets(IReadOnlyList<NavSink> extra)
+    {
+        var targets = new List<NavSink>(Sinks.Count + extra.Count);
+        targets.AddRange(Sinks);
+        targets.AddRange(extra);
+        return new NavWorld
+        {
+            Surfaces = Surfaces,
+            Connectors = Connectors,
+            Portals = Portals,
+            Sinks = targets,
+            CellBase = CellBase,
+            TotalCells = TotalCells,
+            LinksInto = LinksInto,
+            LinksIntoStart = LinksIntoStart,
+            Bounds = Bounds,
+            FloorByLevel = FloorByLevel,
+        };
+    }
 
     /// <summary>Surface holding a global cell index.</summary>
     public int SurfaceOfGlobal(int global)

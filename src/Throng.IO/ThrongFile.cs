@@ -27,8 +27,10 @@ public static class ThrongFile
     /// <c>underlays</c> with their images under <c>underlays/</c> (round 005, D-086).
     /// v4: emission rules on spawn zones, keep side, staff-only connectors (round 006, D-099, D-105, D-110).
     /// v5: rate curves on emission rules (round 007, D-129).
+    /// v6: mix lines (profile + journey + share + spawn tags) on emission rules, device queue settings and journeys
+    /// in the library (round 009, D-151, D-153, D-157).
     /// </summary>
-    public const int CurrentFormatVersion = 5;
+    public const int CurrentFormatVersion = 6;
 
     /// <summary>Zip folder holding underlay images (§14.2, D-083).</summary>
     public const string UnderlayFolder = "underlays/";

@@ -27,6 +27,7 @@ public sealed partial class MainViewModel
     private SimRunner? _runner;
     private CancellationTokenSource? _setupCancel;
     private bool _isRunActive;
+    private AgentColoring _agentColoring = AgentColoring.Profile;
     private bool _isPreparing;
     private RunSpeed _speed = RunSpeed.RealTime;
     private SimStats _stats;
@@ -89,7 +90,47 @@ public sealed partial class MainViewModel
 
     public bool IsSpeedMax { get => _speed.IsMax; set => SetSpeedChip(value, "MAX"); }
 
-    /// <summary>Status-bar counters (D-104), or a hint when no run is active.</summary>
+    /// <summary>What agent bodies are coloured by (D-146); a view setting, not saved and not undoable.</summary>
+    public AgentColoring AgentColoring
+    {
+        get => _agentColoring;
+        set
+        {
+            if (SetProperty(ref _agentColoring, value))
+            {
+                OnPropertyChanged(nameof(IsColourProfile));
+                OnPropertyChanged(nameof(IsColourStress));
+            }
+        }
+    }
+
+    /// <summary>COLOUR ▸ PROFILE chip.</summary>
+    public bool IsColourProfile
+    {
+        get => _agentColoring == AgentColoring.Profile;
+        set
+        {
+            // A chip click always selects; clicking the lit chip re-lights it rather than leaving neither lit.
+            AgentColoring = AgentColoring.Profile;
+            OnPropertyChanged(nameof(IsColourProfile));
+        }
+    }
+
+    /// <summary>COLOUR ▸ STRESS chip.</summary>
+    public bool IsColourStress
+    {
+        get => _agentColoring == AgentColoring.Stress;
+        set
+        {
+            AgentColoring = AgentColoring.Stress;
+            OnPropertyChanged(nameof(IsColourStress));
+        }
+    }
+
+    /// <summary>
+    /// Status-bar counters (D-104), with people queuing, stressed (stress ≥ 0.5) and given up (D-168), or a hint when
+    /// no run is active.
+    /// </summary>
     public string RunStatusText
     {
         get
@@ -111,7 +152,7 @@ public sealed partial class MainViewModel
                 ? string.Create(c, $"{_stats.StuckNow} (+{_stats.StuckRemoved} removed)")
                 : _stats.StuckNow.ToString(c);
             return string.Create(c,
-                $"{speed} · AGENTS {_stats.InSystem} · IN {_stats.Spawned} · OUT {_stats.Arrived} · JOURNEY {(int)journey.TotalMinutes}:{journey.Seconds:00} · STUCK {stuck}");
+                $"{speed} · AGENTS {_stats.InSystem} · IN {_stats.Spawned} · OUT {_stats.Arrived} · JOURNEY {(int)journey.TotalMinutes}:{journey.Seconds:00} · QUEUING {_stats.Queuing} · STRESSED {_stats.Stressed} · GAVE UP {_stats.GaveUp} · STUCK {stuck}");
         }
     }
 

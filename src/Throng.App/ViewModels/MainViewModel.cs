@@ -42,6 +42,7 @@ public sealed partial class MainViewModel : ObservableObject
         Library = new LibraryBrowserViewModel(BuiltInLibrary.Instance);
         InitialiseEditing();
         InitialiseRun();
+        InitialiseLevels();
 
         NewCommand = new RelayCommand(New);
         NewFromDemoCommand = new RelayCommand(NewFromDemo);

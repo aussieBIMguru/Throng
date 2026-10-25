@@ -4,7 +4,7 @@ namespace Throng.Core.Model;
 
 /// <summary>
 /// A placed device (node) from a <see cref="Library.DeviceTemplate"/>: ticket machine, gate line, desk… (D-089).
-/// It has a rectangular footprint and a service side; queues and behaviour arrive in M3.
+/// It has a rectangular footprint and a service side; people queue at it and are served (round 009, D-152, D-153).
 /// </summary>
 /// <remarks>
 /// Plan frame: <see cref="Position"/> is the footprint centre; <see cref="AngleDeg"/> is the direction the service
@@ -59,6 +59,21 @@ public sealed class Device
     /// <summary>Display colour as #RRGGBB, from the preset.</summary>
     public string ColorHex { get; set; } = "#FACC15";
 
+    /// <summary>Default <see cref="MaxQueue"/> (D-153).</summary>
+    public const int DefaultMaxQueue = 20;
+
+    /// <summary>
+    /// Longest queue line per lane or server, in people (D-153); the automatic line also stops earlier where it
+    /// runs out of floor.
+    /// </summary>
+    public int MaxQueue { get; set; } = DefaultMaxQueue;
+
+    /// <summary>
+    /// Drawn queue path from the service point outwards (D-153, edited from round 009b); empty means the automatic
+    /// line straight out from the service side, bending along walls.
+    /// </summary>
+    public List<Point2> QueuePath { get; set; } = [];
+
     /// <summary>Unit vector the service side faces.</summary>
     public Point2 Facing()
     {
@@ -91,5 +106,7 @@ public sealed class Device
         PassThrough = other.PassThrough;
         HeightM = other.HeightM;
         ColorHex = other.ColorHex;
+        MaxQueue = other.MaxQueue;
+        QueuePath = [.. other.QueuePath ?? []];
     }
 }

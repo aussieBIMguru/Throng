@@ -31,17 +31,21 @@ public sealed class TemplateLibrary
     /// <summary>Schedule templates.</summary>
     public List<ScheduleTemplate> Schedules { get; set; } = [];
 
+    /// <summary>Journeys (D-154). Libraries saved before round 009 have none.</summary>
+    public List<JourneyTemplate> Journeys { get; set; } = [];
+
     /// <summary>Every template in the library, in category order.</summary>
     public IEnumerable<TemplateBase> All() =>
         AgentProfiles.Cast<TemplateBase>()
             .Concat(Devices)
             .Concat(Connectors)
             .Concat(Lifts)
-            .Concat(Schedules);
+            .Concat(Schedules)
+            .Concat(Journeys ?? []);
 
     /// <summary>Total number of templates.</summary>
     [JsonIgnore]
-    public int Count => AgentProfiles.Count + Devices.Count + Connectors.Count + Lifts.Count + Schedules.Count;
+    public int Count => AgentProfiles.Count + Devices.Count + Connectors.Count + Lifts.Count + Schedules.Count + (Journeys?.Count ?? 0);
 
     /// <summary>Finds a template by id.</summary>
     public TemplateBase? Find(Guid id) => All().FirstOrDefault(t => t.Id == id);
@@ -59,6 +63,7 @@ public sealed class TemplateLibrary
             case ConnectorTemplate c: Connectors.Add(c); break;
             case LiftTemplate l: Lifts.Add(l); break;
             case ScheduleTemplate s: Schedules.Add(s); break;
+            case JourneyTemplate j: (Journeys ??= []).Add(j); break;
         }
     }
 

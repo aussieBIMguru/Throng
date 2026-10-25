@@ -168,7 +168,16 @@ public sealed partial class PlanEditor
 
     /// <summary>Outline under the cursor in the select tool, for hover highlight.</summary>
     public (IReadOnlyList<Point2> Outline, bool Closed)? Hover =>
-        _gesture == Gesture.None && _tool == EditorTool.Select && _hover is { } id && !_selection.Contains(id) ? OutlineOf(id) : null;
+        _gesture == Gesture.None && _hover is { } id && (_tool != EditorTool.Select || !_selection.Contains(id)) ? OutlineOf(id) : null;
+
+    /// <summary>
+    /// True when <see cref="Hover"/> is the object the cursor is snapping to while drawing or placing (D-144),
+    /// false when it's what a Select click would pick.
+    /// </summary>
+    public bool HoverIsSnapTarget => _tool != EditorTool.Select;
+
+    /// <summary>"STAIR · Street stair" for the object a Select click would pick (D-144), or null.</summary>
+    public string? HoverLabel => _tool == EditorTool.Select && Hover is not null && _hover is { } id ? DescribeObject(id) : null;
 
     /// <summary>Selected vertex index on the single grip target, if any.</summary>
     public int? SelectedVertex => _selectedVertex;
@@ -325,6 +334,12 @@ public sealed partial class PlanEditor
             }
         }
 
+        // Drawing and placing: outline the object owning the vertex or edge midpoint being snapped to (D-144).
+        if (_tool != EditorTool.Select)
+        {
+            _hover = _gesture == Gesture.None && CanEdit && _snap.Kind is SnapKind.Endpoint or SnapKind.Midpoint ? PickAt(_snap.Point) : null;
+        }
+
         RaiseOverlay();
     }
 
@@ -448,6 +463,12 @@ public sealed partial class PlanEditor
                     return true;
                 }
 
+                if (_tool == EditorTool.QueuePath)
+                {
+                    FinishQueuePath();
+                    return true;
+                }
+
                 return false;
             case Key.Back:
                 if (_points.Count > 0)
@@ -507,6 +528,12 @@ public sealed partial class PlanEditor
         if (_gesture != Gesture.None)
         {
             CancelGesture();
+        }
+        else if (_tool == EditorTool.QueuePath)
+        {
+            // DRAW QUEUE always has its start point, so Esc cancels the whole path.
+            _queueDeviceId = null;
+            Tool = EditorTool.Select;
         }
         else if (_points.Count > 0)
         {
@@ -669,7 +696,7 @@ public sealed partial class PlanEditor
 
                 return FinishTwoPointShape(last + new Point2(v[0], 0));
 
-            case EditorTool.Polygon or EditorTool.Wall:
+            case EditorTool.Polygon or EditorTool.Wall or EditorTool.QueuePath:
             {
                 Point2 next;
                 if (v.Length == 2)
@@ -748,6 +775,8 @@ public sealed partial class PlanEditor
     /// </summary>
     public void Revalidate()
     {
+        // Model changed: cached previews (queue slot dots) are stale.
+        _revision++;
         Level? level = _host.ActiveLevelModel;
         int before = _selection.Count;
         if (level is null || level.IsLocked)
@@ -1252,6 +1281,12 @@ public sealed partial class PlanEditor
             return;
         }
 
+        if (_tool == EditorTool.QueuePath)
+        {
+            QueuePathDown(raw, shift, clickCount);
+            return;
+        }
+
         Point2 p = SnapDrawPoint(raw, shift).Point;
 
         if (clickCount >= 2)
@@ -1376,7 +1411,7 @@ public sealed partial class PlanEditor
 
         Point2? reference = _tool switch
         {
-            EditorTool.Polygon or EditorTool.Wall when _points.Count > 0 => _points[^1],
+            EditorTool.Polygon or EditorTool.Wall or EditorTool.QueuePath when _points.Count > 0 => _points[^1],
             EditorTool.Circle when _points.Count > 0 => _points[0],
             _ => null,
         };
@@ -1477,6 +1512,19 @@ public sealed partial class PlanEditor
         }
 
         return best;
+    }
+
+    /// <summary>Kind and name of a selectable object for the hover tag, e.g. "WALKABLE · Concourse floor".</summary>
+    private string? DescribeObject(Guid id)
+    {
+        Study study = _host.Study;
+        string? text = study.FindRegion(id) is { } region ? $"{region.Kind} · {region.Name}"
+            : study.FindConnector(id) is { } connector ? $"{connector.Kind} · {connector.Name}"
+            : study.FindShaft(id) is { } shaft ? $"Shaft · {shaft.Name}"
+            : study.FindDevice(id) is { } device ? $"Device · {device.Name}"
+            : study.FindUnderlay(id) is { } underlay ? $"Underlay · {underlay.Name}"
+            : null;
+        return text?.ToUpperInvariant();
     }
 
     /// <summary>Outline drawn for a selectable object: region outline, connector footprint or shaft outline.</summary>

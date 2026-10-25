@@ -9,5 +9,9 @@ namespace Throng.Sim.Engine;
 /// <param name="StuckNow">Agents currently flagged stuck (no progress for 30 s, D-106).</param>
 /// <param name="StuckRemoved">Agents removed after 120 s without progress.</param>
 /// <param name="Waiting">Arrivals waiting for room to appear in their spawn zone.</param>
+/// <param name="Stressed">People with stress at or above 0.5 (D-156).</param>
+/// <param name="Queuing">People in device queues, being served or waiting for a lane (D-153).</param>
+/// <param name="GaveUp">People who left because their patience ran out in a queue (D-165, D-168).</param>
 public readonly record struct SimStats(
-    double TimeS, int InSystem, long Spawned, long Arrived, double MeanJourneyS, int StuckNow, long StuckRemoved, int Waiting);
+    double TimeS, int InSystem, long Spawned, long Arrived, double MeanJourneyS, int StuckNow, long StuckRemoved, int Waiting,
+    int Stressed = 0, int Queuing = 0, long GaveUp = 0);

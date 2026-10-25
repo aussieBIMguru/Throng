@@ -81,12 +81,16 @@ public sealed class Round007Tests
             ("no landing squeeze", new SimTuning { LandingSqueeze = false }),
             ("no stall escape", new SimTuning { StallEscape = false }),
             ("no landing carry", new SimTuning { LandingCarry = false }),
+            ("with stalled stair wait (D-133)", new SimTuning { StalledStairWait = true }),
+            ("no stair effort (D-174)", new SimTuning { StairEffort = false }),
+            ("no standing rest (D-175)", new SimTuning { StandingRest = false }),
         ];
 
         var output = new StringBuilder();
         foreach ((string label, Func<Study> build, double seconds) in new (string, Func<Study>, double)[]
         {
-            ("DEMO 300 s", DemoStudyBuilder.Build, 300),
+            ("DEMO with journeys 300 s (D-155)", DemoStudyBuilder.Build, 300),
+            ("DEMO without journeys 300 s (straight to sinks, as r008)", DemoWithoutJourneys, 300),
             ("PAIR 240 s", () => PairStudy(), 240),
             ("PAIR 120/min each way, 240 s (saturated: boarding vs cap)", () => PairStudy(120), 240),
             ("STAIR 3.6 m one way, 120/min, 240 s", () => SimTestStudies.TwoLevels("connector.stair-3600", 120), 240),
@@ -99,7 +103,7 @@ public sealed class Round007Tests
                 SimEngine engine = Run(study, tuning, seconds);
                 SimStats stats = engine.Stats;
                 output.AppendLine(string.Create(CultureInfo.InvariantCulture,
-                    $"  {name,-18} spawned {stats.Spawned,4}  arrived {stats.Arrived,4}  stuck {stats.StuckRemoved,3}  in system {stats.InSystem,4}  waiting {stats.Waiting,4}  {Boarding(engine)}  {StuckPlaces(study, engine)}"));
+                    $"  {name,-18} spawned {stats.Spawned,4}  arrived {stats.Arrived,4}  stuck {stats.StuckRemoved,3}  in system {stats.InSystem,4}  waiting {stats.Waiting,4}  {Boarding(engine)}  {Journeys(engine)}  {StuckPlaces(study, engine)}"));
             }
         }
 
@@ -136,6 +140,40 @@ public sealed class Round007Tests
 
         Assert.IsTrue(onStair >= 5, $"only {onStair} people on the stair");
         Assert.IsTrue(inCentre >= onStair * 0.15, $"{inCentre} of {onStair} on the stair are in its middle third");
+    }
+
+    /// <summary>
+    /// Stress now (mean, peak, people at 0.5 or more; D-156), people queueing, and the mean queue wait and number served
+    /// per device type (D-153).
+    /// </summary>
+    private static string Journeys(SimEngine engine)
+    {
+        (double mean, double peak) = engine.StressNow();
+        SimStats stats = engine.Stats;
+        var text = new StringBuilder(string.Create(CultureInfo.InvariantCulture,
+            $"stress mean {mean:0.00} peak {peak:0.00} stressed {stats.Stressed,3}  queuing {stats.Queuing,3}  gave up {stats.GaveUp,3}"));
+        foreach ((string type, double wait, long served) in engine.QueueWaitsByType())
+        {
+            text.Append(string.Create(CultureInfo.InvariantCulture, $"  {type} wait {wait,5:0.0} s (n {served})"));
+        }
+
+        return text.ToString();
+    }
+
+    /// <summary>The demo with every mix line's journey removed: people walk straight to their sinks (the r008 behaviour).</summary>
+    private static Study DemoWithoutJourneys()
+    {
+        Study study = DemoStudyBuilder.Build();
+        foreach (Region region in study.Regions)
+        {
+            for (int i = 0; i < region.EmissionRules.Count; i++)
+            {
+                EmissionRule rule = region.EmissionRules[i];
+                region.EmissionRules[i] = rule with { Mix = [.. rule.Mix.Select(m => m with { JourneyId = null })] };
+            }
+        }
+
+        return study;
     }
 
     /// <summary>The busiest metered connector's boardings per minute and as a share of its cap (D-128).</summary>
@@ -186,7 +224,7 @@ public sealed class Round007Tests
         Region downSpawn = SimTestStudies.Zone(study, upper, "Down entry", ZoneKind.Spawn, new(30, 0), new(33, 20));
         downSpawn.EmissionRules.Add(new EmissionRule
         {
-            ProfileId = SimTestStudies.Commuter,
+            Mix = [MixLine.Of(SimTestStudies.Commuter)],
             RatePerMinute = perMinute,
             Pattern = EmissionPattern.Constant,
             DestinationMode = DestinationMode.ChosenSinks,

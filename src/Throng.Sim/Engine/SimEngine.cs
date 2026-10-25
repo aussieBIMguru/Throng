@@ -21,10 +21,16 @@ namespace Throng.Sim.Engine;
 /// Single-threaded and deterministic: the same model and seed give the same run. The step allocates nothing once
 /// the arrays have grown to the peak agent count. Not thread-safe; <see cref="SimRunner"/> owns it on its thread.
 /// </remarks>
-public sealed class SimEngine
+public sealed partial class SimEngine
 {
-    /// <summary>Floats per agent in a snapshot: x, y, z, heading, r, g, b, radius, height, stuck.</summary>
-    public const int FloatsPerAgent = 10;
+    /// <summary>Floats per agent in a snapshot: x, y, z, heading, r, g, b, radius, height, stuck, stress (D-145).</summary>
+    public const int FloatsPerAgent = 11;
+
+    /// <summary>Below this share of the desired speed a person counts as held up (D-145).</summary>
+    public const double StressSlowFraction = 0.5;
+
+    /// <summary>How fast held-up time drains in free flow, relative to real time (D-145).</summary>
+    public const double StressDecay = 0.5;
 
     /// <summary>Seconds without progress before an agent is flagged, and before it is removed (D-106).</summary>
     public const double StuckFlagS = 30, StuckRemoveS = 120;
@@ -164,6 +170,21 @@ public sealed class SimEngine
         MarkOpenEnds();
         _reviewTicks = Math.Max(1, (int)Math.Round(ReviewS / _dt));
         _random = new DeterministicRandom(0);
+        int lanes = 0, lines = 0;
+        foreach (SimDevice device in model.Devices)
+        {
+            lanes += device.Lanes;
+            lines += device.Slots.Length;
+        }
+
+        _laneDir = new sbyte[lanes];
+        _laneServing = new bool[lanes];
+        _laneThrough = new int[lanes];
+        _laneClosing = new bool[lanes];
+        _lineCount = new int[lines];
+        _waitJoin = new int[model.Devices.Count * 2];
+        _queueWaitSum = new double[model.Devices.Count];
+        _queueWaitCount = new long[model.Devices.Count];
         Reset();
     }
 
@@ -198,7 +219,21 @@ public sealed class SimEngine
                 waiting += p;
             }
 
-            return new SimStats(TimeS, _agents.Count, _spawned, _arrived, _arrived > 0 ? _journeySum / _arrived : 0, _stuckNow, _stuckRemoved, waiting);
+            int stressed = 0, queuing = 0;
+            for (int i = 0; i < _agents.Count; i++)
+            {
+                if (_agents.Stress[i] >= StressedLevel)
+                {
+                    stressed++;
+                }
+
+                if (_agents.Phase[i] is AgentPhase.Queue or AgentPhase.Service or AgentPhase.WaitJoin)
+                {
+                    queuing++;
+                }
+            }
+
+            return new SimStats(TimeS, _agents.Count, _spawned, _arrived, _arrived > 0 ? _journeySum / _arrived : 0, _stuckNow, _stuckRemoved, waiting, stressed, queuing, _gaveUp);
         }
     }
 
@@ -237,6 +272,8 @@ public sealed class SimEngine
             // With comb spacing (D-128) crowds board near the cap, so escalators don't start out looking slow (D-133).
             _rate[k] = BoardingRateSeed * _world.Connectors[k].ThroughputPerMin / 60.0;
         }
+
+        ResetDevices();
     }
 
     /// <summary>Advances one fixed step.</summary>
@@ -270,6 +307,13 @@ public sealed class SimEngine
             Review(i);
         }
 
+        // Journeys (D-149–D-153): lanes first, then each person's step (joining, service, dwell, moving on).
+        UpdateDevices();
+        for (int i = 0; i < n; i++)
+        {
+            UpdateJourney(i);
+        }
+
         for (int i = 0; i < n; i++)
         {
             _group[i] = BoardingGroup(i);
@@ -291,6 +335,7 @@ public sealed class SimEngine
         for (int k = _removals.Count - 1; k >= 0; k--)
         {
             (int index, bool arrived) = _removals[k];
+            ReleaseDevice(index);
             if (arrived)
             {
                 _arrived++;
@@ -334,6 +379,7 @@ public sealed class SimEngine
             buffer[o + 7] = _agents.Radius[i];
             buffer[o + 8] = _agents.Height[i];
             buffer[o + 9] = _agents.Since[i] >= StuckFlagS ? 1f : 0f;
+            buffer[o + 10] = _agents.Stress[i];
         }
 
         return n;
@@ -421,9 +467,9 @@ public sealed class SimEngine
             }
             else
             {
-                // Stairs and ramps (D-133): a stalled queue at the entry counts twice, so a jammed stair reads as
-                // slow, not just busy.
-                double queued = _tuning.MeasuredWait ? _slowNear[k] : 0;
+                // Stairs and ramps: load ÷ capacity. D-133's stalled-queue term (counting a jam twice) is off by
+                // default since D-138, as it over-favoured escalators.
+                double queued = _tuning.MeasuredWait && _tuning.StalledStairWait ? _slowNear[k] : 0;
                 _wait[k] = (_load[k] + queued) / connector.CapacityPerSecond;
             }
 
@@ -606,7 +652,8 @@ public sealed class SimEngine
     {
         SimEmitter emitter = _model.Emitters[e];
         DeterministicRandom random = _ruleRandom[e];
-        SimProfile profile = _model.Profiles[emitter.Profile];
+        SimMixLine line = PickLine(emitter, random);
+        SimProfile profile = _model.Profiles[line.Profile];
         AgentProfileTemplate template = profile.Template;
         NavSurface floor = _world.Surfaces[emitter.Floor];
         double radius = Math.Clamp(template.RadiusM, 0.1, 1.0);
@@ -626,15 +673,17 @@ public sealed class SimEngine
             _agents.Y[i] = y;
             _agents.Z[i] = floor.Z0;
             _agents.Surface[i] = emitter.Floor;
-            _agents.Profile[i] = emitter.Profile;
+            _agents.Profile[i] = line.Profile;
+            _agents.Emitter[i] = e;
+            _agents.Journey[i] = line.Journey;
+            _agents.Tags[i] = SpawnTags(line, random);
             _agents.V0[i] = (float)Math.Clamp(DistributionSampler.Sample(template.Speed, random), 0.3, 3.0);
             _agents.Radius[i] = (float)radius;
             _agents.Height[i] = (float)Math.Clamp(template.HeightM, 0.5, 2.5);
             _agents.Walks[i] = random.NextDouble() < template.EscalatorWalkProbability;
             _agents.SpawnTime[i] = TimeS;
             _agents.Heading[i] = (float)(random.NextDouble() * 2 * Math.PI);
-            _agents.Sink[i] = PickSink(i, emitter, profile, random);
-            Decide(i, random);
+            StartJourney(i, random);
             _justSpawned.Add(i);
             _spawned++;
             return true;
@@ -654,7 +703,7 @@ public sealed class SimEngine
             double bestCost = double.PositiveInfinity;
             foreach ((int sink, double _) in options)
             {
-                double c = RoutePlanner.Choose(_routes, emitter.Floor, x, y, sink, profile.Mobility, profile.Template, random, out _, out _, _wait, BeltWalkSpeed(i));
+                double c = RoutePlanner.Choose(_routes, _agents.Surface[i], x, y, sink, profile.Mobility, profile.Template, random, out _, out _, _wait, BeltWalkSpeed(i), stairEffort: _tuning.StairEffort, standingRest: _tuning.StandingRest);
                 if (c < bestCost)
                 {
                     bestCost = c;
@@ -739,7 +788,7 @@ public sealed class SimEngine
         SimProfile profile = _model.Profiles[_agents.Profile[i]];
         double cost = RoutePlanner.Choose(
             _routes, s, _agents.X[i], _agents.Y[i], _agents.Sink[i], profile.Mobility, profile.Template, random, out bool direct, out RouteOption option, _wait,
-            BeltWalkSpeed(i));
+            BeltWalkSpeed(i), stairEffort: _tuning.StairEffort, standingRest: _tuning.StandingRest);
         if (direct || !double.IsFinite(cost))
         {
             SetMode(i, AgentMode.Direct, -1);
@@ -781,7 +830,7 @@ public sealed class SimEngine
         SimProfile profile = _model.Profiles[a.Profile[i]];
         double cost = RoutePlanner.Choose(
             _routes, a.Surface[i], a.X[i], a.Y[i], a.Sink[i], profile.Mobility, profile.Template, null, out bool direct, out RouteOption option, _wait,
-            BeltWalkSpeed(i), k, StayBonusS);
+            BeltWalkSpeed(i), k, StayBonusS, _tuning.StairEffort, _tuning.StandingRest);
         if (!double.IsFinite(cost))
         {
             return;
@@ -946,6 +995,13 @@ public sealed class SimEngine
             ey = outward.Y;
         }
 
+        // Queueing, service, walking through, stepping aside and dwelling steer to a point, not along the field.
+        bool holding = a.Phase[i] != AgentPhase.Walk;
+        if (holding && s.Kind == NavSurfaceKind.Floor)
+        {
+            SteerByPhase(i, x, y, ref ex, ref ey);
+        }
+
         double v0 = a.V0[i];
         double vdx, vdy;
         if (s.Motion == NavMotion.Belt)
@@ -1039,7 +1095,7 @@ public sealed class SimEngine
             }
         }
 
-        if (_model.KeepSide != KeepSide.None && s.Motion != NavMotion.Belt && (ex != 0 || ey != 0) && !stalled)
+        if (_model.KeepSide != KeepSide.None && s.Motion != NavMotion.Belt && (ex != 0 || ey != 0) && !stalled && !holding)
         {
             // Left of the walking direction is (−ey, ex).
             double sign = _model.KeepSide == KeepSide.Left ? 1 : -1;
@@ -1516,10 +1572,20 @@ public sealed class SimEngine
         AgentStore a = _agents;
         NavSurface s = _world.Surfaces[a.Surface[i]];
         int sink = a.Sink[i];
-        if (s.Kind == NavSurfaceKind.Floor && sink >= 0 && _world.Sinks[sink].Floor == s.Index
-            && _routes.SinkFields[sink].At(s.Index, s.CellAt(a.X[i], a.Y[i])) <= 0f)
+        if (a.Phase[i] == AgentPhase.Walk && s.Kind == NavSurfaceKind.Floor && sink >= 0 && _world.Sinks[sink].Floor == s.Index
+            && _routes.SinkFields[sink].At(s.Index, s.CellAt(a.X[i], a.Y[i])) <= 0f
+            && ReachedTarget(i))
         {
             _removals.Add((i, true));
+            return;
+        }
+
+        if (a.Phase[i] != AgentPhase.Walk)
+        {
+            // Queueing (or waiting for a lane), being served, dwelling: waiting on purpose, not stuck (D-106).
+            a.Since[i] = 0;
+            a.Best[i] = float.PositiveInfinity;
+            UpdateStress(i, s);
             return;
         }
 
@@ -1535,6 +1601,7 @@ public sealed class SimEngine
             a.Since[i] += (float)_dt;
         }
 
+        UpdateStress(i, s);
         if (a.Since[i] >= StuckRemoveS)
         {
             _removals.Add((i, false));
@@ -1543,5 +1610,40 @@ public sealed class SimEngine
         {
             _stuckNow++;
         }
+    }
+    /// <summary>
+    /// Stress (D-145, BRIEF §8.4): held-up time builds while slower than <see cref="StressSlowFraction"/> of the
+    /// desired speed (belt riders excepted), faster for people with low density tolerance, and drains at
+    /// <see cref="StressDecay"/> × real time in free flow. Stress stays 0 until half the profile's patience has
+    /// been spent held up, then rises linearly to 1 at full patience.
+    /// </summary>
+    private void UpdateStress(int i, NavSurface s)
+    {
+        AgentStore a = _agents;
+        AgentProfileTemplate t = _model.Profiles[a.Profile[i]].Template;
+        double speed2 = (a.Vx[i] * a.Vx[i]) + (a.Vy[i] * a.Vy[i]);
+        double slow = StressSlowFraction * a.V0[i];
+        // Being served, walking through, stepping aside and dwelling are not hold-ups; queueing is (D-145, D-156).
+        bool heldUp = s.Motion != NavMotion.Belt && speed2 < slow * slow
+            && (a.Phase[i] is AgentPhase.Walk or AgentPhase.Queue or AgentPhase.WaitJoin);
+        double held = HeldStep(a.HeldS[i], heldUp, t.DensityTolerance, _dt);
+        a.HeldS[i] = (float)held;
+        a.Stress[i] = (float)StressFrom(held, t.PatienceS);
+    }
+
+    /// <summary>
+    /// One step of held-up time (D-145): builds at (1.5 − density tolerance) × dt while held up (tolerance 0.5 is
+    /// real time, 0 is 1.5×, 1 is 0.5×), otherwise drains at <see cref="StressDecay"/> × dt down to 0.
+    /// </summary>
+    public static double HeldStep(double heldS, bool heldUp, double densityTolerance, double dt) =>
+        heldUp
+            ? heldS + (dt * (1.5 - Math.Clamp(densityTolerance, 0, 1)))
+            : Math.Max(0, heldS - (dt * StressDecay));
+
+    /// <summary>Stress from held-up time (D-145): 0 until half the patience, then linear to 1 at full patience.</summary>
+    public static double StressFrom(double heldS, double patienceS)
+    {
+        double patience = Math.Max(1.0, patienceS);
+        return Math.Clamp((heldS - (0.5 * patience)) / (0.5 * patience), 0, 1);
     }
 }

@@ -28,9 +28,14 @@ public sealed class EditorOverlay : FrameworkElement
     private static readonly Brush Panel = Frozen(Color.FromRgb(0x0B, 0x0F, 0x17));
     private static readonly Brush LabelBack = Frozen(Color.FromArgb(0xD0, 0x0B, 0x0F, 0x17));
     private static readonly Brush TextBrush = Frozen(Color.FromRgb(0xD8, 0xDE, 0xE9));
+    private static readonly Brush QueueDot = Frozen(Color.FromArgb(0x80, 0xFA, 0xCC, 0x15));
 
     private static readonly Pen SelectionPen = FrozenPen(Yellow, 2);
-    private static readonly Pen HoverPen = FrozenPen(YellowDim, 1);
+    // Hover (D-144): what a Select click would pick is cyan with a light fill and a name tag; the object being
+    // snapped to while drawing is a dashed magenta outline.
+    private static readonly Pen HoverPen = FrozenPen(Accent, 2);
+    private static readonly Pen SnapTargetPen = FrozenPen(Frozen(Color.FromArgb(0xB0, 0xE8, 0x79, 0xF9)), 1.5, dashed: true);
+    private static readonly Pen DragGhostPen = FrozenPen(Accent, 1.5, dashed: true);
     private static readonly Pen GhostPen = FrozenPen(YellowDim, 1, dashed: true);
     private static readonly Pen GripPen = FrozenPen(Yellow, 1);
     private static readonly Pen MidGripPen = FrozenPen(YellowDim, 1);
@@ -77,18 +82,75 @@ public sealed class EditorOverlay : FrameworkElement
 
         DrawSceneLabels(dc, map);
 
-        if (editor.Hover is { } hover)
-        {
-            DrawOutline(dc, map, hover.Outline, hover.Closed, HoverPen);
-        }
+        DrawHover(dc, map, editor);
 
+        DrawQueueDots(dc, map, editor);
         DrawSelection(dc, map, editor);
         DrawRotateGrip(dc, map, editor);
         DrawRubberBand(dc, map, editor);
         DrawShapePreview(dc, map, editor);
         DrawSnapMarker(dc, map, editor);
+        DrawDragGhost(dc, map, editor);
 
         dc.Pop();
+    }
+
+    /// <summary>Faint dots on the queue slots of the selected device (D-164), automatic or drawn.</summary>
+    private static void DrawQueueDots(DrawingContext dc, Func<Point2, Point> map, PlanEditor editor)
+    {
+        IReadOnlyList<Point2> dots = editor.QueueSlotDots;
+        foreach (Point2 dot in dots)
+        {
+            dc.DrawEllipse(QueueDot, null, map(dot), 2, 2);
+        }
+    }
+
+    /// <summary>Hover highlight (D-144): pick target in Select, snap target's owner while drawing.</summary>
+    private void DrawHover(DrawingContext dc, Func<Point2, Point> map, PlanEditor editor)
+    {
+        if (editor.Hover is not { } hover)
+        {
+            return;
+        }
+
+        if (editor.HoverIsSnapTarget)
+        {
+            DrawOutline(dc, map, hover.Outline, hover.Closed, SnapTargetPen);
+            return;
+        }
+
+        if (hover.Closed)
+        {
+            DrawOutline(dc, map, hover.Outline, closed: true, null, AccentFill);
+        }
+
+        DrawOutline(dc, map, hover.Outline, hover.Closed, HoverPen);
+        if (editor.HoverLabel is { } label && editor.HasCursor)
+        {
+            Point at = map(editor.CursorSnap.Point);
+            DrawLabel(dc, label, new Point(at.X + 14, at.Y + 12), Accent);
+        }
+    }
+
+    /// <summary>Ghost of a LIBRARY item dragged over the plan (D-144).</summary>
+    private void DrawDragGhost(DrawingContext dc, Func<Point2, Point> map, PlanEditor editor)
+    {
+        if (editor.DragGhost is not { } ghost)
+        {
+            return;
+        }
+
+        Point at = map(ghost.At);
+        if (ghost.Footprint is { } device)
+        {
+            DrawOutline(dc, map, DeviceGeometry.Footprint(device), closed: true, null, AccentFill);
+            DrawOutline(dc, map, DeviceGeometry.Footprint(device), closed: true, DragGhostPen);
+        }
+
+        dc.DrawLine(CrossPen, new Point(at.X - 8, at.Y), new Point(at.X + 8, at.Y));
+        dc.DrawLine(CrossPen, new Point(at.X, at.Y - 8), new Point(at.X, at.Y + 8));
+        dc.DrawEllipse(null, DragGhostPen, at, 6, 6);
+        DrawLabel(dc, ghost.Label, new Point(at.X + 14, at.Y + 12), Accent);
     }
 
     private static void DrawSelection(DrawingContext dc, Func<Point2, Point> map, PlanEditor editor)
@@ -307,6 +369,20 @@ public sealed class EditorOverlay : FrameworkElement
                 break;
             }
 
+            case EditorTool.QueuePath when points.Count > 0:
+            {
+                var path = new List<Point2>(points) { cursor };
+                DrawOutline(dc, map, path, closed: false, PreviewPen);
+                double length = 0;
+                for (int k = 1; k < path.Count; k++)
+                {
+                    length += Point2.Distance(path[k - 1], path[k]);
+                }
+
+                label = string.Create(CultureInfo.InvariantCulture, $"queue {length:0.0} m · ~{(int)(length / QueueLines.SlotSpacingM) + 1} people · Enter finishes");
+                break;
+            }
+
             case EditorTool.Polygon or EditorTool.Wall when points.Count > 0:
             {
                 var path = new List<Point2>(points) { cursor };
@@ -428,6 +504,9 @@ public sealed class EditorOverlay : FrameworkElement
             case SnapKind.Endpoint:
                 dc.DrawRectangle(null, SnapPen, new Rect(p.X - h, p.Y - h, SnapMarkerSize, SnapMarkerSize));
                 break;
+            case SnapKind.Grid:
+                dc.DrawEllipse(Magenta, null, p, 2.5, 2.5);
+                break;
             case SnapKind.Midpoint:
             {
                 var triangle = new StreamGeometry();
@@ -462,7 +541,10 @@ public sealed class EditorOverlay : FrameworkElement
         dc.DrawText(formatted, at);
     }
 
-    private static void DrawOutline(DrawingContext dc, Func<Point2, Point> map, IReadOnlyList<Point2> outline, bool closed, Pen pen)
+    private static void DrawOutline(DrawingContext dc, Func<Point2, Point> map, IReadOnlyList<Point2> outline, bool closed, Pen pen) =>
+        DrawOutline(dc, map, outline, closed, pen, null);
+
+    private static void DrawOutline(DrawingContext dc, Func<Point2, Point> map, IReadOnlyList<Point2> outline, bool closed, Pen? pen, Brush? fill)
     {
         if (outline.Count < 2)
         {
@@ -472,7 +554,7 @@ public sealed class EditorOverlay : FrameworkElement
         var geometry = new StreamGeometry();
         using (StreamGeometryContext ctx = geometry.Open())
         {
-            ctx.BeginFigure(map(outline[0]), isFilled: false, isClosed: closed);
+            ctx.BeginFigure(map(outline[0]), isFilled: fill is not null, isClosed: closed);
             for (int i = 1; i < outline.Count; i++)
             {
                 ctx.LineTo(map(outline[i]), isStroked: true, isSmoothJoin: false);
@@ -480,7 +562,7 @@ public sealed class EditorOverlay : FrameworkElement
         }
 
         geometry.Freeze();
-        dc.DrawGeometry(null, pen, geometry);
+        dc.DrawGeometry(fill, pen, geometry);
     }
 
     private static SolidColorBrush Frozen(Color color)

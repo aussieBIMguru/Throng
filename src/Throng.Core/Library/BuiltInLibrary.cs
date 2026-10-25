@@ -20,7 +20,11 @@ public static class BuiltInLibrary
         public const string Vertical = "Vertical circulation";
         public const string Lifts = "Lifts";
         public const string Schedules = "Schedules";
+        public const string Journeys = "Journeys";
     }
+
+    /// <summary>Key of the accessible wide gate preset, which wheelchair and luggage profiles favour (D-166).</summary>
+    public const string AccessibleGateKey = "device.gate-accessible";
 
     private static readonly Lazy<TemplateLibrary> Cached = new(Build);
 
@@ -39,11 +43,12 @@ public static class BuiltInLibrary
         AddConnectors(library);
         AddLifts(library);
         AddSchedules(library);
+        AddJourneys(library);
         return library;
     }
 
     /// <summary>Sets the common template fields for a built-in.</summary>
-    private static T Init<T>(T template, string key, string name, string category, string colorHex, string description)
+    private static T Init<T>(T template, string key, string name, string category, string colorHex, string description, int version = 1)
         where T : TemplateBase
     {
         template.Id = TemplateIds.FromKey(key);
@@ -53,8 +58,44 @@ public static class BuiltInLibrary
         template.ColorHex = colorHex;
         template.Description = description;
         template.Source = TemplateSource.BuiltIn;
-        template.Version = 1;
+        template.Version = version;
         return template;
+    }
+
+    /// <summary>
+    /// Built-in journeys (D-154). Steps ask for device types and zone tags, so they work in any study; the ticket
+    /// step is skipped by anyone already holding a "ticket" tag (D-150).
+    /// </summary>
+    private static void AddJourneys(TemplateLibrary lib)
+    {
+        const string cat = Categories.Journeys;
+        const string ticket = "ticket";
+
+        lib.Add(Init(new JourneyTemplate
+        {
+            Steps = [JourneyStep.ExitStep()],
+        }, "journey.straight-exit", "Straight to exit", cat, "#4ADE80", "Walk straight to a sink. The same as having no journey."));
+
+        lib.Add(Init(new JourneyTemplate
+        {
+            Steps = [JourneyStep.Device("Gate"), JourneyStep.ExitStep()],
+        }, "journey.through-gates", "Through gates", cat, "#22D3EE", "Pass a ticket gate (whichever is quickest, queue included), then leave."));
+
+        lib.Add(Init(new JourneyTemplate
+        {
+            Steps = [JourneyStep.Device("TicketMachine", lacks: ticket, grants: ticket), JourneyStep.Device("Gate"), JourneyStep.ExitStep()],
+        }, "journey.ticket-gates", "Ticket then gates", cat, "#FACC15", "Buy a ticket at a machine unless already holding one, pass a gate, then leave."));
+
+        lib.Add(Init(new JourneyTemplate
+        {
+            Steps =
+            [
+                JourneyStep.DwellIn("Retail", Distribution.Uniform(30, 180)),
+                JourneyStep.Device("TicketMachine", lacks: ticket, grants: ticket),
+                JourneyStep.Device("Gate"),
+                JourneyStep.ExitStep(),
+            ],
+        }, "journey.browse-gates", "Browse then gates", cat, "#FBBF24", "Linger 30–180 s in a zone tagged Retail, buy a ticket if needed, pass a gate, then leave."));
     }
 
     private static void AddAgents(TemplateLibrary lib)
@@ -64,44 +105,51 @@ public static class BuiltInLibrary
         lib.Add(Init(new AgentProfileTemplate
         {
             Speed = Distribution.Normal(1.45, 0.20, 0.9, 2.0),
-            PatienceS = 180, Decisiveness = 0.9, LiftPreference = -0.6, EscalatorWalkProbability = 0.5, AcceptableJourneyS = 600,
-        }, "agent.commuter", "Commuter", cat, "#22D3EE", "Regular traveller. Fast, decisive, low patience; walks on escalators and avoids lifts."));
+            PatienceS = 180, Decisiveness = 0.9, LiftPreference = -0.6, MechanisedPreference = -0.2, EscalatorWalkProbability = 0.5, AcceptableJourneyS = 600,
+            StairUpEffort = 1.5, StairDownEffort = 1.2,
+        }, "agent.commuter", "Commuter", cat, "#22D3EE", "Regular traveller. Fast, decisive, low patience; walks on escalators and avoids lifts.", version: 2));
 
         lib.Add(Init(new AgentProfileTemplate
         {
             Speed = Distribution.Normal(1.20, 0.22, 0.6, 1.8),
-            PatienceS = 420, Decisiveness = 0.4, EscalatorWalkProbability = 0.1, AcceptableJourneyS = 900,
+            PatienceS = 420, Decisiveness = 0.4, MechanisedPreference = 0.3, EscalatorWalkProbability = 0.1, AcceptableJourneyS = 900,
         }, "agent.infrequent", "Infrequent traveller", cat, "#FACC15", "Tourist or occasional user. Slower and less decisive; often needs a ticket and the info desk."));
 
         lib.Add(Init(new AgentProfileTemplate
         {
             RadiusM = 0.40, Speed = Distribution.Normal(1.10, 0.20, 0.6, 1.6),
-            StairUpFactor = 0.45, StairDownFactor = 0.55, PatienceS = 360, LiftPreference = 0.5, EscalatorWalkProbability = 0.05, AcceptableJourneyS = 900,
-        }, "agent.luggage", "Luggage traveller", cat, "#FB923C", "Carrying bags or a case. Larger footprint, slower, prefers escalators and lifts over stairs."));
+            StairUpFactor = 0.45, StairDownFactor = 0.55, PatienceS = 360, LiftPreference = 0.5, MechanisedPreference = 0.8, EscalatorWalkProbability = 0.05, AcceptableJourneyS = 900,
+            DevicePreferences = [new DevicePreference { Target = AccessibleGateKey, BonusS = 15 }],
+            StairUpEffort = 3.0, StairDownEffort = 2.0,
+        }, "agent.luggage", "Luggage traveller", cat, "#FB923C", "Carrying bags or a case. Larger footprint, slower, prefers escalators and lifts over stairs, and the accessible gate.", version: 3));
 
         lib.Add(Init(new AgentProfileTemplate
         {
             RadiusM = 0.45, HeightM = 1.35, Speed = Distribution.Normal(0.90, 0.15, 0.5, 1.3),
-            PatienceS = 600, LiftPreference = 1.0, LiftOnly = true, EscalatorWalkProbability = 0, AcceptableJourneyS = 1200,
-        }, "agent.mobility", "Mobility-impaired (wheelchair)", cat, "#A78BFA", "Wheelchair user. Lifts and ramps only; uses accessible gates."));
+            PatienceS = 600, LiftPreference = 1.0, MechanisedPreference = 1.0, LiftOnly = true, EscalatorWalkProbability = 0, AcceptableJourneyS = 1200,
+            DevicePreferences = [new DevicePreference { Target = AccessibleGateKey, BonusS = 30 }],
+        }, "agent.mobility", "Mobility-impaired (wheelchair)", cat, "#A78BFA", "Wheelchair user. Lifts and ramps only; uses accessible gates.", version: 2));
 
         lib.Add(Init(new AgentProfileTemplate
         {
             Speed = Distribution.Normal(0.95, 0.18, 0.5, 1.4),
-            StairUpFactor = 0.45, StairDownFactor = 0.50, PatienceS = 600, Decisiveness = 0.5, LiftPreference = 0.4, EscalatorWalkProbability = 0.05, AcceptableJourneyS = 1200,
-        }, "agent.elderly", "Elderly", cat, "#F9A8D4", "Slower walker with a higher stair penalty; more patient in queues."));
+            StairUpFactor = 0.45, StairDownFactor = 0.50, PatienceS = 600, Decisiveness = 0.5, LiftPreference = 0.4, MechanisedPreference = 0.6, EscalatorWalkProbability = 0.05, AcceptableJourneyS = 1200,
+            StairUpEffort = 3.0, StairDownEffort = 2.0,
+        }, "agent.elderly", "Elderly", cat, "#F9A8D4", "Slower walker with a higher stair penalty; more patient in queues.", version: 2));
 
         lib.Add(Init(new AgentProfileTemplate
         {
             RadiusM = 0.35, Speed = Distribution.Normal(1.00, 0.20, 0.5, 1.5),
-            PatienceS = 300, Decisiveness = 0.5, LiftPreference = 0.2, EscalatorWalkProbability = 0.05, AcceptableJourneyS = 900,
-        }, "agent.family", "Family / group", cat, "#86EFAC", "Small group modelled as one wider, slower agent. True group movement comes later."));
+            PatienceS = 300, Decisiveness = 0.5, LiftPreference = 0.2, MechanisedPreference = 0.5, EscalatorWalkProbability = 0.05, AcceptableJourneyS = 900,
+            StairUpEffort = 3.0, StairDownEffort = 2.0,
+        }, "agent.family", "Family / group", cat, "#86EFAC", "Small group modelled as one wider, slower agent. True group movement comes later.", version: 2));
 
         lib.Add(Init(new AgentProfileTemplate
         {
             Speed = Distribution.Normal(1.40, 0.15, 1.0, 1.9),
             PatienceS = 900, Decisiveness = 1.0, EscalatorWalkProbability = 0.5, AcceptableJourneyS = 1800,
-        }, "agent.staff", "Staff", cat, "#94A3B8", "Operator staff. Pinned routes and bypasses public queues (from M3)."));
+            StairUpEffort = 1.5, StairDownEffort = 1.2,
+        }, "agent.staff", "Staff", cat, "#94A3B8", "Operator staff. Pinned routes and bypasses public queues (from M3).", version: 2));
 
         lib.Add(Init(new AgentProfileTemplate
         {
@@ -126,13 +174,13 @@ public static class BuiltInLibrary
 
         lib.Add(Init(new DeviceTemplate
         {
-            TypeTag = "Gate", Servers = 4, ServiceTime = Distribution.Uniform(1.5, 2.5), Queue = QueueMode.AutoCrowd, PassThrough = true, WidthM = 4.0, DepthM = 1.2,
-        }, "device.gate-line", "Ticket gate line (4 lanes)", cat, "#22D3EE", "Four-lane fare gate line. Fast pass-through; crowds form when a train empties."));
+            TypeTag = "Gate", Servers = 4, ServiceTime = Distribution.Uniform(1.0, 2.0), Queue = QueueMode.AutoCrowd, PassThrough = true, WidthM = 4.0, DepthM = 1.2,
+        }, "device.gate-line", "Ticket gate line (4 lanes)", cat, "#22D3EE", "Four-lane fare gate line, about 30–40 people a minute per lane. Fast pass-through; crowds form when a train empties.", version: 2));
 
         lib.Add(Init(new DeviceTemplate
         {
             TypeTag = "Gate", ServiceTime = Distribution.Uniform(3, 5), Queue = QueueMode.AutoCrowd, PassThrough = true, WidthM = 1.2, DepthM = 1.2, ChoiceWeight = -10,
-        }, "device.gate-accessible", "Accessible wide gate", cat, "#67E8F9", "Single wide gate. Slower; preferred by mobility-impaired and luggage profiles."));
+        }, AccessibleGateKey, "Accessible wide gate", cat, "#67E8F9", "Single wide gate. Slower; preferred by mobility-impaired and luggage profiles."));
 
         lib.Add(Init(new DeviceTemplate
         {

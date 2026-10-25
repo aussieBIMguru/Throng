@@ -23,7 +23,7 @@ internal static class SimTestStudies
         Region spawn = Zone(study, level, "West", ZoneKind.Spawn, new(0, 0), new(2, 4));
         spawn.EmissionRules.Add(new EmissionRule
         {
-            ProfileId = Commuter,
+            Mix = [MixLine.Of(Commuter)],
             RatePerMinute = ratePerMinute,
             Pattern = pattern,
             DestinationMode = DestinationMode.ChosenSinks,
@@ -53,7 +53,7 @@ internal static class SimTestStudies
         Region spawn = Zone(study, ground, "Entry", ZoneKind.Spawn, new(0, 0), new(3, 20));
         spawn.EmissionRules.Add(new EmissionRule
         {
-            ProfileId = Commuter,
+            Mix = [MixLine.Of(Commuter)],
             RatePerMinute = ratePerMinute,
             Pattern = EmissionPattern.Constant,
             DestinationMode = DestinationMode.ChosenSinks,

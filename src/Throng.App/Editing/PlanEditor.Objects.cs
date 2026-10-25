@@ -59,6 +59,45 @@ public sealed partial class PlanEditor
     /// <summary>Travelator previewed at the cursor while placing, or null.</summary>
     public ConnectorPreview? PlaceTravelatorPreview => _tool == EditorTool.Place ? _placeTravelator : null;
 
+    /// <summary>
+    /// What a LIBRARY item being dragged over the plan would drop (D-144): a device's footprint where it would land,
+    /// or just the point and name for connectors and other items. Null when nothing is being dragged.
+    /// </summary>
+    public (Point2 At, string Label, Device? Footprint)? DragGhost { get; private set; }
+
+    /// <summary>Updates the LIBRARY drag ghost at a plan point (null point: over the viewport but not in plan).</summary>
+    public void DragHover(TemplateBase template, Point2? at, double metresPerDip)
+    {
+        _metresPerDip = metresPerDip;
+        if (at is not { } point || _host.ActiveLevelModel is not { } level || !CanEdit)
+        {
+            EndDragHover();
+            return;
+        }
+
+        Device? footprint = template is DeviceTemplate device
+            ? DeviceFactory.FromTemplate(_host.Study, device, level.Id, point, DefaultDropFacingDeg)
+            : null;
+        string label = template switch
+        {
+            DeviceTemplate => $"DROP ▸ {template.Name}",
+            ConnectorTemplate => $"DROP ▸ {template.Name} ▸ then aim",
+            _ => $"DROP ▸ {template.Name}",
+        };
+        DragGhost = (point, label, footprint);
+        RaiseOverlay();
+    }
+
+    /// <summary>Clears the LIBRARY drag ghost (drag left the viewport, dropped or cancelled).</summary>
+    public void EndDragHover()
+    {
+        if (DragGhost is not null)
+        {
+            DragGhost = null;
+            RaiseOverlay();
+        }
+    }
+
     /// <summary>Readout for the PLACE preview.</summary>
     public string? PlacePreviewText => _tool == EditorTool.Place ? _placeText : null;
 
@@ -78,6 +117,9 @@ public sealed partial class PlanEditor
             Revalidate();
         }
     }
+
+    /// <summary>Clears the selection (e.g. when a LIBRARY journey takes over SELECTION).</summary>
+    public void ClearSelection() => SetSelection([]);
 
     /// <summary>Starts calibrating an underlay (from the SELECTION panel's SET SCALE button).</summary>
     public void StartCalibration(Guid underlayId)

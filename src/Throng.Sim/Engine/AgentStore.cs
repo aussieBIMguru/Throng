@@ -91,6 +91,48 @@ public sealed class AgentStore
     /// <summary>Where the agent stepped onto a landing, and its travel direction then (zero once it's carried on; D-137).</summary>
     public double[] JointX = [], JointY = [], JointDx = [], JointDy = [];
 
+    /// <summary>Stress (frustration) 0–1 (D-145).</summary>
+    public float[] Stress = [];
+
+    /// <summary>Weighted seconds spent held up, decaying in free flow; drives <see cref="Stress"/> (D-145).</summary>
+    public float[] HeldS = [];
+
+    /// <summary>Emitter that spawned the agent (its destinations decide the exit).</summary>
+    public int[] Emitter = [];
+
+    /// <summary>Journey index, or −1 to walk straight to a sink (D-149).</summary>
+    public int[] Journey = [];
+
+    /// <summary>Current journey step index.</summary>
+    public int[] Step = [];
+
+    /// <summary>Tag bits carried (D-150).</summary>
+    public ulong[] Tags = [];
+
+    /// <summary>What the agent is doing about its step.</summary>
+    public AgentPhase[] Phase = [];
+
+    /// <summary>Device it is using (GoToDevice steps), or −1.</summary>
+    public int[] QDevice = [];
+
+    /// <summary>Queue line (device-local line index), or −1 when not in a line.</summary>
+    public int[] QLine = [];
+
+    /// <summary>Position in the line (0 = head).</summary>
+    public int[] QSlot = [];
+
+    /// <summary>Side of the device it queues on (0 = service side).</summary>
+    public int[] QSide = [];
+
+    /// <summary>End time of the current service, dwell or step-aside, s; or the start of queueing.</summary>
+    public double[] Timer = [];
+
+    /// <summary>When it joined its queue line, s (queue wait diagnostics).</summary>
+    public double[] JoinTime = [];
+
+    /// <summary>Point it is heading for while queueing, walking through, stepping aside or dwelling.</summary>
+    public double[] AimX = [], AimY = [];
+
     /// <summary>Adds an agent with default state and returns its index.</summary>
     public int Add()
     {
@@ -115,6 +157,12 @@ public sealed class AgentStore
         Best[i] = float.PositiveInfinity;
         Since[i] = 0;
         Heading[i] = 0;
+        Stress[i] = HeldS[i] = 0;
+        Emitter[i] = Journey[i] = QDevice[i] = QLine[i] = -1;
+        Step[i] = QSlot[i] = QSide[i] = 0;
+        Tags[i] = 0;
+        Phase[i] = AgentPhase.Walk;
+        Timer[i] = JoinTime[i] = AimX[i] = AimY[i] = 0;
         return i;
     }
 
@@ -152,6 +200,21 @@ public sealed class AgentStore
         JointY[i] = JointY[last];
         JointDx[i] = JointDx[last];
         JointDy[i] = JointDy[last];
+        Stress[i] = Stress[last];
+        HeldS[i] = HeldS[last];
+        Emitter[i] = Emitter[last];
+        Journey[i] = Journey[last];
+        Step[i] = Step[last];
+        Tags[i] = Tags[last];
+        Phase[i] = Phase[last];
+        QDevice[i] = QDevice[last];
+        QLine[i] = QLine[last];
+        QSlot[i] = QSlot[last];
+        QSide[i] = QSide[last];
+        Timer[i] = Timer[last];
+        JoinTime[i] = JoinTime[last];
+        AimX[i] = AimX[last];
+        AimY[i] = AimY[last];
     }
 
     /// <summary>Removes every agent.</summary>
@@ -184,5 +247,20 @@ public sealed class AgentStore
         Array.Resize(ref JointY, capacity);
         Array.Resize(ref JointDx, capacity);
         Array.Resize(ref JointDy, capacity);
+        Array.Resize(ref Stress, capacity);
+        Array.Resize(ref HeldS, capacity);
+        Array.Resize(ref Emitter, capacity);
+        Array.Resize(ref Journey, capacity);
+        Array.Resize(ref Step, capacity);
+        Array.Resize(ref Tags, capacity);
+        Array.Resize(ref Phase, capacity);
+        Array.Resize(ref QDevice, capacity);
+        Array.Resize(ref QLine, capacity);
+        Array.Resize(ref QSlot, capacity);
+        Array.Resize(ref QSide, capacity);
+        Array.Resize(ref Timer, capacity);
+        Array.Resize(ref JoinTime, capacity);
+        Array.Resize(ref AimX, capacity);
+        Array.Resize(ref AimY, capacity);
     }
 }

@@ -6,8 +6,8 @@ Throng is a Windows desktop app (WPF, .NET 10) for testing circulation in early-
 stations, lobbies, stadium edges. It favours fast setup and legible, "roughly right" behaviour over scientific
 fidelity. Results are indicative only and are **not** compliance evidence.
 
-> Status: **Round 007 — crowd rules at connector ends, boarding near the escalator cap, rate curves on emission rules (AM/PM peak, event surge); format v5.**
-> Round 006 is unbuilt (written without a .NET SDK); round 005 builds and runs. Next: round 007 — full demand and the demo end to end.
+> Status: **Round 009b — journey step editor (LIBRARY ▸ JOURNEYS → SELECTION, DUPLICATE for built-ins), give-up per device step, profile device preferences, DRAW QUEUE shared snakes with slot dots, lane hold points, QUEUING / STRESSED / GAVE UP in the status bar; format v6.** Round 009a (journeys, tags, mix lines, device queues) builds and passes 210 tests.
+> 009c adds stair effort and standing rest so people prefer escalators unless queued. Builds; one test parked (wheelchair gate, D-176). Next: trains (timetables, door flows).
 > Round notes live in `ai/rounds/`, the product brief and roadmap in `ai/BRIEF.md`.
 > **How rounds work:** queries first (with recommendations), then build only what's decided. See `ai/PROTOCOL.md`.
 
@@ -77,7 +77,7 @@ pieces. Each connector cuts its own opening in the upper level (0.3 m clearance,
 | Drag from LIBRARY | Drop a device on the plan to place it; drop a stair, escalator, ramp or travelator to start it at the drop point |
 
 The status bar shows speed, agents walking, emitted, arrived, mean journey time and stuck agents (no progress for
-30 s: a flashing ring; removed after 120 s). Agents are capsules coloured by profile in 3D and discs in plan.
+30 s: a flashing ring; removed after 120 s; people queueing, being served or dwelling are never counted as stuck). Agents are capsules coloured by profile in 3D and discs in plan.
 
 ---
 

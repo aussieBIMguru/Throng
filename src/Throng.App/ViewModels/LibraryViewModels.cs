@@ -8,12 +8,14 @@ namespace Throng.App.ViewModels;
 
 /// <summary>
 /// Library browser (D-021, D-031): a tab strip by category over one filtered list, plus a search box that matches
-/// across every category. Each tab shows its match count. Read-only until M3.
+/// across every category. Each tab shows its match count. The JOURNEYS tab also lists the study's own journeys
+/// (D-161), and journey rows can be selected for SELECTION ▸ JOURNEY (D-162).
 /// </summary>
 public sealed class LibraryBrowserViewModel : ObservableObject
 {
     private LibraryTabViewModel _selectedTab;
     private string _searchText = string.Empty;
+    private Guid? _selectedId;
 
     /// <summary>Builds the browser over a library.</summary>
     public LibraryBrowserViewModel(TemplateLibrary library)
@@ -25,6 +27,7 @@ public sealed class LibraryBrowserViewModel : ObservableObject
             new LibraryTabViewModel("VERTICAL", library.Connectors),
             new LibraryTabViewModel("LIFTS", library.Lifts),
             new LibraryTabViewModel("SCHEDULES", library.Schedules),
+            new LibraryTabViewModel("JOURNEYS", library.Journeys),
         ];
         _selectedTab = Tabs[0];
         Refilter();
@@ -56,6 +59,45 @@ public sealed class LibraryBrowserViewModel : ObservableObject
             {
                 OnPropertyChanged(nameof(IsSearching));
                 Refilter();
+            }
+        }
+    }
+
+    /// <summary>The JOURNEYS tab.</summary>
+    public LibraryTabViewModel JourneysTab => Tabs[^1];
+
+    /// <summary>
+    /// Replaces the JOURNEYS tab's rows (the study's own journeys first, then the built-ins it hasn't embedded) and
+    /// re-applies the search.
+    /// </summary>
+    public void SetJourneys(IEnumerable<JourneyTemplate> journeys)
+    {
+        List<JourneyTemplate> next = [.. journeys];
+        if (next.Count == JourneysTab.Items.Count && next.Zip(JourneysTab.Items).All(pair => ReferenceEquals(pair.First, pair.Second.Template)))
+        {
+            // Same journeys: just re-read names and summaries (a step or a name was edited).
+            foreach (TemplateItemViewModel item in JourneysTab.Items)
+            {
+                item.Refresh();
+            }
+
+            return;
+        }
+
+        JourneysTab.SetItems(next);
+        MarkSelected(_selectedId);
+        Refilter();
+    }
+
+    /// <summary>Highlights the row of the template with this id (null clears the highlight).</summary>
+    public void MarkSelected(Guid? id)
+    {
+        _selectedId = id;
+        foreach (LibraryTabViewModel tab in Tabs)
+        {
+            foreach (TemplateItemViewModel item in tab.Items)
+            {
+                item.IsSelected = id is { } selected && item.Template.Id == selected;
             }
         }
     }
@@ -120,7 +162,14 @@ public sealed class LibraryTabViewModel : ObservableObject
     public string Label { get; }
 
     /// <summary>All templates in the category.</summary>
-    public IReadOnlyList<TemplateItemViewModel> Items { get; }
+    public IReadOnlyList<TemplateItemViewModel> Items { get; private set; }
+
+    /// <summary>Replaces the category's templates (the caller re-applies the filter).</summary>
+    public void SetItems(IEnumerable<TemplateBase> templates)
+    {
+        Items = [.. templates.Select(t => new TemplateItemViewModel(t))];
+        _matches = Items;
+    }
 
     /// <summary>Templates matching the current search (all of them when not searching).</summary>
     public IReadOnlyList<TemplateItemViewModel> Matches => _matches;
@@ -142,8 +191,10 @@ public sealed class LibraryTabViewModel : ObservableObject
 }
 
 /// <summary>One template row in the library browser.</summary>
-public sealed class TemplateItemViewModel
+public sealed class TemplateItemViewModel : ObservableObject
 {
+    private bool _isSelected;
+
     /// <summary>Wraps a template.</summary>
     public TemplateItemViewModel(TemplateBase template)
     {
@@ -163,8 +214,20 @@ public sealed class TemplateItemViewModel
     /// <summary>Long description for the tooltip.</summary>
     public string Description => Template.Description;
 
-    /// <summary>Where the template came from.</summary>
-    public string SourceText => Template.Source == TemplateSource.BuiltIn ? "Built-in · read-only" : Template.Source.ToString();
+    /// <summary>Where the template came from (embedded copies of built-ins count as built-in).</summary>
+    public string SourceText => Template.Source == TemplateSource.BuiltIn || BuiltInLibrary.Instance.Find(Template.Id) is not null
+        ? "Built-in · read-only"
+        : Template is JourneyTemplate ? "Your journey (in this study) · click to edit" : Template.Source.ToString();
+
+    /// <summary>Re-reads the name, summary and description (after an edit).</summary>
+    public void Refresh() => OnPropertyChanged(string.Empty);
+
+    /// <summary>True for the row shown in SELECTION (journeys, D-162).</summary>
+    public bool IsSelected
+    {
+        get => _isSelected;
+        set => SetProperty(ref _isSelected, value);
+    }
 
     /// <summary>Colour swatch.</summary>
     public Brush Swatch { get; }

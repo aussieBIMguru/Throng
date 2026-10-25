@@ -164,6 +164,19 @@ public static class StudyValidator
                 continue;
             }
 
+            // A straight run through a level it doesn't serve, usually after a storey was split (D-143).
+            if (!connector.IsTravelator && !connector.UsesCircuits)
+            {
+                foreach (Level passed in study.Levels)
+                {
+                    if (passed.ElevationM > bottom.ElevationM + 1e-6 && passed.ElevationM < top.ElevationM - 1e-6)
+                    {
+                        messages.Add(new ValidationMessage(ValidationSeverity.Warning,
+                            $"Connector '{connector.Name}' passes level '{passed.Name}' without stopping; re-link it if it should serve that level.", connector.Id));
+                    }
+                }
+            }
+
             // Travelators are flat: give them a token height range so the overlap test still sees them.
             placed.Add((connector, l, bottom.ElevationM, connector.IsTravelator ? bottom.ElevationM + 0.1 : top.ElevationM));
             if (l.Circuits.Count > 1)
@@ -359,10 +372,7 @@ public static class StudyValidator
                     messages.Add(new ValidationMessage(ValidationSeverity.Warning, $"{label} has rate curve points with a negative or missing minute or multiplier; they're ignored.", region.Id));
                 }
 
-                if (StudyTemplates.FindProfile(study, rule.ProfileId) is null)
-                {
-                    messages.Add(new ValidationMessage(ValidationSeverity.Warning, $"{label} uses a profile that isn't in the library; Commuter is used instead.", region.Id));
-                }
+                ValidateMix(study, region, label, rule, messages);
 
                 if (rule.DestinationMode == DestinationMode.NearestSink)
                 {
@@ -390,6 +400,76 @@ public static class StudyValidator
                 if (!any)
                 {
                     messages.Add(new ValidationMessage(ValidationSeverity.Error, $"{label} has no chosen sink with a weight above zero.", region.Id));
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Mix lines and their journeys (D-150–D-154): the shares must add up to more than zero; unknown profiles fall back
+    /// to Commuter and unknown journeys to walking straight to a sink; every device type and zone a journey step asks
+    /// for must exist. Tags are free text, so unknown tags are fine.
+    /// </summary>
+    private static void ValidateMix(Study study, Region region, string label, EmissionRule rule, List<ValidationMessage> messages)
+    {
+        CultureInfo c = CultureInfo.InvariantCulture;
+        if (rule.Mix is not { } mix || !mix.Any(m => m is not null && m.Share > 0))
+        {
+            messages.Add(new ValidationMessage(ValidationSeverity.Warning, $"{label} has no mix line with a share above zero, so it emits no one.", region.Id));
+            return;
+        }
+
+        var deviceTags = study.Devices.Select(d => d.TypeTag).Where(t => !string.IsNullOrEmpty(t)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var checkedJourneys = new HashSet<Guid>();
+        foreach (MixLine line in mix)
+        {
+            if (line is null || !(line.Share > 0))
+            {
+                continue;
+            }
+
+            if (StudyTemplates.FindProfile(study, line.ProfileId) is null)
+            {
+                messages.Add(new ValidationMessage(ValidationSeverity.Warning, $"{label} uses a profile that isn't in the library; Commuter is used instead.", region.Id));
+            }
+
+            if (line.JourneyId is not { } journeyId || !checkedJourneys.Add(journeyId))
+            {
+                continue;
+            }
+
+            if (StudyTemplates.FindJourney(study, journeyId) is not { } journey)
+            {
+                messages.Add(new ValidationMessage(ValidationSeverity.Warning, $"{label} uses a journey that isn't in the library; those people walk straight to a sink.", region.Id));
+                continue;
+            }
+
+            for (int s = 0; s < journey.Steps.Count; s++)
+            {
+                JourneyStep step = journey.Steps[s];
+                string at = string.Create(c, $"{label}: journey '{journey.Name}' step {s + 1}");
+                switch (step.Kind)
+                {
+                    case JourneyStepKind.GoToDevice when string.IsNullOrWhiteSpace(step.TargetTag):
+                        messages.Add(new ValidationMessage(ValidationSeverity.Error, $"{at} doesn't say which device type to use.", region.Id));
+                        break;
+
+                    case JourneyStepKind.GoToDevice when !deviceTags.Contains(step.TargetTag):
+                        messages.Add(new ValidationMessage(ValidationSeverity.Error, $"{at} needs a '{step.TargetTag}' device, but the study has none.", region.Id));
+                        break;
+
+                    case JourneyStepKind.PassZone or JourneyStepKind.Dwell when JourneyZones.Matching(study, step).Count == 0:
+                        string zone = step.ZoneId is not null ? "its zone, which no longer exists" : string.IsNullOrEmpty(step.TargetTag) ? "a dwell zone" : $"a zone tagged '{step.TargetTag}'";
+                        messages.Add(new ValidationMessage(ValidationSeverity.Error, $"{at} needs {zone}, but the study has none.", region.Id));
+                        break;
+                }
+
+                // Give-up pathway (D-165): a jump must land on a step of this journey.
+                if (step.Kind == JourneyStepKind.GoToDevice && step.OnGiveUp == JourneyGiveUp.JumpTo
+                    && (step.GiveUpStep < 0 || step.GiveUpStep >= journey.Steps.Count))
+                {
+                    messages.Add(new ValidationMessage(ValidationSeverity.Error,
+                        string.Create(c, $"{at} jumps to step {step.GiveUpStep + 1} when patience runs out, but the journey has {journey.Steps.Count} steps."), region.Id));
                 }
             }
         }

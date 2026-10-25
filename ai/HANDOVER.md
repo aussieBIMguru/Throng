@@ -1,19 +1,27 @@
 # Throng — Handover to the next chat
 
-**Written:** 2026-10-25, round 007 part 2 (r007o). **Brief:** v0.16. **Decisions:** D-001–D-137.
-**State:** r007j ran on Gavin's machine (escalators good, wide stairs choked; diagnostics not pasted). r007k adds counterflow-gated stair lanes (D-132) and
-higher escalator weighting (D-133: boarding-rate seed 0.8 × cap, stalled stair queues count in stair waits).
-r007l (D-134) adds lanes on stair landings (1.5×) and a 6 m approach lane. r007m (D-135) adds a landing squeeze (30% push same-way on landings). r007n (D-136) adds a stall escape; r007o (D-137) carries people 0.6 m into a landing before turning (Gavin's diagnosis of the corner stall). r007k–o unbuilt; 177 tests expected.
-**Start here:** `ai/PROTOCOL.md`, this file, then the end of `ai/rounds/round-007.md` (r007j, r007k).
-BRIEF and DECISIONS only as needed.
-**Next:** check r007k's diagnostics: saturated pair all on above 56% (else revert D-131 to 0.3 / 1.5 m); STAIR run
-all on vs "no counterflow gate"; wide-stair test result. Then the Query phase for vehicle timetables and batches,
-profile mixes, train door flows and the demo end to end.
+**Written:** 2026-10-26, end of round 009 (r009c-2). **Brief:** v0.22. **Decisions:** D-001–D-176.
+**State:** r009c-2 builds (Gavin, 2026-10-26); every test passes except the parked wheelchair one, now `[Ignore]`d
+(D-176), so **223 pass, 1 skipped** expected on this zip. Format v6 (D-169). Round 009 delivered:
+- 009a: journeys (device / pass zone / dwell / exit) with need / lack / grant tags, mix lines, device queues, format v6.
+- 009b: journey editor in SELECTION (DUPLICATE for built-ins), give-up per device step, profile device
+  preferences, DRAW QUEUE shared snakes with slot dots, lane hold points, QUEUING / STRESSED / GAVE UP status bar.
+- Fixes from Gavin's runs: device fields close other gates' lanes (D-172), balk compares like for like (D-173).
+- 009c: stair effort per profile (D-174) and standing rest on belts (D-175), so people prefer escalators unless
+  they're queued.
+**Parked (D-176):** wheelchairs jam the 1.0 m accessible gate lane, and the 6 s walk-through timeout frees the lane
+while it's still occupied. Diagnosis and fix options are in `round-009.md` ▸ "Parked". Pick it up when Gavin says.
+**Start here (next chat):** `ai/PROTOCOL.md`, this file, then `ai/rounds/round-009.md` (sections "009b as built",
+"009c", "r009c-2", "Parked"). Ask Gavin for his r009c-2 results (diagnostics output, the 009b/009c checklists) and
+fix anything first. Then run the **Query** phase for round 010: **trains** (timetables, batches, door flows, built on
+journeys, D-148). BRIEF and DECISIONS only as needed.
 **Tuning loop that works (use it, don't guess):** `Throng.Sim.Tests/Round007Tests.Diagnostics_Round007Rules` runs
 the demo and an escalator pair with each `SimTuning` switch off in turn and prints arrived / stuck / where. Ask Gavin
 to paste its output, change what it points at, add a switch for any new rule.
 **Quota:** Gavin's daily quota is tight. Read only files a change touches, no Python replicas unless asked,
 targeted doc edits, sync docs to the project with `project_write` from `local_path`.
+**Gavin's wishes on record:** visual node editor for profiles/journeys (stretch, BRIEF §8.2); see people ride a 3D
+lift car (M4, D-068); density heatmap (M5).
 
 ---
 
@@ -56,7 +64,24 @@ was decided on the zipped project. Summary:
   `%LocalAppData%\Throng\Logs\throng.log`.
 - Every model edit goes through the undo stack (`MainViewModel.Apply<T>` → `PropertyChangeAction<T>`).
 
-## 4. Current state (end of round 006, unbuilt)
+## 4. Current state
+
+Round 009b (see `ai/rounds/round-009.md` ▸ "009b as built"): SELECTION ▸ JOURNEY editor opened from LIBRARY ▸
+JOURNEYS (`App/ViewModels/JourneyViewModels.cs`, `MainViewModel.Journeys.cs`; built-ins read-only, DUPLICATE into the
+study library), `JourneyStep.OnGiveUp` / `GiveUpStep` with `SimEngine.TryGiveUp` and `GaveUp`, profile
+`DevicePreferences` used in `ChooseDevice`, `Core/Geometry/QueueLines.cs` shared by sim and editor, drawn queue as a
+shared snake (`SimDevice.SnakeLine`, `PromoteSnakeHead`), DRAW QUEUE tool (`App/Editing/PlanEditor.Queue.cs`) and
+slot dots, lane hold points (`SimDevice.HoldPoints`, `WaitForLane`), status bar counts.
+Round 009a: journeys (`Core/Library/JourneyTemplate.cs`, four built-ins), tags
+(need / lack / grant, ≤ 64 per run), mix lines on emission rules (`EmissionRule.Mix`; the old `ProfileId` is
+`LegacyProfileId`, read only by the v5 → v6 migration), devices as route targets with automatic queue lines per
+lane and side (`Sim/SimJourneys.cs`, `SimSetup.BuildDevices`), the journey/queue engine in
+`Sim/Engine/SimEngine.Journeys.cs` (agent `AgentPhase`), format v6, demo per D-155/D-159, SELECTION mix grid.
+Rounds 007–008 (see `ai/rounds/round-007.md`, `round-008.md`): connector-end crowd rules and diagnostics,
+rate curves (format v5), mechanised preference per profile, add/remove levels, hover highlight, stress per agent
+with PROFILE / STRESS colouring (snapshot 11 floats). Earlier state below.
+
+### Round 006 (M2 movement core)
 
 Round 006 adds the **M2 movement core** on top of r005 (which builds and runs):
 
@@ -98,17 +123,31 @@ LEVEL / STUDY right.
   in one place per concern, run a brace/XAML well-formedness check before zipping.
 - Avoid `[]` collection expressions for `Dictionary<,>` (use `new()`); keep `.cs`/`.xaml` files CRLF.
 - Count carefully in tests: N levels = N − 1 storeys (circuits, rises).
+- New public types go in their own file. Scripted inserts must assert their anchor was found (r008: an enum
+  meant for file scope landed inside an `internal` class because the anchor search failed).
 - Flow-field gradients at a grid edge need extrapolation, or agents stall at piece joints (fixed in r006 review).
 - `EmissionRule` is an immutable record: never assign its init-only properties outside an initializer; use `with`.
+  Same for `MixLine`, `SpawnTag` and `JourneyStep`.
+- r009a: no NuGet or .NET SDK in the sandbox again; the round was statically reviewed (brace check, CRLF) only.
+- r009b: same (pip and npm registries were blocked too, so no syntax tools). Python text edits read CRLF files as LF;
+  re-normalise every touched `.cs` / `.xaml` / `.md` to CRLF before zipping.
 
-## 6. Next: round 007
+## 6. Round history and next
 
 1. Done in round 007 part 1 (D-112–D-126): escalator ends, deferral, one-way stairs, floors hide agents, dead-end
    walls, stair lanes, closed footprint gaps, rule switches + diagnostics.
 2. Round 007 part 2 r007i (D-127–D-130): comb spacing at metered belts, rate curves (`Core/Model/RateCurves.cs`,
    rule editor in SELECTION), format v5.
-3. Then: tuning from diagnostics, vehicle timetables and batches, profile mixes, train door flows, demo end to end. Round 005's parked questions
-   stay parked until after M2 (D-108).
+3. r007p (D-138, D-139): mechanised preference per profile. Round 008 (D-140–D-147): levels, hover, stress.
+4. Round 009 (D-148–D-176; 009c stair effort and standing rest, D-174, D-175; wheelchair gate parked, D-176): 009a built and confirmed (journeys + tags + mix lines + automatic device queues +
+   format v6 + demo; 210 tests). 009b built (unbuilt in sandbox): journey editor in SELECTION with DUPLICATE,
+   give-up pathway per device step, profile device preferences, drawn shared-snake queues with slot dots, lane-wait
+   hold points, status bar stressed / queuing / gave up. **Next: trains** (timetables, batches, door flows).
+5. *(history)* Round 008 asks: vehicle timetables and batches, profile mixes, train door flows, demo end to end
+   (the plan), plus Gavin's r007p asks: **add/remove levels** (M1 gap, no command exists), **journey templates**
+   (ticket machine → gate → train; BRIEF §8.2, M3 task lists), **crowd visuals** (frustration/stuck colouring,
+   density heatmap; BRIEF §8.4, M5/M6), **hover highlight** in the editor. Stretch: visual node editor for
+   profiles/journeys (BRIEF §8.2). Round 005's parked questions stay parked until after M2 (D-108).
 
 Gavin also wants to **see people riding a 3D lift car** (M4, BRIEF §7.2) with a **1- or 2-door typology per
 served level** (D-068). Shafts already carry "no stop" levels (D-087) for that.
@@ -132,15 +171,23 @@ served level** (D-068). Shafts already carry "no stop" levels (D-087) for that.
 | Shaders | `src/Throng.Render/Gl/Shaders.cs` |
 | Simulation | `src/Throng.Sim/Nav/` (grids, fields, routes), `src/Throng.Sim/Engine/` (agents, social force), `SimSetup.cs`, `SimRunner.cs` |
 | Run UI | `App/ViewModels/MainViewModel.Run.cs`, `App/ViewModels/EmissionRuleViewModels.cs`, `Render/Gl/GpuAgents.cs` |
+| Levels add/delete | `Core/Editing/LevelActions.cs`, `App/ViewModels/MainViewModel.Levels.cs` |
+| Hover, drag ghost | `App/Editing/PlanEditor.cs` (`Hover`, `HoverLabel`), `PlanEditor.Objects.cs` (`DragGhost`), `EditorOverlay.cs` |
+| Stress, colouring | `Sim/Engine/AgentStore.cs` (`Stress`, `HeldS`), `SimEngine.UpdateStress`, `Render/Gl/AgentColoring.cs`, agent shader |
+| Journeys, mixes, queues | `Core/Library/{JourneyTemplate,JourneyZones}.cs`, `Core/Model/{EmissionRule,Device}.cs`, `Sim/SimJourneys.cs`, `Sim/SimSetup.cs` (devices, lines, zones, journeys), `Sim/Engine/SimEngine.Journeys.cs`, `Sim/Engine/AgentPhase.cs`, `App/ViewModels/EmissionRuleViewModels.cs` (`MixLineViewModel`) |
+| Journey editor, give-up, preferences | `App/ViewModels/{JourneyViewModels,MainViewModel.Journeys,LibraryViewModels}.cs`, `Core/Library/{JourneyGiveUp,DevicePreference,StudyTemplates}.cs`, `SimEngine.TryGiveUp` |
+| Queue layout, snake, hold points | `Core/Geometry/{QueueLines,QueueLineSet}.cs`, `SimSetup.BuildDevices/BuildHoldPoints`, `SimEngine.{TryJoinSnake,PromoteSnakeHead,WaitForLane}`, `App/Editing/PlanEditor.Queue.cs`, `EditorOverlay.DrawQueueDots` |
 | Clean script | `clean.bat` (repo root) |
 
 ## 8. Don't regress
 
-- Demo loads clean (0 errors, 0 warnings) and all tests pass (175/176 on r007i; 177 expected for r007k).
+- Demo loads clean (0 errors, 0 warnings) and all tests pass (223 pass, 1 skipped on r009c-2; un-skip the wheelchair test once D-176 is fixed).
 - Test helpers live in classes named for what they test, not the file (`VerticalCutTests.TwoLevelsWithStair` is in
   `ConnectorTests.cs`): grep for the class before calling a helper.
 - Demo PLAY runs: people cross all three levels; editing locks until RESET.
-- Older files open with their old behaviour (v1/v2: single-level fixed regions, single-run switchbacks; v1–v3: no emission rules; v1–v4: flat rates).
+- Older files open with their old behaviour (v1/v2: single-level fixed regions, single-run switchbacks; v1–v3: no emission rules; v1–v4: flat rates; v1–v5: one profile per rule, no journey, straight to a sink).
+- Queuers, people being served and dwellers are never removed as stuck; device line membership is per agent (device, line, slot), never agent indices (the store swap-removes).
+- Built-in journeys (and their embedded copies, same id) stay read-only; only `StudyTemplates.IsEditableJourney` ones are edited. Steps and step lists are replaced, never mutated.
 - Editing shortcuts only fire while the viewport has focus; New from Demo is Ctrl+Shift+D (D-043).
 - Plan view ghosts the level below; 3D shows all visible levels; Home re-frames.
 - Undo/redo for every edit; dirty marker in the title; save → reopen round-trips.

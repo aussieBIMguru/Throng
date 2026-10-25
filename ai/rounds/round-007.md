@@ -304,3 +304,38 @@ corner wall? dead-end wall from D-118 at the joint?), then fix at the source. Fa
 **Unbuilt.** Gavin on r007n: the corner stall is people turning as soon as they reach the landing. D-137: on stepping
 from a flight onto a landing, carry straight on 0.6 m before turning (`AgentStore.Joint*`, `SimTuning.LandingCarry`,
 diagnostics row). If it holds, the corner-stall investigation above can be closed.
+
+
+---
+
+# r007p: mechanised preference per profile (quick round)
+
+**Unbuilt:** no .NET SDK in the sandbox; statically reviewed only. Quick round on Gavin's request, no Query batch.
+
+## What was built
+
+- **D-138, Core:** `AgentProfileTemplate.MechanisedPreference` (−1…+1, default 0). Built-ins: commuter −0.2,
+  infrequent 0.3, luggage 0.8, elderly 0.6, family 0.5, wheelchair 1.0, staff and fan 0. Saved with the profile
+  (templates clone and save by JSON), so no format bump; profiles already embedded in a saved study read 0.
+- **D-138, Sim:** `RoutePlanner.MechanisedFactor` scales a belt option's ride + belt correction + wait by
+  1 − 0.4 × preference (`MechanisedWeight`). Stairs and ramps unchanged.
+- **D-139, Sim:** stair/ramp waits drop D-133's stalled-queue term by default (`SimTuning.StalledStairWait`).
+- **Tests:** +4 in `MechanisedPreferenceTests`; diagnostics gain a "with stalled stair wait (D-133)" row.
+  Expect **181** tests.
+
+## How to test
+
+1. Build; run all tests (181).
+2. New from Demo (so profiles carry the new values) ▸ PLAY ×4: commuters split between stairs and escalators
+   when belts queue; escalator queues shorter than r007o.
+3. Run `Diagnostics_Round007Rules`, paste the output: all-on vs "with stalled stair wait".
+4. Don't-regress list (HANDOVER §8).
+
+## Known limitations
+
+- No UI yet to change a profile's preference (the profile/library editor is M3); built-in values only.
+- An older saved study keeps its embedded profiles at 0 until re-made from the demo or the rule re-picks the profile.
+
+## Next
+
+Round 008 Query phase (see HANDOVER §6).

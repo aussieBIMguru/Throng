@@ -15,6 +15,8 @@ namespace Throng.IO;
 /// <item>3 → 4 (round 006, D-099, D-105, D-110): adds emission rules on regions, the keep side and staff-only
 /// connectors. Older files have no rules (no one is emitted), keep left and public connectors.</item>
 /// <item>4 → 5 (round 007, D-129): adds rate curves on emission rules. Older rules have none (a flat rate).</item>
+/// <item>5 → 6 (round 009, D-157): each rule's single profile becomes one mix line with no journey (people walk
+/// straight to a sink, as before); devices gain a max queue (default 20) and an empty queue path.</item>
 /// </list>
 /// </remarks>
 internal static class FormatMigrations
@@ -26,6 +28,7 @@ internal static class FormatMigrations
         (2, UpgradeV2ToV3),
         (3, UpgradeV3ToV4),
         (4, UpgradeV4ToV5),
+        (5, UpgradeV5ToV6),
     ];
 
     /// <summary>Applies every step needed to bring a study from <paramref name="fileVersion"/> to current.</summary>
@@ -112,5 +115,39 @@ internal static class FormatMigrations
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// v5 → v6: the rule's single <c>profileId</c> moves into one mix line (share 1, no journey, no tags), so old
+    /// studies run exactly as before. Devices get the default max queue when it's missing or not positive and an
+    /// empty queue path; the library gets an empty journey list.
+    /// </summary>
+    private static void UpgradeV5ToV6(Study study)
+    {
+        foreach (Region region in study.Regions)
+        {
+            for (int i = 0; i < region.EmissionRules.Count; i++)
+            {
+                EmissionRule rule = region.EmissionRules[i];
+                List<MixLine> mix = rule.Mix?.Where(m => m is not null).Select(m => m with { SpawnTags = m.SpawnTags?.Where(t => t is not null).ToList() ?? [] }).ToList() ?? [];
+                if (mix.Count == 0)
+                {
+                    mix.Add(MixLine.Of(rule.LegacyProfileId ?? Guid.Empty));
+                }
+
+                region.EmissionRules[i] = rule with { Mix = mix, LegacyProfileId = null };
+            }
+        }
+
+        foreach (Device device in study.Devices)
+        {
+            device.QueuePath ??= [];
+            if (device.MaxQueue <= 0)
+            {
+                device.MaxQueue = Device.DefaultMaxQueue;
+            }
+        }
+
+        study.Library.Journeys ??= [];
     }
 }

@@ -31,6 +31,27 @@ public sealed class AgentProfileTemplate : TemplateBase
     /// <summary>-1 avoids lifts, 0 neutral, +1 strongly prefers lifts.</summary>
     public double LiftPreference { get; set; }
 
+    /// <summary>
+    /// -1 avoids escalators, travelators and lifts, 0 neutral, +1 strongly prefers them where they're available
+    /// (D-138). Scales how long the ride and its queue feel in route choice: +1 = 0.6×, −1 = 1.4×.
+    /// </summary>
+    public double MechanisedPreference { get; set; }
+
+    /// <summary>Default <see cref="StairUpEffort"/> (D-174).</summary>
+    public const double DefaultStairUpEffort = 2.0;
+
+    /// <summary>Default <see cref="StairDownEffort"/> (D-174).</summary>
+    public const double DefaultStairDownEffort = 1.4;
+
+    /// <summary>
+    /// How much longer climbing a stair feels than it takes, in route choice (D-174): 2 = a 10 s climb weighs like
+    /// 20 s, so an escalator nearby wins unless it's queued. 1 = time only (before round 009c).
+    /// </summary>
+    public double StairUpEffort { get; set; } = DefaultStairUpEffort;
+
+    /// <summary>The same for walking down a stair (D-174).</summary>
+    public double StairDownEffort { get; set; } = DefaultStairDownEffort;
+
     /// <summary>When true the agent can only use lifts and ramps for level changes.</summary>
     public bool LiftOnly { get; set; }
 
@@ -43,11 +64,41 @@ public sealed class AgentProfileTemplate : TemplateBase
     /// <summary>0..1 tolerance of crowding before frustration builds.</summary>
     public double DensityTolerance { get; set; } = 0.5;
 
+    /// <summary>
+    /// Device presets or types this profile favours (or avoids) when choosing which device to use (D-166). Profiles
+    /// saved before round 009b have none.
+    /// </summary>
+    public List<DevicePreference> DevicePreferences { get; set; } = [];
+
+    /// <summary>Total seconds off the choice cost of a device with this preset key and type tag (D-166).</summary>
+    public double DeviceBonusS(string? presetKey, string? typeTag)
+    {
+        double bonus = 0;
+        foreach (DevicePreference preference in DevicePreferences ?? [])
+        {
+            if (preference is not null && preference.Matches(presetKey, typeTag) && double.IsFinite(preference.BonusS))
+            {
+                bonus += preference.BonusS;
+            }
+        }
+
+        return bonus;
+    }
+
     /// <inheritdoc />
     public override string Summarise()
     {
         CultureInfo c = CultureInfo.InvariantCulture;
         string access = LiftOnly ? " · lift/ramp only" : string.Empty;
-        return $"{Speed.Describe()} m/s · r {RadiusM.ToString("0.00", c)} m · patience {PatienceS.ToString("0", c)} s{access}";
+        string prefers = string.Empty;
+        if (DevicePreferences is { Count: > 0 } preferences)
+        {
+            IEnumerable<string> names = preferences
+                .Where(p => p is not null && !string.IsNullOrWhiteSpace(p.Target))
+                .Select(p => (BuiltInLibrary.Instance.FindByKey(p.Target.Trim())?.Name ?? p.Target.Trim()).ToLowerInvariant());
+            prefers = $" · prefers {string.Join(", ", names)}";
+        }
+
+        return $"{Speed.Describe()} m/s · r {RadiusM.ToString("0.00", c)} m · patience {PatienceS.ToString("0", c)} s{access}{prefers}";
     }
 }

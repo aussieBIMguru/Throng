@@ -135,7 +135,8 @@ internal static class Shaders
     /// <summary>
     /// Instanced agents (D-102): a unit capsule mesh (per vertex: position, shade, part) placed per instance by
     /// position + heading, coloured by profile and scaled by radius and height. Part 3 is the stuck ring (D-106),
-    /// kept at floor height and blinking while the stuck flag is set.
+    /// kept at floor height and blinking while the stuck flag is set. With <c>uColorMode</c> 1 bodies take a stress
+    /// ramp (D-145, D-146): blue calm, through yellow, to red fed up.
     /// </summary>
     public const string AgentVertex = """
         #version 330 core
@@ -145,9 +146,18 @@ internal static class Shaders
         layout(location = 3) in vec4 iPosHeading;
         layout(location = 4) in vec3 iColor;
         layout(location = 5) in vec3 iSize;
+        layout(location = 6) in float iStress;
         uniform mat4 uViewProjection;
         uniform float uTime;
+        uniform int uColorMode;
         out vec4 vColor;
+        vec3 stressRamp(float t)
+        {
+            vec3 calm = vec3(0.23, 0.51, 0.96);
+            vec3 tense = vec3(0.98, 0.80, 0.08);
+            vec3 hot = vec3(0.94, 0.27, 0.27);
+            return t < 0.5 ? mix(calm, tense, t * 2.0) : mix(tense, hot, (t - 0.5) * 2.0);
+        }
         void main()
         {
             float c = cos(iPosHeading.w);
@@ -157,7 +167,8 @@ internal static class Shaders
             float z = aPart > 2.5 ? aPosition.z : aPosition.z * iSize.y;
             vec3 world = vec3(iPosHeading.xy + rotated, iPosHeading.z + z);
 
-            vec3 rgb = iColor * aShade;
+            vec3 base = uColorMode == 1 ? stressRamp(clamp(iStress, 0.0, 1.0)) : iColor;
+            vec3 rgb = base * aShade;
             float alpha = 1.0;
             if (aPart > 2.5)
             {
@@ -166,7 +177,7 @@ internal static class Shaders
             }
             else if (aPart > 1.5)
             {
-                rgb = mix(iColor, vec3(1.0), 0.6) * aShade;
+                rgb = mix(base, vec3(1.0), 0.6) * aShade;
             }
 
             vColor = vec4(rgb, alpha);

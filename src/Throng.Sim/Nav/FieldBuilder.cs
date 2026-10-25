@@ -16,6 +16,7 @@ public sealed class FieldBuilder
     private readonly float[] _dist;
     private readonly int[] _surfaceOf;
     private readonly bool[] _scope;
+    private readonly bool[] _avoid;
     private readonly PriorityQueue<int, float> _queue = new();
 
     /// <summary>Creates a builder for a world.</summary>
@@ -31,11 +32,45 @@ public sealed class FieldBuilder
         }
 
         _scope = new bool[world.Surfaces.Count];
+        _avoid = new bool[world.TotalCells];
     }
 
-    /// <summary>Builds a field over <paramref name="scope"/> towards <paramref name="targetCells"/> on <paramref name="targetSurface"/>.</summary>
+    /// <summary>
+    /// Builds a field over <paramref name="scope"/> towards <paramref name="targetCells"/> on
+    /// <paramref name="targetSurface"/>. Cells in <paramref name="avoid"/> (on the target surface) are treated as
+    /// unwalkable for this field only.
+    /// </summary>
     public FlowField Build(
-        IReadOnlyCollection<int> scope, int targetSurface, IEnumerable<int> targetCells, Point2 targetDirection, (Point2 A, Point2 B)? edge = null)
+        IReadOnlyCollection<int> scope, int targetSurface, IEnumerable<int> targetCells, Point2 targetDirection, (Point2 A, Point2 B)? edge = null,
+        IReadOnlyList<int>? avoid = null)
+    {
+        int avoidBase = _world.CellBase[targetSurface];
+        if (avoid is not null)
+        {
+            foreach (int cell in avoid)
+            {
+                _avoid[avoidBase + cell] = true;
+            }
+        }
+
+        try
+        {
+            return Search(scope, targetSurface, targetCells, targetDirection, edge);
+        }
+        finally
+        {
+            if (avoid is not null)
+            {
+                foreach (int cell in avoid)
+                {
+                    _avoid[avoidBase + cell] = false;
+                }
+            }
+        }
+    }
+
+    private FlowField Search(
+        IReadOnlyCollection<int> scope, int targetSurface, IEnumerable<int> targetCells, Point2 targetDirection, (Point2 A, Point2 B)? edge)
     {
         Array.Clear(_scope);
         foreach (int s in scope)
@@ -74,7 +109,7 @@ public sealed class FieldBuilder
                 }
 
                 int m = (mj * surface.Nx) + mi;
-                if (surface.Walkable[m] == 0)
+                if (surface.Walkable[m] == 0 || _avoid[_world.CellBase[s] + m])
                 {
                     continue;
                 }

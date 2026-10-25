@@ -33,6 +33,9 @@ public enum EditorTool
 
     /// <summary>Set an underlay's scale: click two points on the image, type the real distance (D-084).</summary>
     Calibrate,
+
+    /// <summary>Draw a device's queue path from its service side, click by click (DRAW QUEUE, D-153, D-163).</summary>
+    QueuePath,
 }
 
 /// <summary>

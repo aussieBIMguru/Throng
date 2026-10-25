@@ -36,14 +36,21 @@ public sealed class EmissionRuleViewModel : ObservableObject
     private readonly int _index;
 
     /// <summary>Wraps rule <paramref name="index"/> of a region.</summary>
-    public EmissionRuleViewModel(RegionViewModel region, int index, EmissionRule rule, IReadOnlyList<IdOption> profiles)
+    /// <param name="region">Owning zone.</param>
+    /// <param name="index">Rule position.</param>
+    /// <param name="rule">The rule.</param>
+    /// <param name="profiles">Agent profile choices.</param>
+    /// <param name="journeys">Journey choices, "none" (<see cref="Guid.Empty"/>) first.</param>
+    public EmissionRuleViewModel(RegionViewModel region, int index, EmissionRule rule, IReadOnlyList<IdOption> profiles, IReadOnlyList<IdOption> journeys)
     {
         _region = region;
         _index = index;
         Rule = rule;
         ProfileOptions = profiles;
+        JourneyOptions = journeys;
         RemoveCommand = new RelayCommand(() => _region.RemoveRule(_index));
         AddPointCommand = new RelayCommand(AddPoint);
+        AddLineCommand = new RelayCommand(AddLine);
     }
 
     /// <summary>The wrapped rule.</summary>
@@ -54,6 +61,22 @@ public sealed class EmissionRuleViewModel : ObservableObject
 
     /// <summary>Agent profiles: the study's own, then the built-ins.</summary>
     public IReadOnlyList<IdOption> ProfileOptions { get; }
+
+    /// <summary>Journeys: "none" first, then the study's own and the built-ins (D-154).</summary>
+    public IReadOnlyList<IdOption> JourneyOptions { get; }
+
+    /// <summary>Adds a mix line (Commuter, no journey, share 1; D-151).</summary>
+    public RelayCommand AddLineCommand { get; }
+
+    /// <summary>The rule's mix lines, one row each (D-151).</summary>
+    public IReadOnlyList<MixLineViewModel> MixLines =>
+        [.. Rule.Mix.Select((line, k) => new MixLineViewModel(this, k, line))];
+
+    /// <summary>True when the rule has no mix line (it emits no one).</summary>
+    public bool HasNoLines => Rule.Mix.Count == 0;
+
+    /// <summary>Sum of the lines' positive shares (for the % column).</summary>
+    internal double TotalShare => Rule.Mix.Where(m => m.Share > 0).Sum(m => m.Share);
 
     /// <summary>Constant or Poisson.</summary>
     public IReadOnlyList<EmissionPattern> PatternOptions => AllPatterns;
@@ -166,18 +189,46 @@ public sealed class EmissionRuleViewModel : ObservableObject
         }
     }
 
-    /// <summary>Profile id.</summary>
-    public Guid ProfileId
+    /// <summary>Replaces mix line <paramref name="k"/> (one undo step).</summary>
+    internal void SetLine(int k, MixLine line, string description)
     {
-        get => Rule.ProfileId;
-        set
+        if (k < 0 || k >= Rule.Mix.Count)
         {
-            if (value != Rule.ProfileId && value != Guid.Empty)
-            {
-                _region.EmbedProfile(value);
-                _region.ReplaceRule(_index, Rule with { ProfileId = value }, "Change rule profile");
-            }
+            return;
         }
+
+        List<MixLine> next = [.. Rule.Mix];
+        next[k] = line;
+        _region.ReplaceRule(_index, Rule with { Mix = next }, description);
+    }
+
+    /// <summary>Removes mix line <paramref name="k"/>.</summary>
+    internal void RemoveLine(int k)
+    {
+        if (k < 0 || k >= Rule.Mix.Count)
+        {
+            return;
+        }
+
+        List<MixLine> next = [.. Rule.Mix];
+        next.RemoveAt(k);
+        _region.ReplaceRule(_index, Rule with { Mix = next }, "Remove mix line");
+    }
+
+    /// <summary>Embeds a built-in profile in the study library.</summary>
+    internal void EmbedProfile(Guid profileId) => _region.EmbedProfile(profileId);
+
+    /// <summary>Embeds a built-in journey in the study library.</summary>
+    internal void EmbedJourney(Guid journeyId) => _region.EmbedJourney(journeyId);
+
+    /// <summary>Shows a validation message.</summary>
+    internal void Reject(string message) => _region.Reject(message);
+
+    private void AddLine()
+    {
+        Guid commuter = TemplateIds.FromKey(StudyTemplates.FallbackProfileKey);
+        EmbedProfile(commuter);
+        _region.ReplaceRule(_index, Rule with { Mix = [.. Rule.Mix, MixLine.Of(commuter)] }, "Add mix line");
     }
 
     /// <summary>People per minute (0–10 000).</summary>
@@ -367,5 +418,148 @@ public sealed class RateCurvePointViewModel : ObservableObject
             _rule.SetPoint(_index, _point with { Multiplier = Math.Round(value, 3) });
             OnPropertyChanged();
         }
+    }
+}
+
+/// <summary>
+/// One mix line of a rule (D-151): profile, journey, share and spawn tags. Edits replace the line (and the rule) in
+/// one undo step.
+/// </summary>
+public sealed class MixLineViewModel : ObservableObject
+{
+    private readonly EmissionRuleViewModel _rule;
+    private readonly int _index;
+    private readonly MixLine _line;
+
+    /// <summary>Wraps line <paramref name="index"/> of a rule's mix.</summary>
+    public MixLineViewModel(EmissionRuleViewModel rule, int index, MixLine line)
+    {
+        _rule = rule;
+        _index = index;
+        _line = line;
+        RemoveCommand = new RelayCommand(() => _rule.RemoveLine(_index));
+    }
+
+    /// <summary>Removes this line.</summary>
+    public RelayCommand RemoveCommand { get; }
+
+    /// <summary>Profile choices.</summary>
+    public IReadOnlyList<IdOption> ProfileOptions => _rule.ProfileOptions;
+
+    /// <summary>Journey choices ("none" first).</summary>
+    public IReadOnlyList<IdOption> JourneyOptions => _rule.JourneyOptions;
+
+    /// <summary>Profile id.</summary>
+    public Guid ProfileId
+    {
+        get => _line.ProfileId;
+        set
+        {
+            if (value != _line.ProfileId && value != Guid.Empty)
+            {
+                _rule.EmbedProfile(value);
+                _rule.SetLine(_index, _line with { ProfileId = value }, "Change mix line profile");
+            }
+        }
+    }
+
+    /// <summary>Journey id, <see cref="Guid.Empty"/> for none (straight to a sink).</summary>
+    public Guid JourneyId
+    {
+        get => _line.JourneyId ?? Guid.Empty;
+        set
+        {
+            Guid? next = value == Guid.Empty ? null : value;
+            if (next != _line.JourneyId)
+            {
+                if (next is { } id)
+                {
+                    _rule.EmbedJourney(id);
+                }
+
+                _rule.SetLine(_index, _line with { JourneyId = next }, "Change mix line journey");
+            }
+        }
+    }
+
+    /// <summary>Relative share (0–1 000 000).</summary>
+    public double Share
+    {
+        get => _line.Share;
+        set
+        {
+            if (double.IsNaN(value) || value < 0 || value > 1e6)
+            {
+                _rule.Reject("Shares must be zero or more.");
+                OnPropertyChanged();
+                return;
+            }
+
+            _rule.SetLine(_index, _line with { Share = Math.Round(value, 3) }, "Change mix line share");
+        }
+    }
+
+    /// <summary>This line's share of the rule, e.g. "70%".</summary>
+    public string SharePercent
+    {
+        get
+        {
+            double total = _rule.TotalShare;
+            return total > 0 && _line.Share > 0
+                ? string.Create(CultureInfo.InvariantCulture, $"{_line.Share / total * 100:0.#}%")
+                : "0%";
+        }
+    }
+
+    /// <summary>Spawn tags as text, e.g. "ticket 50%, vip" (no % means everyone; D-150).</summary>
+    public string SpawnTagsText
+    {
+        get => FormatTags(_line.SpawnTags);
+        set
+        {
+            if (!TryParseTags(value, out List<SpawnTag> tags, out string? error))
+            {
+                _rule.Reject(error!);
+                OnPropertyChanged();
+                return;
+            }
+
+            if (FormatTags(tags) != FormatTags(_line.SpawnTags))
+            {
+                _rule.SetLine(_index, _line with { SpawnTags = tags }, "Change mix line tags");
+            }
+        }
+    }
+
+    /// <summary>"ticket 50%, vip" for a tag list.</summary>
+    public static string FormatTags(IEnumerable<SpawnTag> tags) =>
+        string.Join(", ", tags.Select(t => t.Percent >= 100
+            ? t.Tag
+            : string.Create(CultureInfo.InvariantCulture, $"{t.Tag} {t.Percent:0.##}%")));
+
+    /// <summary>
+    /// Parses "tag", "tag 50" or "tag 50%" entries separated by commas or semicolons. Tags are single words; the
+    /// percentage is 0–100.
+    /// </summary>
+    public static bool TryParseTags(string? text, out List<SpawnTag> tags, out string? error)
+    {
+        tags = [];
+        error = null;
+        foreach (string raw in (text ?? string.Empty).Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            string[] parts = raw.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            double percent = 100;
+            if (parts.Length > 2
+                || (parts.Length == 2 && !double.TryParse(parts[1].TrimEnd('%'), NumberStyles.Float, CultureInfo.InvariantCulture, out percent))
+                || percent < 0 || percent > 100)
+            {
+                error = $"Couldn't read '{raw}': write tags as \"ticket 50%, vip\" (one word each, 0–100%).";
+                return false;
+            }
+
+            tags.Add(SpawnTag.Of(parts[0], percent));
+        }
+
+        return true;
     }
 }

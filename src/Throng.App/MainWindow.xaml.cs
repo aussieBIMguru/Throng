@@ -58,6 +58,10 @@ public partial class MainWindow : Window
             case "":
                 Viewport.Mode = _viewModel.ViewMode;
                 Viewport.SetLevelLabel(_viewModel.HudLevelText);
+                Viewport.AgentColoring = _viewModel.AgentColoring;
+                break;
+            case nameof(MainViewModel.AgentColoring):
+                Viewport.AgentColoring = _viewModel.AgentColoring;
                 break;
             case nameof(MainViewModel.HudLevelText):
                 Viewport.SetLevelLabel(_viewModel.HudLevelText);
@@ -101,6 +105,12 @@ public partial class MainWindow : Window
         }
 
         _libraryPress = e.ClickCount == 1 && sender is IInputElement element ? e.GetPosition(element) : null;
+
+        // A single click on a journey opens it in SELECTION (D-162).
+        if (e.ClickCount == 1 && sender is FrameworkElement { DataContext: TemplateItemViewModel { Template: Throng.Core.Library.JourneyTemplate } journey })
+        {
+            _viewModel.SelectLibraryItem(journey);
+        }
     }
 
     /// <summary>Dragging a library row past the system drag distance starts drag-and-drop to the viewport (D-098).</summary>
@@ -126,6 +136,7 @@ public partial class MainWindow : Window
         }
 
         DragDrop.DoDragDrop(element, new DataObject(ViewportView.TemplateDragFormat, item), DragDropEffects.Copy);
+        _viewModel.Editor.EndDragHover();
     }
 
     private void OnTemplateDropped(object? sender, TemplateDropEventArgs e)

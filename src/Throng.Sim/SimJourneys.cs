@@ -1,0 +1,182 @@
+using Throng.Core.Geometry;
+using Throng.Core.Library;
+
+namespace Throng.Sim;
+
+/// <summary>One journey step ready to run (D-149, D-150).</summary>
+public sealed class SimStep
+{
+    /// <summary>What to do.</summary>
+    public required JourneyStepKind Kind { get; init; }
+
+    /// <summary>
+    /// Candidates: device indices (<see cref="SimModel.Devices"/>) for device steps, route target indices
+    /// (<c>NavWorld.Sinks</c>) for zone steps; empty for exits.
+    /// </summary>
+    public required int[] Targets { get; init; }
+
+    /// <summary>Tag bits the agent must carry for the step to apply (0 = none).</summary>
+    public required ulong Needs { get; init; }
+
+    /// <summary>Tag bits the agent must not carry for the step to apply (0 = none).</summary>
+    public required ulong Lacks { get; init; }
+
+    /// <summary>Tag bits given on completing the step.</summary>
+    public required ulong Grants { get; init; }
+
+    /// <summary>Dwell time for dwell steps.</summary>
+    public required Distribution Dwell { get; init; }
+
+    /// <summary>Text for messages and diagnostics, e.g. "TicketMachine".</summary>
+    public required string Label { get; init; }
+
+    /// <summary>Device steps: what a queuer does once their patience runs out (D-165).</summary>
+    public JourneyGiveUp OnGiveUp { get; init; } = JourneyGiveUp.KeepWaiting;
+
+    /// <summary>
+    /// Index (in <see cref="SimJourney.Steps"/>) of the step to carry on from for <see cref="JourneyGiveUp.JumpTo"/>;
+    /// −1 when the jump target was dropped (the person then leaves).
+    /// </summary>
+    public int GiveUpStep { get; init; } = -1;
+
+    /// <summary>True when an agent with <paramref name="tags"/> does this step (needs met, nothing it lacks).</summary>
+    public bool AppliesTo(ulong tags) => (tags & Needs) == Needs && (tags & Lacks) == 0;
+}
+
+/// <summary>A journey ready to run: its steps, always ending in an exit.</summary>
+public sealed class SimJourney
+{
+    /// <summary>Position in <see cref="SimModel.Journeys"/>.</summary>
+    public required int Index { get; init; }
+
+    /// <summary>Display name.</summary>
+    public required string Name { get; init; }
+
+    /// <summary>The steps; the last one is an exit.</summary>
+    public required SimStep[] Steps { get; init; }
+}
+
+/// <summary>One line of an emitter's mix ready to run (D-151).</summary>
+public sealed class SimMixLine
+{
+    /// <summary>Index into <see cref="SimModel.Profiles"/>.</summary>
+    public required int Profile { get; init; }
+
+    /// <summary>Index into <see cref="SimModel.Journeys"/>, or −1 to walk straight to a sink.</summary>
+    public required int Journey { get; init; }
+
+    /// <summary>Relative share (positive).</summary>
+    public required double Share { get; init; }
+
+    /// <summary>Tags given at spawn, each with its probability (0–1).</summary>
+    public required (ulong Bit, double Probability)[] SpawnTags { get; init; }
+}
+
+/// <summary>
+/// A device ready to run (D-152, D-153): its service area as a route target, its servers (lanes) and the queue lines
+/// in front of them. Pass-through devices (gates) have lines on both sides and serve one side per lane at a time;
+/// other devices have lines on their service side only.
+/// </summary>
+public sealed class SimDevice
+{
+    /// <summary>Spacing of queue slots along a line, metres (accepted default).</summary>
+    public const double SlotSpacingM = QueueLines.SlotSpacingM;
+
+    /// <summary>Distance of the service point in front of the footprint edge, metres.</summary>
+    public const double ServiceOffsetM = QueueLines.ServiceOffsetM;
+
+    /// <summary>Position in <see cref="SimModel.Devices"/>.</summary>
+    public required int Index { get; init; }
+
+    /// <summary>Source device id.</summary>
+    public required Guid DeviceId { get; init; }
+
+    /// <summary>Display name.</summary>
+    public required string Name { get; init; }
+
+    /// <summary>Type tag journeys ask for.</summary>
+    public required string TypeTag { get; init; }
+
+    /// <summary>Preset key the device was placed from (profile device preferences match it, D-166).</summary>
+    public string PresetKey { get; init; } = string.Empty;
+
+    /// <summary>Footprint width across <see cref="Facing"/>.</summary>
+    public double WidthM { get; init; } = 1.0;
+
+    /// <summary>Floor surface it stands on.</summary>
+    public required int Floor { get; init; }
+
+    /// <summary>Route target (index into <c>NavWorld.Sinks</c>) leading to its service area or lanes.</summary>
+    public required int Target { get; init; }
+
+    /// <summary>Footprint centre.</summary>
+    public required Point2 Centre { get; init; }
+
+    /// <summary>Unit direction the service side faces.</summary>
+    public required Point2 Facing { get; init; }
+
+    /// <summary>Footprint depth along <see cref="Facing"/>.</summary>
+    public required double DepthM { get; init; }
+
+    /// <summary>Lanes or servers side by side.</summary>
+    public required int Lanes { get; init; }
+
+    /// <summary>True for gates and security: people walk through after service.</summary>
+    public required bool PassThrough { get; init; }
+
+    /// <summary>Service time per person.</summary>
+    public required Distribution ServiceTime { get; init; }
+
+    /// <summary>Mean service time, seconds (for expected waits).</summary>
+    public required double MeanServiceS { get; init; }
+
+    /// <summary>Seconds added to this device's cost in choices (minus the preset's choice weight).</summary>
+    public required double ChoicePenaltyS { get; init; }
+
+    /// <summary>First lane index in the engine's per-lane arrays.</summary>
+    public required int LaneBase { get; init; }
+
+    /// <summary>First line index in the engine's per-line arrays.</summary>
+    public required int LineBase { get; init; }
+
+    /// <summary>
+    /// Queue slot positions per line (line = side × <see cref="Lanes"/> + lane; side 0 is the service side, side 1
+    /// the far side of pass-through devices). Slot 0 is the service point. With a drawn queue, the shared snake is
+    /// the extra line <see cref="SnakeLine"/> after the lane lines, and each service-side lane line holds only its
+    /// service point (D-163).
+    /// </summary>
+    public required Point2[][] Slots { get; init; }
+
+    /// <summary>Local line index of the shared snake (D-163), or −1 when the device has no drawn queue.</summary>
+    public int SnakeLine { get; init; } = -1;
+
+    /// <summary>True when a drawn queue feeds every service-side lane from one snake.</summary>
+    public bool HasSnake => SnakeLine >= 0 && Slots[SnakeLine].Length > 0;
+
+    /// <summary>
+    /// Where people waiting for a lane stand on each side (D-167): 2 m out from the service points and clear of the
+    /// lane mouths, one spot per end of the device that has floor (possibly none).
+    /// </summary>
+    public Point2[][] HoldPoints { get; init; } = [];
+
+    /// <summary>Queue sides: 2 for pass-through devices, 1 otherwise.</summary>
+    public int Sides => PassThrough ? 2 : 1;
+
+    /// <summary>Line index (local) of a lane on a side.</summary>
+    public int Line(int side, int lane) => (side * Lanes) + lane;
+
+    /// <summary>
+    /// The side a plan point is on (0 = service side). Non-pass-through devices only queue on the service side.
+    /// </summary>
+    public int SideOf(Point2 p) => PassThrough && Point2.Dot(p - Centre, Facing) < 0 ? 1 : 0;
+
+    /// <summary>Where someone served from <paramref name="side"/> in <paramref name="lane"/> walks out on the far side.</summary>
+    public Point2 FarPoint(int side, int lane)
+    {
+        // Straight through from this side's service point, to a little beyond the far side's service point.
+        Point2[] line = Slots[Line(side, lane)];
+        Point2 start = line.Length > 0 ? line[0] : Centre;
+        Point2 through = side == 0 ? Facing * -1 : Facing;
+        return start + (through * (DepthM + (2 * ServiceOffsetM) + 0.5));
+    }
+}

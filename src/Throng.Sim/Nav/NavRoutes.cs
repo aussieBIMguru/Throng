@@ -87,7 +87,7 @@ public sealed class NavRoutes
         foreach (NavSink sink in world.Sinks)
         {
             cancel.ThrowIfCancellationRequested();
-            sinkFields[sink.Index] = builder.Build([sink.Floor], sink.Floor, sink.Cells, default);
+            sinkFields[sink.Index] = builder.Build([sink.Floor], sink.Floor, sink.Cells, default, avoid: sink.AvoidCells is { Length: > 0 } a ? a : null);
         }
 
         // Options: every allowed entry on a floor paired with every other allowed exit of the same connector.

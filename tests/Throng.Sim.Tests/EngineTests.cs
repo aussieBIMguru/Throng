@@ -95,7 +95,7 @@ public sealed class EngineTests
     }
 
     [TestMethod]
-    public void Snapshot_HasTenFloatsPerAgent()
+    public void Snapshot_HasElevenFloatsPerAgent()
     {
         var engine = new SimEngine(SimTestStudies.Compile(SimTestStudies.Corridor(ratePerMinute: 60)));
         Run(engine, 10);
@@ -106,5 +106,7 @@ public sealed class EngineTests
         Assert.IsTrue(buffer.Length >= n * SimEngine.FloatsPerAgent);
         Assert.AreEqual((float)engine.Agents.X[0], buffer[0]);
         Assert.AreEqual(0f, buffer[2], 1e-6f, "Ground floor height.");
+        Assert.AreEqual(11, SimEngine.FloatsPerAgent, "x, y, z, heading, r, g, b, radius, height, stuck, stress (D-145).");
+        Assert.AreEqual(engine.Agents.Stress[0], buffer[10]);
     }
 }

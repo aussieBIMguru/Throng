@@ -4,13 +4,13 @@ namespace Throng.Render.Gl;
 
 /// <summary>
 /// Instanced agent drawing (D-102): one unit capsule mesh and a per-frame instance buffer, drawn in a single
-/// instanced call. Instances use the simulation's snapshot layout directly (10 floats each: x, y, z, heading, r, g,
-/// b, radius, height, stuck), so the app can upload what it copied from the runner without repacking.
+/// instanced call. Instances use the simulation's snapshot layout directly (11 floats each: x, y, z, heading, r, g,
+/// b, radius, height, stuck, stress), so the app can upload what it copied from the runner without repacking.
 /// </summary>
 internal sealed class GpuAgents : IDisposable
 {
     /// <summary>Floats per instance (matches <c>SimEngine.FloatsPerAgent</c>).</summary>
-    public const int FloatsPerInstance = 10;
+    public const int FloatsPerInstance = 11;
 
     private const int Sides = 12;
     private const int FloatsPerVertex = 5;
@@ -61,6 +61,9 @@ internal sealed class GpuAgents : IDisposable
         GL.EnableVertexAttribArray(5);
         GL.VertexAttribPointer(5, 3, VertexAttribPointerType.Float, false, istride, 7 * sizeof(float));
         GL.VertexAttribDivisor(5, 1);
+        GL.EnableVertexAttribArray(6);
+        GL.VertexAttribPointer(6, 1, VertexAttribPointerType.Float, false, istride, 10 * sizeof(float));
+        GL.VertexAttribDivisor(6, 1);
 
         GL.BindVertexArray(0);
         GL.BindBuffer(BufferTarget.ArrayBuffer, 0);

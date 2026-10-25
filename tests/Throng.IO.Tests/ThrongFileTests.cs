@@ -91,11 +91,11 @@ public sealed class ThrongFileTests
     }
 
     [TestMethod]
-    public void Save_WritesFormatV5()
+    public void Save_WritesFormatV6()
     {
-        string path = Path.Combine(_folder, "v5" + ThrongFile.Extension);
+        string path = Path.Combine(_folder, "v6" + ThrongFile.Extension);
         Assert.IsTrue(ThrongFile.Save(DemoStudyBuilder.Build(), path).IsSuccess);
-        Assert.AreEqual(5, ThrongFile.ReadManifest(path).Value!.FormatVersion);
+        Assert.AreEqual(6, ThrongFile.ReadManifest(path).Value!.FormatVersion);
     }
 
     [TestMethod]
@@ -215,6 +215,7 @@ public sealed class DemoStudyTests
         Study demo = DemoStudyBuilder.Build();
         Assert.AreEqual(5, demo.Library.AgentProfiles.Count);
         Assert.AreEqual(5, demo.Library.Schedules.Count);
+        Assert.AreEqual(3, demo.Library.Journeys.Count);
         Assert.IsTrue(demo.Library.All().All(t => t.Source == Core.Library.TemplateSource.Embedded));
     }
 
@@ -259,7 +260,7 @@ public sealed class DemoStudyTests
         Assert.IsTrue(demo.Connectors.Any(c => ConnectorLayout.Compute(c, demo).Value!.Circuits.Count == 2), "The back-of-house core has one circuit per storey (three levels, two storeys).");
         Assert.IsTrue(demo.Shafts.Any(s => s.NoStopLevelIds.Count == 1), "The goods lift skips the concourse.");
         Assert.IsTrue(demo.Regions.Any(r => r.TopLevelId is not null && r.Kind == RegionKind.Wall), "Lift core walls span two levels.");
-        Assert.AreEqual(9, demo.Devices.Count);
+        Assert.AreEqual(13, demo.Devices.Count, "Eight ticket machines (D-155), two counters, two gates, the info desk.");
         Assert.IsFalse(demo.Regions.Any(r => string.Equals(r.Tag, "Void", StringComparison.OrdinalIgnoreCase)), "Auto openings replace the voids (D-061).");
         Assert.IsTrue(demo.Connectors.All(c => c.TemplateId is { } id && demo.Library.Find(id) is not null), "Presets are embedded.");
     }
