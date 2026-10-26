@@ -65,6 +65,7 @@ public static class DemoStudyBuilder
         BuildSpanning(study, street, concourse, platform);
         EmbedTemplates(study);
         BuildDemand(study);
+        BuildTrains(study);
         return study;
     }
 
@@ -97,11 +98,12 @@ public static class DemoStudyBuilder
     {
         Add(study, level, "Ticket hall and paid concourse", RegionKind.Walkable, ZoneKind.None, Rect(0, 0, 60, 30));
 
-        // Gate line barrier: two solid runs leaving a 6 m gap where the gates go (M3).
-        Add(study, level, "Gate line barrier south", RegionKind.Obstacle, ZoneKind.None, Rect(27.6, 0, 28.4, 12), height: 1.1);
-        Add(study, level, "Gate line barrier north", RegionKind.Obstacle, ZoneKind.None, Rect(27.6, 18, 28.4, 30), height: 1.1);
-        Add(study, level, "Gate line barrier middle", RegionKind.Obstacle, ZoneKind.None, Rect(27.6, 16.0, 28.4, 16.8), height: 1.1);
-        Add(study, level, "Gate line count", RegionKind.Zone, ZoneKind.Measurement, Rect(27, 12, 29, 18));
+        // Gate line barrier: two solid runs leaving a 6 m gap where the gates go (M3). D-198: the gap sits 4.5 m
+        // further south than before (Gavin's layout), clear of the street stairs' landing flows.
+        Add(study, level, "Gate line barrier south", RegionKind.Obstacle, ZoneKind.None, Rect(27.6, 0, 28.4, 7.5), height: 1.1);
+        Add(study, level, "Gate line barrier north", RegionKind.Obstacle, ZoneKind.None, Rect(27.6, 13.5, 28.4, 30), height: 1.1);
+        Add(study, level, "Gate line barrier middle", RegionKind.Obstacle, ZoneKind.None, Rect(27.6, 11.5, 28.4, 12.3), height: 1.1);
+        Add(study, level, "Gate line count", RegionKind.Zone, ZoneKind.Measurement, Rect(27, 7.5, 29, 13.5));
 
         foreach (double x in new[] { 10.0, 20.0, 40.0, 50.0 })
         {
@@ -155,8 +157,10 @@ public static class DemoStudyBuilder
 
         // Concourse ↔ platform: a deliberately tight 1.5 m switchback (§21.1) returning on the north side, and an
         // escalator pair to the south, both on the paid side of the gate line.
-        Place(study, "connector.stair-switchback-1500", platform, concourse, new Point2(36, 14), "Platform stair");
-        Place(study, "connector.escalator-pair", platform, concourse, new Point2(36, 10), "Platform escalator");
+        // D-199 (Gavin's layout, read off his screenshot): the stair moved east of the escalators so their flows
+        // don't cross at the bottom; was stair (36, 14), escalators (36, 10).
+        Place(study, "connector.stair-switchback-1500", platform, concourse, new Point2(42.6, 15.8), "Platform stair");
+        Place(study, "connector.escalator-pair", platform, concourse, new Point2(36, 12.0), "Platform escalator");
 
         // Accessible lift shaft, concourse ↔ platform (the car and its doors arrive in M4, D-068).
         Shaft shaft = ConnectorFactory.CreateShaft(study, platform.Id, concourse.Id, Rect(30, 19.5, 32.4, 21.9));
@@ -179,8 +183,12 @@ public static class DemoStudyBuilder
 
         PlaceDevice(study, "device.ticket-counter", concourse, new Point2(6, 29.5), 270);
         PlaceDevice(study, "device.ticket-counter", concourse, new Point2(10, 29.5), 270);
-        PlaceDevice(study, "device.gate-line", concourse, new Point2(28, 14.0), 0);
-        PlaceDevice(study, "device.gate-accessible", concourse, new Point2(28, 17.4), 0);
+        PlaceDevice(study, "device.gate-line", concourse, new Point2(28, 9.5), 0);
+
+        // D-196: the gate line faces east (the platform side), so people coming in from the street enter from the
+        // back. Two lanes in, two out, so a train's worth of people and the steady flow in don't lock the lanes.
+        study.Devices[^1].LaneDirections = [GateLaneDirection.FromBack, GateLaneDirection.FromBack, GateLaneDirection.FromFront, GateLaneDirection.FromFront];
+        PlaceDevice(study, "device.gate-accessible", concourse, new Point2(28, 12.9), 0);
         PlaceDevice(study, "device.info-desk", concourse, new Point2(50, 26.5), 270);
     }
 
@@ -222,7 +230,8 @@ public static class DemoStudyBuilder
     /// the twelve platform doors (equal weights): 70% commuters already holding a ticket, straight to the gates;
     /// 30% infrequent travellers, half of whom need a ticket from a machine first, and a third of whom browse the
     /// retail first. Each door sends commuters back up through the gates to the entrances and the bus stop (west 40,
-    /// east 40, bus 20). Train timetables replace the door flows in a later round.
+    /// east 40, bus 20). Since round 010b the doors' rules say who gets off the trains (D-189) and the doors only
+    /// take boarders while a train is in.
     /// </summary>
     private static void BuildDemand(Study study)
     {
@@ -262,6 +271,36 @@ public static class DemoStudyBuilder
         foreach (Region door in doors)
         {
             door.EmissionRules.Add(Rule(outbound, 3, toStreet));
+        }
+    }
+
+    /// <summary>
+    /// Two alternating train services (D-189): southbound and northbound every 6 minutes, 3 minutes apart, 100 getting
+    /// off each over 30 s (D-196, was 150 over 20 s), doors open 45 s, 300 places. They own the twelve door zones, so the doors' rules now say who
+    /// gets off rather than emitting all the time.
+    /// </summary>
+    private static void BuildTrains(Study study)
+    {
+        foreach ((string name, double offset) in new[] { ("Southbound", 30.0), ("Northbound", 210.0) })
+        {
+            List<Guid> doors = [.. study.Regions.Where(r => r.Name.StartsWith(name + " door ", StringComparison.Ordinal) && r.IsSink).Select(r => r.Id)];
+            if (doors.Count == 0)
+            {
+                continue;
+            }
+
+            study.TrainServices.Add(new TrainService
+            {
+                Name = name,
+                Tag = name,
+                DoorZoneIds = doors,
+                HeadwayS = 360,
+                OffsetS = offset,
+                DwellS = 45,
+                AlightPerTrain = 100,
+                AlightOverS = 30,
+                Capacity = 300,
+            });
         }
     }
 

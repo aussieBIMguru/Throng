@@ -151,8 +151,9 @@ public sealed partial class MainViewModel
             string stuck = _stats.StuckRemoved > 0
                 ? string.Create(c, $"{_stats.StuckNow} (+{_stats.StuckRemoved} removed)")
                 : _stats.StuckNow.ToString(c);
+            string leftBehind = _runner?.Model.Trains.Count > 0 ? string.Create(c, $" · LEFT BEHIND {_stats.LeftBehind}") : string.Empty;
             return string.Create(c,
-                $"{speed} · AGENTS {_stats.InSystem} · IN {_stats.Spawned} · OUT {_stats.Arrived} · JOURNEY {(int)journey.TotalMinutes}:{journey.Seconds:00} · QUEUING {_stats.Queuing} · STRESSED {_stats.Stressed} · GAVE UP {_stats.GaveUp} · STUCK {stuck}");
+                $"{speed} · AGENTS {_stats.InSystem} · IN {_stats.Spawned} · OUT {_stats.Arrived} · JOURNEY {(int)journey.TotalMinutes}:{journey.Seconds:00} · QUEUING {_stats.Queuing} · STRESSED {_stats.Stressed} · GAVE UP {_stats.GaveUp}{leftBehind} · STUCK {stuck}");
         }
     }
 
@@ -464,9 +465,41 @@ public sealed partial class MainViewModel
         }
     }
 
+    /// <summary>
+    /// Hover text while running (D-183): a connector's or exit's current crowd wait, e.g. "~14 S"; null otherwise.
+    /// </summary>
+    public string? RunHoverInfo(Guid id) =>
+        _runner is { } runner && runner.TryGetCrowdWait(id, out double seconds)
+            ? string.Create(CultureInfo.InvariantCulture, $"~{seconds:0} S")
+            : null;
+
+    /// <summary>Trains in on a level while running, for the plan overlay (D-190).</summary>
+    public IReadOnlyList<RunTrainView> RunTrains(Guid levelId)
+    {
+        if (_runner is not { } runner)
+        {
+            return [];
+        }
+
+        var views = new List<RunTrainView>();
+        foreach ((SimTrain train, bool isIn, bool boarding) in runner.CopyTrainStates())
+        {
+            if (!isIn || train.LevelId != levelId)
+            {
+                continue;
+            }
+
+            List<IReadOnlyList<Point2>> doors = [.. train.DoorRegionIds.Select(_study.FindRegion).OfType<Region>().Select(r => (IReadOnlyList<Point2>)r.Outline)];
+            views.Add(new RunTrainView(train.Box, doors, boarding));
+        }
+
+        return views;
+    }
+
     private void RefreshRunStatus()
     {
         _stats = _runner?.LatestStats ?? default;
+        Editor?.RefreshRunHover();
         OnPropertyChanged(nameof(RunStatusText));
         OnPropertyChanged(nameof(ClockText));
         OnPropertyChanged(nameof(IsPlaying));

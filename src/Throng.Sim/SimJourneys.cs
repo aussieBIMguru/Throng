@@ -166,6 +166,35 @@ public sealed class SimDevice
     public int Line(int side, int lane) => (side * Lanes) + lane;
 
     /// <summary>
+    /// Pass-through devices: the side each lane is fixed to take people from (0 front, 1 back), or −1 for either way
+    /// (D-196). Empty for other devices.
+    /// </summary>
+    public int[] LaneSide { get; init; } = [];
+
+    /// <summary>The side lane <paramref name="lane"/> is fixed to, or −1 (D-196).</summary>
+    public int FixedSide(int lane) => lane >= 0 && lane < LaneSide.Length ? LaneSide[lane] : -1;
+
+    /// <summary>True when some lane can take people from <paramref name="side"/> (always for non-pass-through devices).</summary>
+    public bool ServesSide(int side)
+    {
+        if (!PassThrough)
+        {
+            return true;
+        }
+
+        for (int lane = 0; lane < Lanes; lane++)
+        {
+            int fixedSide = FixedSide(lane);
+            if (fixedSide < 0 || fixedSide == side)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// The side a plan point is on (0 = service side). Non-pass-through devices only queue on the service side.
     /// </summary>
     public int SideOf(Point2 p) => PassThrough && Point2.Dot(p - Centre, Facing) < 0 ? 1 : 0;

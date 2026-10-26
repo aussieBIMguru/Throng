@@ -80,6 +80,12 @@ public sealed class SimEmitter
 
     /// <summary>Reachable destination sinks (nav sink index) with weights; for nearest-sink rules, the candidates (weight 1).</summary>
     public required (int Sink, double Weight)[] Destinations { get; init; }
+
+    /// <summary>
+    /// The train service (index into <see cref="SimModel.Trains"/>) whose door this zone is, or −1 (D-184). A door's
+    /// rules don't emit on their own; the service releases people when a train arrives.
+    /// </summary>
+    public int TrainService { get; set; } = -1;
 }
 
 /// <summary>Everything a run needs, compiled once by <see cref="SimSetup"/>; immutable while running.</summary>
@@ -99,6 +105,9 @@ public sealed class SimModel
 
     /// <summary>Devices with queues (D-152, D-153); only those some journey can use.</summary>
     public IReadOnlyList<SimDevice> Devices { get; init; } = [];
+
+    /// <summary>Train services with at least one usable door (D-184).</summary>
+    public IReadOnlyList<SimTrain> Trains { get; init; } = [];
 
     /// <summary>Tag names by bit position (D-150; at most 64 per run).</summary>
     public IReadOnlyList<string> TagNames { get; init; } = [];

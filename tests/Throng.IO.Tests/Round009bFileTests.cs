@@ -31,7 +31,7 @@ public sealed class Round009bFileTests
     }
 
     [TestMethod]
-    public void Save_DuplicatedJourneyGiveUpPreferencesAndQueuePath_RoundTripOnFormatV6()
+    public void Save_DuplicatedJourneyGiveUpPreferencesAndQueuePath_RoundTrip()
     {
         var study = new Study { Name = "Round trip" };
         var level = new Level { Name = "Ground" };
@@ -50,7 +50,7 @@ public sealed class Round009bFileTests
 
         string path = Path.Combine(_folder, "rt.throng");
         Assert.IsTrue(ThrongFile.Save(study, path).IsSuccess);
-        Assert.AreEqual(6, ThrongFile.ReadManifest(path).Value!.FormatVersion, "009b stays on format v6 (D-169).");
+        Assert.AreEqual(ThrongFile.CurrentFormatVersion, ThrongFile.ReadManifest(path).Value!.FormatVersion, "Saved at the current format (v7 since 010b, D-188).");
 
         Study loaded = ThrongFile.Load(path).Value!;
         var journey = (JourneyTemplate)loaded.Library.Find(copy.Id)!;

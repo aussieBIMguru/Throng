@@ -98,6 +98,18 @@ public sealed partial class SimEngine
     private void ResetDevices()
     {
         Array.Fill(_laneDir, (sbyte)-1);
+        foreach (SimDevice device in _model.Devices)
+        {
+            // Lanes fixed to one direction (D-196) keep it for the whole run.
+            for (int lane = 0; lane < device.Lanes; lane++)
+            {
+                if (device.FixedSide(lane) >= 0)
+                {
+                    _laneDir[device.LaneBase + lane] = (sbyte)device.FixedSide(lane);
+                }
+            }
+        }
+
         Array.Clear(_laneServing);
         Array.Clear(_laneThrough);
         Array.Clear(_laneClosing);
@@ -208,6 +220,20 @@ public sealed partial class SimEngine
                     BeginExit(i, random);
                     return;
 
+                case JourneyStepKind.BoardTrain:
+                {
+                    // Leave on a train (D-186): head for the quickest, quietest door of the step's services.
+                    int door = ChooseTrainDoor(i, step, random);
+                    if (door < 0)
+                    {
+                        continue;
+                    }
+
+                    a.Sink[i] = door;
+                    Decide(i, random);
+                    return;
+                }
+
                 case JourneyStepKind.GoToDevice:
                 {
                     int d = ChooseDevice(i, step, -1, random, out _);
@@ -285,7 +311,13 @@ public sealed partial class SimEngine
             }
 
             SimDevice device = _model.Devices[d];
-            double walk = RoutePlanner.Choose(_routes, a.Surface[i], a.X[i], a.Y[i], device.Target, profile.Mobility, profile.Template, random, out _, out _, _wait, BeltWalkSpeed(i), stairEffort: _tuning.StairEffort, standingRest: _tuning.StandingRest);
+            if (device.PassThrough && device.Floor == a.Surface[i] && !device.ServesSide(device.SideOf(new Point2(a.X[i], a.Y[i]))))
+            {
+                // Every lane runs the other way for someone on this side (D-196).
+                continue;
+            }
+
+            double walk = RoutePlanner.Choose(_routes, a.Surface[i], a.X[i], a.Y[i], device.Target, profile.Mobility, profile.Template, random, out _, out _, _wait, BeltWalkSpeed(i), stairEffort: _tuning.StairEffort, standingRest: _tuning.StandingRest, sightRadius: Sight(i));
             if (!double.IsFinite(walk))
             {
                 continue;
@@ -317,7 +349,7 @@ public sealed partial class SimEngine
         double bestCost = double.PositiveInfinity;
         foreach (int target in step.Targets)
         {
-            double c = RoutePlanner.Choose(_routes, a.Surface[i], a.X[i], a.Y[i], target, profile.Mobility, profile.Template, random, out _, out _, _wait, BeltWalkSpeed(i), stairEffort: _tuning.StairEffort, standingRest: _tuning.StandingRest);
+            double c = RoutePlanner.Choose(_routes, a.Surface[i], a.X[i], a.Y[i], target, profile.Mobility, profile.Template, random, out _, out _, _wait, BeltWalkSpeed(i), stairEffort: _tuning.StairEffort, standingRest: _tuning.StandingRest, sightRadius: Sight(i));
             if (c < bestCost)
             {
                 bestCost = c;
@@ -428,7 +460,7 @@ public sealed partial class SimEngine
             {
                 int g = device.LaneBase + lane;
                 int dir = _laneDir[g];
-                if (dir >= 0 && !_laneServing[g] && _laneThrough[g] == 0 && _lineCount[device.LineBase + device.Line(dir, lane)] == 0)
+                if (dir >= 0 && device.FixedSide(lane) < 0 && !_laneServing[g] && _laneThrough[g] == 0 && _lineCount[device.LineBase + device.Line(dir, lane)] == 0)
                 {
                     _laneDir[g] = -1;
                     _laneClosing[g] = false;
@@ -459,7 +491,7 @@ public sealed partial class SimEngine
                     {
                         open = true;
                     }
-                    else if (_laneDir[g] == 1 - side)
+                    else if (_laneDir[g] == 1 - side && device.FixedSide(lane) < 0)
                     {
                         closing |= _laneClosing[g];
                         int load = LaneLoad(device, lane);
@@ -483,6 +515,12 @@ public sealed partial class SimEngine
     private void UpdateJourney(int i)
     {
         AgentStore a = _agents;
+        if (_model.Trains.Count > 0 && a.Phase[i] is AgentPhase.Walk or AgentPhase.WaitTrain)
+        {
+            // Train doors (D-186): wait aside until the train can take them, then go and board.
+            UpdateTrainWait(i);
+        }
+
         switch (a.Phase[i])
         {
             case AgentPhase.Walk:
@@ -591,7 +629,12 @@ public sealed partial class SimEngine
             double distance = Point2.Distance(p, slots[0]);
             nearest = Math.Min(nearest, distance);
             longest = Math.Max(longest, _lineCount[device.LineBase + device.Line(side, lane)]);
-            turnLoad = Math.Min(turnLoad, LaneLoad(device, lane));
+            if (device.FixedSide(lane) < 0 || device.FixedSide(lane) == side)
+            {
+                // A lane fixed the other way (D-196) never turns round for this side.
+                turnLoad = Math.Min(turnLoad, LaneLoad(device, lane));
+            }
+
             if (!LaneOpenFor(device, lane, side))
             {
                 continue;
@@ -994,7 +1037,12 @@ public sealed partial class SimEngine
         switch (CurrentKind(i))
         {
             case JourneyStepKind.Exit:
-                return true;
+            case JourneyStepKind.BoardTrain:
+            {
+                // A train door is a sink only while its service is boarding (D-184, D-187).
+                int v = DoorTrainOf(_agents.Sink[i]);
+                return v < 0 || ArriveAtTrainDoor(i, v);
+            }
 
             case JourneyStepKind.PassZone:
                 CompleteStep(i);
@@ -1054,7 +1102,8 @@ public sealed partial class SimEngine
             }
 
             case AgentPhase.WaitJoin:
-                // To the hold point (D-167), then stand.
+            case AgentPhase.WaitTrain:
+                // To the hold point (D-167) or the spot beside a train door (D-186), then stand.
                 tx = a.AimX[i];
                 ty = a.AimY[i];
                 arrive = true;

@@ -1,20 +1,21 @@
 # Throng — Handover to the next chat
 
-**Written:** 2026-10-26, end of round 009 (r009c-2). **Brief:** v0.22. **Decisions:** D-001–D-176.
-**State:** r009c-2 builds (Gavin, 2026-10-26); every test passes except the parked wheelchair one, now `[Ignore]`d
-(D-176), so **223 pass, 1 skipped** expected on this zip. Format v6 (D-169). Round 009 delivered:
-- 009a: journeys (device / pass zone / dwell / exit) with need / lack / grant tags, mix lines, device queues, format v6.
-- 009b: journey editor in SELECTION (DUPLICATE for built-ins), give-up per device step, profile device
-  preferences, DRAW QUEUE shared snakes with slot dots, lane hold points, QUEUING / STRESSED / GAVE UP status bar.
-- Fixes from Gavin's runs: device fields close other gates' lanes (D-172), balk compares like for like (D-173).
-- 009c: stair effort per profile (D-174) and standing rest on belts (D-175), so people prefer escalators unless
-  they're queued.
-**Parked (D-176):** wheelchairs jam the 1.0 m accessible gate lane, and the 6 s walk-through timeout frees the lane
-while it's still occupied. Diagnosis and fix options are in `round-009.md` ▸ "Parked". Pick it up when Gavin says.
-**Start here (next chat):** `ai/PROTOCOL.md`, this file, then `ai/rounds/round-009.md` (sections "009b as built",
-"009c", "r009c-2", "Parked"). Ask Gavin for his r009c-2 results (diagnostics output, the 009b/009c checklists) and
-fix anything first. Then run the **Query** phase for round 010: **trains** (timetables, batches, door flows, built on
-journeys, D-148). BRIEF and DECISIONS only as needed.
+**Written:** 2026-10-26, end of round 010 (r010b-4). **Brief:** v0.24. **Decisions:** D-001–D-199.
+**State:** round 010 done and confirmed by Gavin's runs: 010a crowd-aware choice (stairs measured like belts, sight
+radius per profile, re-choosing while approaching, exit crowding, hover waits), progress stress (D-191), 010b trains
+(services over door zones, Board train step, LEFT BEHIND, train box), landing waypoints (D-192), stress from the first
+second and from crowding (D-193, D-194), fixed gate lane directions (D-196), demo gates moved south (D-198).
+**236 tests expected: 235 pass, 1 skipped** (wheelchair gate parked, D-176). **Format v7.** r010b-4 (demo gate move)
+and r010b-5 (platform stair and escalators moved, D-199, positions read off a screenshot) are small unbuilt edits;
+confirm they build, CHECK is clean and the demo runs first.
+**Start here (next chat):** `ai/PROTOCOL.md`, this file, then `ai/rounds/round-010.md` (sections "010b as built",
+r010b diagnostics, r010b-2…4). Then run the **Query** phase for round 011. Candidates: wheelchair gate (D-176,
+`round-009.md` ▸ Parked), profile editing (sight, stair effort, device preferences), M5 results/heatmaps (Gavin
+leaned this way once the demo started showing real layout problems), M4 lifts. Open watch items: crowd stress
+(D-194) barely shows at 2.5 p/m² with 1 m counting; landing waypoints may slow the platform stair slightly; hold
+points can sit in front of an adjacent device's lane mouth.
+**Quota:** Gavin's weekly quota ran to ~98% in round 010. Keep reads to the files a change touches, batch edits,
+short replies, and sync docs with `project_write` from `local_path`.
 **Tuning loop that works (use it, don't guess):** `Throng.Sim.Tests/Round007Tests.Diagnostics_Round007Rules` runs
 the demo and an escalator pair with each `SimTuning` switch off in turn and prints arrived / stuck / where. Ask Gavin
 to paste its output, change what it points at, add a switch for any new rule.
@@ -129,7 +130,7 @@ LEVEL / STUDY right.
 - `EmissionRule` is an immutable record: never assign its init-only properties outside an initializer; use `with`.
   Same for `MixLine`, `SpawnTag` and `JourneyStep`.
 - r009a: no NuGet or .NET SDK in the sandbox again; the round was statically reviewed (brace check, CRLF) only.
-- r009b: same (pip and npm registries were blocked too, so no syntax tools). Python text edits read CRLF files as LF;
+- r009b: same (pip and npm registries were blocked too, so no syntax tools). r010a: same. Python text edits read CRLF files as LF;
   re-normalise every touched `.cs` / `.xaml` / `.md` to CRLF before zipping.
 
 ## 6. Round history and next
@@ -177,15 +178,17 @@ served level** (D-068). Shafts already carry "no stop" levels (D-087) for that.
 | Journeys, mixes, queues | `Core/Library/{JourneyTemplate,JourneyZones}.cs`, `Core/Model/{EmissionRule,Device}.cs`, `Sim/SimJourneys.cs`, `Sim/SimSetup.cs` (devices, lines, zones, journeys), `Sim/Engine/SimEngine.Journeys.cs`, `Sim/Engine/AgentPhase.cs`, `App/ViewModels/EmissionRuleViewModels.cs` (`MixLineViewModel`) |
 | Journey editor, give-up, preferences | `App/ViewModels/{JourneyViewModels,MainViewModel.Journeys,LibraryViewModels}.cs`, `Core/Library/{JourneyGiveUp,DevicePreference,StudyTemplates}.cs`, `SimEngine.TryGiveUp` |
 | Queue layout, snake, hold points | `Core/Geometry/{QueueLines,QueueLineSet}.cs`, `SimSetup.BuildDevices/BuildHoldPoints`, `SimEngine.{TryJoinSnake,PromoteSnakeHead,WaitForLane}`, `App/Editing/PlanEditor.Queue.cs`, `EditorOverlay.DrawQueueDots` |
+| Crowd-aware choice, progress stress | `Sim/Engine/SimEngine.Crowd.cs`, `Sim/Nav/RoutePlanner.cs` (`sightRadius`, `InSight`), `SimEngine.UpdateWaits/Review/PickSink/UpdatePace/UpdateStress`, `SimRunner.TryGetCrowdWait`, `PlanEditor.HoverLabel` + `IEditorHost.RunHoverInfo` |
+| Trains | `Core/Model/TrainService.cs`, `Sim/SimTrain.cs`, `SimSetup.BuildTrains`, `Sim/Engine/SimEngine.Trains.cs`, `App/ViewModels/{MainViewModel.Trains,TrainServiceViewModels}.cs`, STUDY ▸ TRAINS in `MainWindow.xaml`, `EditorOverlay.DrawTrains` |
 | Clean script | `clean.bat` (repo root) |
 
 ## 8. Don't regress
 
-- Demo loads clean (0 errors, 0 warnings) and all tests pass (223 pass, 1 skipped on r009c-2; un-skip the wheelchair test once D-176 is fixed).
+- Demo loads clean (0 errors, 0 warnings) and all tests pass (235 pass, 1 skipped on 010b; un-skip the wheelchair test once D-176 is fixed).
 - Test helpers live in classes named for what they test, not the file (`VerticalCutTests.TwoLevelsWithStair` is in
   `ConnectorTests.cs`): grep for the class before calling a helper.
 - Demo PLAY runs: people cross all three levels; editing locks until RESET.
-- Older files open with their old behaviour (v1/v2: single-level fixed regions, single-run switchbacks; v1–v3: no emission rules; v1–v4: flat rates; v1–v5: one profile per rule, no journey, straight to a sink).
+- Older files open with their old behaviour (v1/v2: single-level fixed regions, single-run switchbacks; v1–v3: no emission rules; v1–v4: flat rates; v1–v5: one profile per rule, no journey, straight to a sink; v1–v6: no train services, doors emit continuously).
 - Queuers, people being served and dwellers are never removed as stuck; device line membership is per agent (device, line, slot), never agent indices (the store swap-removes).
 - Built-in journeys (and their embedded copies, same id) stay read-only; only `StudyTemplates.IsEditableJourney` ones are edited. Steps and step lists are replaced, never mutated.
 - Editing shortcuts only fire while the viewport has focus; New from Demo is Ctrl+Shift+D (D-043).

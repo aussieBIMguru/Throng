@@ -91,11 +91,11 @@ public sealed class ThrongFileTests
     }
 
     [TestMethod]
-    public void Save_WritesFormatV6()
+    public void Save_WritesFormatV7()
     {
-        string path = Path.Combine(_folder, "v6" + ThrongFile.Extension);
+        string path = Path.Combine(_folder, "v7" + ThrongFile.Extension);
         Assert.IsTrue(ThrongFile.Save(DemoStudyBuilder.Build(), path).IsSuccess);
-        Assert.AreEqual(6, ThrongFile.ReadManifest(path).Value!.FormatVersion);
+        Assert.AreEqual(7, ThrongFile.ReadManifest(path).Value!.FormatVersion);
     }
 
     [TestMethod]

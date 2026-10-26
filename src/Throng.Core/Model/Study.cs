@@ -40,6 +40,9 @@ public sealed class Study
     /// <summary>Calibrated plan images (file format v3, D-083).</summary>
     public List<Underlay> Underlays { get; set; } = [];
 
+    /// <summary>Train services: door zones driven by a timetable (file format v7, D-184).</summary>
+    public List<TrainService> TrainServices { get; set; } = [];
+
     /// <summary>
     /// Underlay image bytes by underlay id, stored as separate zip entries (D-083), so excluded from the study JSON.
     /// Entries can outlive their underlay (after a delete that might be undone); only underlays still in the
@@ -68,6 +71,12 @@ public sealed class Study
 
     /// <summary>Finds a region by id.</summary>
     public Region? FindRegion(Guid id) => Regions.FirstOrDefault(r => r.Id == id);
+
+    /// <summary>Finds a train service by id.</summary>
+    public TrainService? FindTrainService(Guid id) => TrainServices.FirstOrDefault(t => t.Id == id);
+
+    /// <summary>The train service a door zone belongs to (the first one listing it), or null.</summary>
+    public TrainService? TrainServiceOfDoor(Guid regionId) => TrainServices.FirstOrDefault(t => t.DoorZoneIds.Contains(regionId));
 
     /// <summary>Finds a device by id.</summary>
     public Device? FindDevice(Guid id) => Devices.FirstOrDefault(d => d.Id == id);

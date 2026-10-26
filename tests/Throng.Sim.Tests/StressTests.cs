@@ -9,10 +9,12 @@ public sealed class StressTests
     [TestMethod]
     public void Stress_ZeroUntilHalfPatience_ThenLinearToOne()
     {
-        Assert.AreEqual(0.0, SimEngine.StressFrom(0, 180), 1e-9);
-        Assert.AreEqual(0.0, SimEngine.StressFrom(90, 180), 1e-9);
-        Assert.AreEqual(0.5, SimEngine.StressFrom(135, 180), 1e-9);
-        Assert.AreEqual(1.0, SimEngine.StressFrom(180, 180), 1e-9);
+        // The D-145 curve, kept behind SimTuning.EarlyStress = false since D-193.
+        Assert.AreEqual(0.0, SimEngine.StressFromHalfPatience(0, 180), 1e-9);
+        Assert.AreEqual(0.0, SimEngine.StressFromHalfPatience(90, 180), 1e-9);
+        Assert.AreEqual(0.5, SimEngine.StressFromHalfPatience(135, 180), 1e-9);
+        Assert.AreEqual(1.0, SimEngine.StressFromHalfPatience(180, 180), 1e-9);
+        Assert.AreEqual(1.0, SimEngine.StressFromHalfPatience(1000, 180), 1e-9);
         Assert.AreEqual(1.0, SimEngine.StressFrom(1000, 180), 1e-9);
     }
 
@@ -41,7 +43,9 @@ public sealed class StressTests
             held = SimEngine.HeldStep(held, heldUp: false, densityTolerance: 0.5, dt: 0.1); // 120 s walking freely
         }
 
-        Assert.AreEqual(0.0, SimEngine.StressFrom(held, 180), 1e-9);
+        // D-193: stress is linear in held-up time, so 120 s of free walking halves it rather than clearing it.
+        Assert.IsTrue(SimEngine.StressFrom(held, 180) < 0.6);
+        Assert.AreEqual(0.0, SimEngine.StressFromHalfPatience(held, 180), 1e-9);
     }
 
     [TestMethod]
@@ -55,7 +59,8 @@ public sealed class StressTests
 
         for (int i = 0; i < engine.Agents.Count; i++)
         {
-            Assert.AreEqual(0f, engine.Agents.Stress[i], $"Agent {i} is stressed in a free-flowing corridor.");
+            // D-193: stress shows from the first second held up, so allow a brush with a neighbour.
+            Assert.IsTrue(engine.Agents.Stress[i] < 0.1f, $"Agent {i} is stressed ({engine.Agents.Stress[i]:0.00}) in a free-flowing corridor.");
         }
     }
 }

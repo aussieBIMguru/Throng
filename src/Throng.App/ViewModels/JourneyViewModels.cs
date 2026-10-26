@@ -120,6 +120,14 @@ public sealed class JourneyViewModel : ObservableObject
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Order(StringComparer.OrdinalIgnoreCase)];
 
+    /// <summary>Train service tags (or names when untagged) for Board train steps, "any" (empty) first (D-186).</summary>
+    public IReadOnlyList<string> TrainTagOptions =>
+        [string.Empty, .. _owner.Study.TrainServices.Where(t => t is not null)
+            .Select(t => string.IsNullOrWhiteSpace(t.Tag) ? t.Name : t.Tag)
+            .Where(t => !string.IsNullOrWhiteSpace(t))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Order(StringComparer.OrdinalIgnoreCase)];
+
     /// <summary>Re-reads everything; rebuilds the rows only when the number of steps changed (keeps focus while editing).</summary>
     public void Refresh()
     {
@@ -210,7 +218,7 @@ public sealed class JourneyViewModel : ObservableObject
     private void AddStep()
     {
         // A device step before the final exit (or at the end when there's no exit), asking for the first device type.
-        int at = Journey.Steps.Count > 0 && Journey.Steps[^1]?.Kind == JourneyStepKind.Exit ? Journey.Steps.Count - 1 : Journey.Steps.Count;
+        int at = Journey.Steps.Count > 0 && Journey.Steps[^1] is { EndsJourney: true } ? Journey.Steps.Count - 1 : Journey.Steps.Count;
         string type = DeviceTypeOptions.FirstOrDefault() ?? "Gate";
         List<JourneyStep> next = [.. Journey.Steps.Select(s => Remap(s, k => k >= at ? k + 1 : k))];
         next.Insert(at, JourneyStep.Device(type));
@@ -240,6 +248,7 @@ public sealed class JourneyStepViewModel : ObservableObject
         new(JourneyStepKind.PassZone, "Pass through a zone"),
         new(JourneyStepKind.Dwell, "Dwell in a zone"),
         new(JourneyStepKind.Exit, "Exit"),
+        new(JourneyStepKind.BoardTrain, "Board a train"),
     ];
 
     private static readonly IReadOnlyList<LabelledOption<JourneyGiveUp>> GiveUps =
@@ -295,7 +304,7 @@ public sealed class JourneyStepViewModel : ObservableObject
             string target = value switch
             {
                 JourneyStepKind.GoToDevice => _journey.DeviceTypeOptions.FirstOrDefault() ?? string.Empty,
-                JourneyStepKind.Exit => string.Empty,
+                JourneyStepKind.Exit or JourneyStepKind.BoardTrain => string.Empty,
                 _ => Step.Kind is JourneyStepKind.PassZone or JourneyStepKind.Dwell ? Step.TargetTag : string.Empty,
             };
             _journey.SetStep(_index, Step with { Kind = value, TargetTag = target, ZoneId = value is JourneyStepKind.PassZone or JourneyStepKind.Dwell ? Step.ZoneId : null }, "Change journey step kind");
@@ -312,10 +321,13 @@ public sealed class JourneyStepViewModel : ObservableObject
     public bool IsDwell => Step.Kind == JourneyStepKind.Dwell;
 
     /// <summary>Label over the target field.</summary>
-    public string TargetLabel => IsDevice ? "Device type" : IsDwell ? "Zone tag (empty = any dwell zone)" : "Zone tag (empty = any zone)";
+    public string TargetLabel => IsDevice ? "Device type" : IsDwell ? "Zone tag (empty = any dwell zone)" : IsTrain ? "Train service tag (empty = any)" : "Zone tag (empty = any zone)";
+
+    /// <summary>True for Board train steps (D-186).</summary>
+    public bool IsTrain => Step.Kind == JourneyStepKind.BoardTrain;
 
     /// <summary>Choices for the target combo (free text allowed).</summary>
-    public IReadOnlyList<string> TargetOptions => IsDevice ? _journey.DeviceTypeOptions : _journey.ZoneTagOptions;
+    public IReadOnlyList<string> TargetOptions => IsDevice ? _journey.DeviceTypeOptions : IsTrain ? _journey.TrainTagOptions : _journey.ZoneTagOptions;
 
     /// <summary>Device type tag or zone tag.</summary>
     public string Target
@@ -339,7 +351,7 @@ public sealed class JourneyStepViewModel : ObservableObject
     }
 
     /// <summary>"Pinned to zone 'X'" when a specific zone is pinned, else empty.</summary>
-    public string PinnedText => Step.ZoneId is { } id && !IsDevice
+    public string PinnedText => Step.ZoneId is { } id && !IsDevice && !IsTrain
         ? $"Pinned to zone '{_journey.ZoneName(id)}'. Type a tag to unpin."
         : string.Empty;
 

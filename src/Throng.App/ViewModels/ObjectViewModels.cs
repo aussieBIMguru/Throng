@@ -181,6 +181,59 @@ public sealed class DeviceViewModel : ObservableObject
         }
     }
 
+    /// <summary>True for pass-through devices (shows the lane directions, D-196).</summary>
+    public bool IsPassThrough => Model.PassThrough;
+
+    /// <summary>
+    /// Lane directions as text, one word per lane (D-196): "both", "front" (entered from the side it faces) or "back",
+    /// e.g. "back, back, front, front". Undoable; bad words are rejected.
+    /// </summary>
+    public string LaneDirectionsText
+    {
+        get => string.Join(", ", Enumerable.Range(0, Math.Max(1, Model.Lanes)).Select(l => Model.DirectionOf(l) switch
+        {
+            GateLaneDirection.FromFront => "front",
+            GateLaneDirection.FromBack => "back",
+            _ => "both",
+        }));
+        set
+        {
+            string[] words = (value ?? string.Empty).Split(new[] { ',', ' ', ';' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            var lanes = new List<GateLaneDirection>();
+            foreach (string word in words)
+            {
+                GateLaneDirection? direction = word.ToLowerInvariant() switch
+                {
+                    "both" or "b" or "either" => GateLaneDirection.Both,
+                    "front" or "f" => GateLaneDirection.FromFront,
+                    "back" or "k" => GateLaneDirection.FromBack,
+                    _ => null,
+                };
+                if (direction is not { } d)
+                {
+                    Reject($"Lane directions are both, front or back, one per lane (e.g. back, back, front, front); '{word}' isn't one.");
+                    return;
+                }
+
+                lanes.Add(d);
+            }
+
+            int count = Math.Max(1, Model.Lanes);
+            while (lanes.Count < count)
+            {
+                lanes.Add(GateLaneDirection.Both);
+            }
+
+            List<GateLaneDirection> next = [.. lanes.Take(count)];
+            if (next.SequenceEqual(Enumerable.Range(0, count).Select(Model.DirectionOf)))
+            {
+                return;
+            }
+
+            _owner.Apply("Change gate lane directions", () => Model.LaneDirections, v => Model.LaneDirections = v, next);
+        }
+    }
+
     /// <summary>True when the device has a drawn queue path (shows CLEAR QUEUE).</summary>
     public bool HasDrawnQueue => Model.QueuePath is { Count: >= 2 };
 

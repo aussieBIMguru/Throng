@@ -127,7 +127,20 @@ public static class SimSetup
             nav = nav.WithTargets(extraTargets);
         }
 
-        List<SimJourney> journeys = [.. journeyTemplates.Select((t, index) => CompileJourney(study, t, index, devices, zoneTargets, tags, findings))];
+        // Train doors are exit sinks; a Board train step targets the doors of its matching services (D-186).
+        var exitByRegion = new Dictionary<Guid, int>();
+        foreach (NavSink sink in nav.Sinks)
+        {
+            if (sink.Role == NavTargetRole.Exit)
+            {
+                exitByRegion.TryAdd(sink.RegionId, sink.Index);
+            }
+        }
+
+        int[] BoardTargets(string? tag) =>
+            [.. TrainService.Matching(study, tag).SelectMany(t => t.DoorZoneIds).Select(id => exitByRegion.GetValueOrDefault(id, -1)).Where(s => s >= 0).Distinct()];
+
+        List<SimJourney> journeys = [.. journeyTemplates.Select((t, index) => CompileJourney(study, t, index, devices, zoneTargets, BoardTargets, tags, findings))];
 
         cancel.ThrowIfCancellationRequested();
         NavRoutes routes = NavRoutes.Build(nav, profiles.Any(p => p.Mobility == MobilityClass.StepFree), cancel);
@@ -263,6 +276,8 @@ public static class SimSetup
             findings.Add(new ValidationMessage(ValidationSeverity.Info, "No spawn zone has an emission rule, so no one will appear. Add rules in SELECTION on a spawn zone."));
         }
 
+        List<SimTrain> trains = BuildTrains(study, nav, emitters, exitByRegion);
+
         StudySettings settings = study.Settings;
         var model = new SimModel
         {
@@ -271,6 +286,7 @@ public static class SimSetup
             Emitters = emitters,
             Journeys = journeys,
             Devices = devices,
+            Trains = trains,
             TagNames = tags.Names,
             Seed = settings.Seed,
             StartTimeOfDay = settings.StartTimeOfDay,
@@ -399,6 +415,9 @@ public static class SimSetup
                 DepthM = device.DepthM,
                 Lanes = lanes,
                 PassThrough = device.PassThrough,
+                LaneSide = device.PassThrough
+                    ? [.. Enumerable.Range(0, lanes).Select(l => device.DirectionOf(l) switch { GateLaneDirection.FromFront => 0, GateLaneDirection.FromBack => 1, _ => -1 })]
+                    : [],
                 ServiceTime = service,
                 MeanServiceS = Math.Max(0.1, service.ExpectedValue),
                 ChoicePenaltyS = -(template?.ChoiceWeight ?? 0),
@@ -489,7 +508,9 @@ public static class SimSetup
     }
 
     /// <summary>Compiles a journey's steps against the devices and zone targets; the result always ends in an exit.</summary>
-    private static SimJourney CompileJourney(Study study, JourneyTemplate template, int index, List<SimDevice> devices, Dictionary<Guid, int> zoneTargets, TagTable tags, List<ValidationMessage> findings)
+    private static SimJourney CompileJourney(
+        Study study, JourneyTemplate template, int index, List<SimDevice> devices, Dictionary<Guid, int> zoneTargets, Func<string?, int[]> boardTargets,
+        TagTable tags, List<ValidationMessage> findings)
     {
         // Template step index → compiled index (null steps and anything after the first exit are dropped), so a
         // give-up jump (D-165) lands on the step the editor showed.
@@ -500,7 +521,7 @@ public static class SimSetup
         {
             JourneyStep? candidate = template.Steps[k];
             compiledIndex[k] = ended || candidate is null ? -1 : next++;
-            ended |= candidate is { Kind: JourneyStepKind.Exit };
+            ended |= candidate is { EndsJourney: true };
         }
 
         var steps = new List<SimStep>();
@@ -519,12 +540,14 @@ public static class SimSetup
             {
                 JourneyStepKind.GoToDevice => [.. devices.Where(d => string.Equals(d.TypeTag, step.TargetTag?.Trim(), StringComparison.OrdinalIgnoreCase)).Select(d => d.Index)],
                 JourneyStepKind.PassZone or JourneyStepKind.Dwell => [.. JourneyZones.Matching(study, step).Select(z => zoneTargets.GetValueOrDefault(z.Id, -1)).Where(t => t >= 0)],
+                JourneyStepKind.BoardTrain => boardTargets(step.TargetTag),
                 _ => [],
             };
             string label = step.Kind switch
             {
                 JourneyStepKind.GoToDevice => string.IsNullOrWhiteSpace(step.TargetTag) ? "device" : step.TargetTag.Trim(),
                 JourneyStepKind.Exit => "exit",
+                JourneyStepKind.BoardTrain => string.IsNullOrWhiteSpace(step.TargetTag) ? "train" : $"{step.TargetTag.Trim()} train",
                 _ => string.IsNullOrWhiteSpace(step.TargetTag) ? "zone" : step.TargetTag.Trim(),
             };
             steps.Add(new SimStep
@@ -539,18 +562,115 @@ public static class SimSetup
                 OnGiveUp = step.Kind == JourneyStepKind.GoToDevice ? step.OnGiveUp : JourneyGiveUp.KeepWaiting,
                 GiveUpStep = giveUpStep,
             });
-            if (step.Kind == JourneyStepKind.Exit)
+            if (step.EndsJourney)
             {
                 break;
             }
         }
 
-        if (steps.Count == 0 || steps[^1].Kind != JourneyStepKind.Exit)
+        if (steps.Count == 0 || steps[^1].Kind is not (JourneyStepKind.Exit or JourneyStepKind.BoardTrain))
         {
             steps.Add(new SimStep { Kind = JourneyStepKind.Exit, Targets = [], Needs = 0, Lacks = 0, Grants = 0, Dwell = Distribution.Fixed(0), Label = "exit" });
         }
 
         return new SimJourney { Index = index, Name = template.Name, Steps = [.. steps] };
+    }
+
+    /// <summary>Depth of the drawn train box beyond the platform edge, and how far it runs past the end doors, metres.</summary>
+    private const double TrainDepthM = 3.0, TrainOverhangM = 3.0;
+
+    /// <summary>
+    /// Train services ready to run (D-184): doors with an exit sink, their emitters marked as the service's (so they
+    /// only release people at arrivals), the platform direction found by testing which side of the doors has floor,
+    /// and the box drawn on the other (track) side.
+    /// </summary>
+    private static List<SimTrain> BuildTrains(Study study, NavWorld nav, List<SimEmitter> emitters, Dictionary<Guid, int> exitByRegion)
+    {
+        var trains = new List<SimTrain>();
+        foreach (TrainService service in study.TrainServices)
+        {
+            if (service is null)
+            {
+                continue;
+            }
+
+            List<Region> doors = [.. service.DoorZoneIds.Select(study.FindRegion).OfType<Region>().Where(r => exitByRegion.ContainsKey(r.Id))];
+            if (doors.Count == 0 || !nav.FloorByLevel.TryGetValue(doors[0].LevelId, out int floor))
+            {
+                continue;
+            }
+
+            doors = [.. doors.Where(d => d.LevelId == doors[0].LevelId)];
+            NavSurface surface = nav.Surfaces[floor];
+            double minX = double.PositiveInfinity, minY = double.PositiveInfinity, maxX = double.NegativeInfinity, maxY = double.NegativeInfinity;
+            foreach (Point2 p in doors.SelectMany(d => d.Outline))
+            {
+                minX = Math.Min(minX, p.X);
+                minY = Math.Min(minY, p.Y);
+                maxX = Math.Max(maxX, p.X);
+                maxY = Math.Max(maxY, p.Y);
+            }
+
+            // Doors run along the longer side of their box; the platform is the side with floor just beyond it.
+            bool alongX = maxX - minX >= maxY - minY;
+            Point2 along = alongX ? new Point2(1, 0) : new Point2(0, 1);
+            Point2 across = alongX ? new Point2(0, 1) : new Point2(1, 0);
+            double midAlong = alongX ? (minX + maxX) / 2 : (minY + maxY) / 2;
+            double lowSide = alongX ? minY : minX, highSide = alongX ? maxY : maxX;
+            Point2 At(double a, double c) => alongX ? new Point2(a, c) : new Point2(c, a);
+            bool floorHigh = surface.IsWalkable(At(midAlong, highSide + 1.5).X, At(midAlong, highSide + 1.5).Y);
+            bool floorLow = surface.IsWalkable(At(midAlong, lowSide - 1.5).X, At(midAlong, lowSide - 1.5).Y);
+            bool inwardHigh = floorHigh || !floorLow;
+            Point2 inward = inwardHigh ? across : across * -1;
+            double edge = inwardHigh ? lowSide : highSide;
+            double outer = inwardHigh ? edge - TrainDepthM : edge + TrainDepthM;
+            double a0 = (alongX ? minX : minY) - TrainOverhangM, a1 = (alongX ? maxX : maxY) + TrainOverhangM;
+
+            var centres = new Point2[doors.Count];
+            var halves = new double[doors.Count];
+            var doorEmitters = new (int, double)[doors.Count][];
+            for (int k = 0; k < doors.Count; k++)
+            {
+                IReadOnlyList<Point2> outline = doors[k].Outline;
+                double dx0 = outline.Min(p => p.X), dx1 = outline.Max(p => p.X), dy0 = outline.Min(p => p.Y), dy1 = outline.Max(p => p.Y);
+                centres[k] = new Point2((dx0 + dx1) / 2, (dy0 + dy1) / 2);
+                halves[k] = (alongX ? dx1 - dx0 : dy1 - dy0) / 2;
+                Guid id = doors[k].Id;
+                doorEmitters[k] = [.. emitters.Where(e => e.RegionId == id).Select(e => (e.Index, Math.Max(1e-6, e.Rule.RatePerMinute)))];
+                foreach (SimEmitter emitter in emitters.Where(e => e.RegionId == id))
+                {
+                    emitter.TrainService = trains.Count;
+                }
+            }
+
+            (double[] minutes, double[] multipliers) = RateCurves.Compile(service.RateCurve);
+            trains.Add(new SimTrain
+            {
+                Index = trains.Count,
+                ServiceId = service.Id,
+                Name = service.Name,
+                LevelId = doors[0].LevelId,
+                Floor = floor,
+                DoorRegionIds = [.. doors.Select(d => d.Id)],
+                DoorSinks = [.. doors.Select(d => exitByRegion[d.Id])],
+                DoorCentres = centres,
+                DoorHalfWidths = halves,
+                DoorEmitters = doorEmitters,
+                Inward = inward,
+                Along = along,
+                Box = [At(a0, edge), At(a1, edge), At(a1, outer), At(a0, outer)],
+                HeadwayS = Math.Max(20, service.HeadwayS),
+                OffsetS = Math.Max(0, service.OffsetS),
+                DwellS = Math.Max(10, service.DwellS),
+                AlightOverS = Math.Clamp(service.AlightOverS, 1, Math.Max(10, service.DwellS)),
+                AlightPerTrain = Math.Max(0, service.AlightPerTrain),
+                Capacity = Math.Max(0, service.Capacity),
+                CurveMinutes = minutes,
+                CurveMultipliers = multipliers,
+            });
+        }
+
+        return trains;
     }
 
     /// <summary>Parses #RRGGBB to 0..1 components (white when malformed).</summary>

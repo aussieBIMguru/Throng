@@ -23,4 +23,7 @@ public enum AgentPhase : byte
 
     /// <summary>Lingering in a zone for a dwell time.</summary>
     Dwell,
+
+    /// <summary>Standing aside of a train door until the train can take them (D-186).</summary>
+    WaitTrain,
 }

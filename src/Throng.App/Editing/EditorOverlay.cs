@@ -29,6 +29,10 @@ public sealed class EditorOverlay : FrameworkElement
     private static readonly Brush LabelBack = Frozen(Color.FromArgb(0xD0, 0x0B, 0x0F, 0x17));
     private static readonly Brush TextBrush = Frozen(Color.FromRgb(0xD8, 0xDE, 0xE9));
     private static readonly Brush QueueDot = Frozen(Color.FromArgb(0x80, 0xFA, 0xCC, 0x15));
+    private static readonly Brush TrainFill = Frozen(Color.FromArgb(0x60, 0x94, 0xA3, 0xB8));
+    private static readonly Pen TrainPen = FrozenPen(Frozen(Color.FromRgb(0x94, 0xA3, 0xB8)), 1.5);
+    private static readonly Brush DoorOpenFill = Frozen(Color.FromArgb(0x50, 0xFA, 0xCC, 0x15));
+    private static readonly Brush DoorBoardFill = Frozen(Color.FromArgb(0x60, 0x4A, 0xDE, 0x80));
 
     private static readonly Pen SelectionPen = FrozenPen(Yellow, 2);
     // Hover (D-144): what a Select click would pick is cyan with a light fill and a name tag; the object being
@@ -81,6 +85,7 @@ public sealed class EditorOverlay : FrameworkElement
         dc.PushClip(new RectangleGeometry(new Rect(0, 0, ActualWidth, ActualHeight)));
 
         DrawSceneLabels(dc, map);
+        DrawTrains(dc, map, editor);
 
         DrawHover(dc, map, editor);
 
@@ -96,6 +101,23 @@ public sealed class EditorOverlay : FrameworkElement
     }
 
     /// <summary>Faint dots on the queue slots of the selected device (D-164), automatic or drawn.</summary>
+    /// <summary>
+    /// Trains in while running (D-190): a plain box along the platform edge, doors lit yellow while people get off and
+    /// green once boarding.
+    /// </summary>
+    private static void DrawTrains(DrawingContext dc, Func<Point2, Point> map, PlanEditor editor)
+    {
+        foreach (RunTrainView train in editor.RunTrains)
+        {
+            DrawOutline(dc, map, train.Box, closed: true, TrainPen, TrainFill);
+            Brush doorFill = train.Boarding ? DoorBoardFill : DoorOpenFill;
+            foreach (IReadOnlyList<Point2> door in train.Doors)
+            {
+                DrawOutline(dc, map, door, closed: true, null, doorFill);
+            }
+        }
+    }
+
     private static void DrawQueueDots(DrawingContext dc, Func<Point2, Point> map, PlanEditor editor)
     {
         IReadOnlyList<Point2> dots = editor.QueueSlotDots;

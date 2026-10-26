@@ -417,6 +417,8 @@ public sealed partial class MainViewModel : ObservableObject
 
         RefreshLevels();
         RefreshEditing();
+        TrainServiceRows.Clear();
+        RefreshTrains();
         OnPropertyChanged(string.Empty);
         Ticker = message;
         AppLog.Info(message);
@@ -429,6 +431,7 @@ public sealed partial class MainViewModel : ObservableObject
     {
         RefreshLevels();
         RefreshEditing();
+        RefreshTrains();
         OnPropertyChanged(nameof(StudyName));
         OnPropertyChanged(nameof(StartTimeText));
         OnPropertyChanged(nameof(Seed));

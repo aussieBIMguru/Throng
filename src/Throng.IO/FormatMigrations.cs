@@ -29,6 +29,7 @@ internal static class FormatMigrations
         (3, UpgradeV3ToV4),
         (4, UpgradeV4ToV5),
         (5, UpgradeV5ToV6),
+        (6, UpgradeV6ToV7),
     ];
 
     /// <summary>Applies every step needed to bring a study from <paramref name="fileVersion"/> to current.</summary>
@@ -149,5 +150,15 @@ internal static class FormatMigrations
         }
 
         study.Library.Journeys ??= [];
+    }
+
+    /// <summary>
+    /// v6 → v7: train services arrive (D-184, D-188). Older studies have none, so their door zones keep emitting as
+    /// before; make sure the list exists.
+    /// </summary>
+    private static void UpgradeV6ToV7(Study study)
+    {
+        study.TrainServices ??= [];
+        study.TrainServices.RemoveAll(t => t is null);
     }
 }

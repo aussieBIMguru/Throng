@@ -80,10 +80,19 @@ public sealed class Round007Tests
             ("no counterflow gate", new SimTuning { CounterflowLanes = false }),
             ("no landing squeeze", new SimTuning { LandingSqueeze = false }),
             ("no stall escape", new SimTuning { StallEscape = false }),
-            ("no landing carry", new SimTuning { LandingCarry = false }),
+            ("no landing carry or waypoints", new SimTuning { LandingCarry = false, LandingWaypoints = false }),
             ("with stalled stair wait (D-133)", new SimTuning { StalledStairWait = true }),
             ("no stair effort (D-174)", new SimTuning { StairEffort = false }),
             ("no standing rest (D-175)", new SimTuning { StandingRest = false }),
+            ("no stair measured wait (D-181)", new SimTuning { StairMeasuredWait = false }),
+            ("no sight limit (D-179)", new SimTuning { SightLimited = false }),
+            ("no approach review (D-180)", new SimTuning { ApproachReview = false }),
+            ("no exit crowd (D-182)", new SimTuning { ExitCrowd = false }),
+            ("speed stress, not progress (D-191)", new SimTuning { ProgressStress = false }),
+            ("no landing waypoints (D-192)", new SimTuning { LandingWaypoints = false }),
+            ("stress from half patience (D-145)", new SimTuning { EarlyStress = false }),
+            ("no crowd stress (D-194)", new SimTuning { CrowdStress = false }),
+            ("as r009 (no round 010 rules)", new SimTuning { StairMeasuredWait = false, SightLimited = false, ApproachReview = false, ExitCrowd = false, ProgressStress = false, LandingWaypoints = false, EarlyStress = false, CrowdStress = false }),
         ];
 
         var output = new StringBuilder();
@@ -94,6 +103,8 @@ public sealed class Round007Tests
             ("PAIR 240 s", () => PairStudy(), 240),
             ("PAIR 120/min each way, 240 s (saturated: boarding vs cap)", () => PairStudy(120), 240),
             ("STAIR 3.6 m one way, 120/min, 240 s", () => SimTestStudies.TwoLevels("connector.stair-3600", 120), 240),
+            ("STAIR 1.5 m + ESCALATOR up, 120/min up, 240 s (r010a)", () => Round010aTests.StairAndEscalator(120), 240),
+            ("STAIR + ESCALATOR, counterflow: 120/min up, 60/min down the stair, 240 s (r010a-2)", () => Round010aTests.StairCounterflow(120, 60), 240),
         })
         {
             output.AppendLine(label);
@@ -103,7 +114,7 @@ public sealed class Round007Tests
                 SimEngine engine = Run(study, tuning, seconds);
                 SimStats stats = engine.Stats;
                 output.AppendLine(string.Create(CultureInfo.InvariantCulture,
-                    $"  {name,-18} spawned {stats.Spawned,4}  arrived {stats.Arrived,4}  stuck {stats.StuckRemoved,3}  in system {stats.InSystem,4}  waiting {stats.Waiting,4}  {Boarding(engine)}  {Journeys(engine)}  {StuckPlaces(study, engine)}"));
+                    $"  {name,-18} spawned {stats.Spawned,4}  arrived {stats.Arrived,4}  stuck {stats.StuckRemoved,3}  in system {stats.InSystem,4}  waiting {stats.Waiting,4}  {Boarding(engine)}  {Use(engine)}  {Trains(engine)}{Journeys(engine)}  {StuckPlaces(study, engine)}"));
             }
         }
 
@@ -198,6 +209,31 @@ public sealed class Round007Tests
         return string.Create(CultureInfo.InvariantCulture,
             $"boards {rate,5:0.0}/min ({100 * rate / connectors[best].ThroughputPerMin,3:0}% of cap, {connectors[best].Name})");
     }
+
+    /// <summary>
+    /// People stepping on per minute at every connector with any use (stairs counted since r010a) and its current
+    /// crowd wait: "use Stair 1.5 m 44/min ~6 s, Escalator up 71/min ~2 s".
+    /// </summary>
+    private static string Use(SimEngine engine)
+    {
+        IReadOnlyList<NavConnector> connectors = engine.Model.World.Connectors;
+        var parts = new List<string>();
+        for (int k = 0; k < connectors.Count; k++)
+        {
+            double rate = engine.BoardingsPerMinute(k);
+            if (rate > 0)
+            {
+                parts.Add(string.Create(CultureInfo.InvariantCulture, $"{connectors[k].Name} {rate:0}/min ~{engine.ConnectorWaitS(k):0} s"));
+            }
+        }
+
+        return parts.Count == 0 ? "use -" : "use " + string.Join(", ", parts);
+    }
+
+    /// <summary>"trains boarded 120 left behind 4  " when the study has train services (round 010b), else empty.</summary>
+    private static string Trains(SimEngine engine) =>
+        engine.Model.Trains.Count == 0 ? string.Empty
+            : string.Create(CultureInfo.InvariantCulture, $"trains boarded {engine.BoardedTrains} left behind {engine.LeftBehind}  ");
 
     private static SimEngine Run(Study study, SimTuning tuning, double seconds)
     {

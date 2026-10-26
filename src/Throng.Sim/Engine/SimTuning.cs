@@ -1,7 +1,8 @@
 namespace Throng.Sim.Engine;
 
 /// <summary>
-/// Switches for the round 007 crowd rules (D-112, D-113, D-120, D-128, D-132), so each can be turned off to see what it does.
+/// Switches for the crowd rules (round 007 onwards: D-112, D-113, D-120, D-128, D-132 … D-174, D-175, D-179–D-182), so
+/// each can be turned off to see what it does.
 /// All on by default; used by the diagnostics test and available for later tuning UI.
 /// </summary>
 public sealed record SimTuning
@@ -62,6 +63,42 @@ public sealed record SimTuning
 
     /// <summary>Standing belt rides feel 0.6× their time in route choice (D-175); off = full time.</summary>
     public bool StandingRest { get; init; } = true;
+
+    /// <summary>
+    /// Stair and ramp waits measured like belts (D-181): people near the entry ÷ the measured flow onto it, plus a
+    /// packed flight's extra time. Off = D-111's people heading for it ÷ capacity.
+    /// </summary>
+    public bool StairMeasuredWait { get; init; } = true;
+
+    /// <summary>Live waits count only for options within each profile's sight radius (D-179); off = everyone knows every wait.</summary>
+    public bool SightLimited { get; init; } = true;
+
+    /// <summary>
+    /// Look again every few seconds while the chosen connector or exit is in sight (D-180); off = D-113's re-choice
+    /// only within 5 m of a connector entry with a wait over 20 s.
+    /// </summary>
+    public bool ApproachReview { get; init; } = true;
+
+    /// <summary>Nearest-sink choice adds each exit's crowd wait (D-182); off = walking time only.</summary>
+    public bool ExitCrowd { get; init; } = true;
+
+    /// <summary>
+    /// Stress counts walkers as held up by their progress along the route, not their speed (D-191), and queuers
+    /// always; off = D-145's instantaneous speed, so people jiggling in a jam stay calm.
+    /// </summary>
+    public bool ProgressStress { get; init; } = true;
+
+    /// <summary>Stress builds from the first second held up (D-193); off = 0 until half the patience (D-145).</summary>
+    public bool EarlyStress { get; init; } = true;
+
+    /// <summary>Density above the profile's tolerance counts as held up (D-194).</summary>
+    public bool CrowdStress { get; init; } = true;
+
+    /// <summary>
+    /// Stair landings: carry deep into the landing on the outside of the turn and turn early on the inside (D-192);
+    /// off = D-137's fixed 0.6 m carry (when <see cref="LandingCarry"/> is on).
+    /// </summary>
+    public bool LandingWaypoints { get; init; } = true;
 }
 
 /// <summary>Where and how an agent was removed as stuck (D-106), for diagnostics.</summary>

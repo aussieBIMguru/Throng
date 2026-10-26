@@ -1,3 +1,4 @@
+using Throng.Core.Geometry;
 using Throng.Core.Library;
 
 namespace Throng.Sim.Nav;
@@ -7,7 +8,8 @@ namespace Throng.Sim.Nav;
 /// or take a connector, whichever has the lowest expected time. Each option's time is scaled by per-agent noise
 /// from the profile's decisiveness, stairs are corrected for the profile's own stair factors, belts for whether
 /// this agent stands or walks (D-113), and each connector adds its current expected wait (D-111, D-113). The
-/// profile's mechanised preference then scales a belt's ride and wait (D-138).
+/// profile's mechanised preference then scales a belt's ride and wait (D-138). A connector's wait only counts when its
+/// entry is within the person's sight (D-179); out of sight it's judged on its uncrowded time.
 /// </summary>
 public static class RoutePlanner
 {
@@ -40,10 +42,14 @@ public static class RoutePlanner
     /// for a clear gain.</param>
     /// <param name="stairEffort">Weigh stair time by the profile's stair effort (D-174); false = time only.</param>
     /// <param name="standingRest">Standing rides feel <see cref="StandingRideWeight"/> × their time (D-175).</param>
+    /// <param name="sightRadius">
+    /// Straight-line distance within which a connector entry's live wait counts (D-179); +∞ = every wait counts.
+    /// </param>
     public static double Choose(
         NavRoutes routes, int floor, double x, double y, int sink, MobilityClass mobility, AgentProfileTemplate? profile,
         DeterministicRandom? random, out bool direct, out RouteOption choice, double[]? waitSeconds = null,
-        double beltWalkSpeed = -1, int stayConnector = -1, double staySeconds = 0, bool stairEffort = true, bool standingRest = true)
+        double beltWalkSpeed = -1, int stayConnector = -1, double staySeconds = 0, bool stairEffort = true, bool standingRest = true,
+        double sightRadius = double.PositiveInfinity)
     {
         NavWorld world = routes.World;
         NavSurface surface = world.Surfaces[floor];
@@ -78,7 +84,8 @@ public static class RoutePlanner
                 rideTime *= StandingRideWeight;
             }
 
-            double ride = (rideTime + (waitSeconds is null ? 0 : waitSeconds[option.Connector])) * MechanisedFactor(connector.Kind, profile);
+            double wait = waitSeconds is not null && InSight(world.Portals[option.Entry], x, y, sightRadius) ? waitSeconds[option.Connector] : 0;
+            double ride = (rideTime + wait) * MechanisedFactor(connector.Kind, profile);
             double c = toEntry.Sample(surface, x, y) + ride + routes.Remaining(mobility, sink, option.Exit)
                 + StairCorrection(connector, option.DeltaZ, profile, stairEffort)
                 - (option.Connector == stayConnector ? staySeconds : 0);
@@ -98,6 +105,10 @@ public static class RoutePlanner
 
         return best;
     }
+
+    /// <summary>True when the portal's edge is within <paramref name="sightRadius"/> of (x, y) (D-179).</summary>
+    public static bool InSight(NavPortal portal, double x, double y, double sightRadius) =>
+        double.IsPositiveInfinity(sightRadius) || portal.DistanceTo(new Point2(x, y)) <= sightRadius;
 
     /// <summary>
     /// How long a connector's ride and queue feel to this profile (D-138): 1 − <see cref="MechanisedWeight"/> ×

@@ -679,6 +679,11 @@
                                     <TextBlock Style="{StaticResource PanelHeader}" Text="QUEUE" Margin="0,14,0,2" />
                                     <TextBlock Style="{StaticResource FieldLabel}" Text="Max queue per lane" />
                                     <TextBox Text="{Binding MaxQueue, Mode=TwoWay}" ToolTip="Longest line per lane or server, in people. A drawn snake holds this many per lane it feeds." />
+                                    <StackPanel Visibility="{Binding IsPassThrough, Converter={StaticResource BoolToVis}}">
+                                        <TextBlock Style="{StaticResource FieldLabel}" Text="Lane directions (both / front / back, one per lane)" />
+                                        <TextBox Text="{Binding LaneDirectionsText, Mode=TwoWay}"
+                                                 ToolTip="front = entered from the side the device faces; back = from the other side; both = either way, turning round when empty. e.g. back, back, front, front." />
+                                    </StackPanel>
                                     <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
                                         <Button Content="DRAW QUEUE" Command="{Binding DrawQueueCommand}" Padding="6,0" FontFamily="{DynamicResource RetroFont}" FontSize="15"
                                                 ToolTip="Draw the queue path from the service side, click by click; Enter or double-click finishes, Esc cancels. One shared snake feeds every lane." />
@@ -877,6 +882,50 @@
                                 <TextBlock Style="{StaticResource FieldLabel}" Text="Keep side" />
                                 <ComboBox ItemsSource="{Binding KeepSideOptions}" SelectedItem="{Binding KeepSide, Mode=TwoWay}"
                                           ToolTip="Which side people drift to when meeting oncoming flows. Escalators: stand on this side, walk on the other." />
+
+                                <!-- TRAINS (D-184-D-187): door zones driven by a timetable. -->
+                                <TextBlock Style="{StaticResource PanelHeader}" Text="TRAINS" Margin="0,14,0,0" />
+                                <TextBlock Style="{StaticResource DimText}" TextWrapping="Wrap"
+                                           Text="Select door zones (sink or spawn/sink) in the plan, then ADD SERVICE. A door's emission rules say who gets off (their rates are relative shares); it only takes boarders while a train is in." />
+                                <Button Margin="0,6,0,0" HorizontalAlignment="Left" Padding="6,0" Content="ADD SERVICE" Command="{Binding AddTrainServiceCommand}"
+                                        FontFamily="{DynamicResource RetroFont}" FontSize="15" ToolTip="New train service whose doors are the selected sink zones." />
+                                <ItemsControl ItemsSource="{Binding TrainServiceRows}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border Margin="0,8,0,0" Padding="6,4,6,6" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
+                                                <StackPanel>
+                                                    <DockPanel>
+                                                        <Button DockPanel.Dock="Right" Content="DELETE" Command="{Binding DeleteCommand}" Padding="6,0"
+                                                                FontFamily="{DynamicResource RetroFont}" FontSize="15" ToolTip="Delete this train service." />
+                                                        <TextBlock Text="{Binding Header}" Style="{StaticResource PanelHeader}" VerticalAlignment="Center" />
+                                                    </DockPanel>
+                                                    <TextBlock Text="{Binding Summary}" Style="{StaticResource DimText}" TextWrapping="Wrap" />
+                                                    <TextBlock Style="{StaticResource FieldLabel}" Text="Name" />
+                                                    <TextBox Text="{Binding Name, Mode=TwoWay}" />
+                                                    <TextBlock Style="{StaticResource FieldLabel}" Text="Tag (Board train steps ask for it)" />
+                                                    <TextBox Text="{Binding Tag, Mode=TwoWay}" />
+                                                    <TextBlock Style="{StaticResource FieldLabel}" Text="Every (s)" />
+                                                    <TextBox Text="{Binding HeadwayText, Mode=TwoWay}" />
+                                                    <TextBlock Style="{StaticResource FieldLabel}" Text="First train at (s after the start)" />
+                                                    <TextBox Text="{Binding OffsetText, Mode=TwoWay}" />
+                                                    <TextBlock Style="{StaticResource FieldLabel}" Text="Doors open (s)" />
+                                                    <TextBox Text="{Binding DwellText, Mode=TwoWay}" />
+                                                    <TextBlock Style="{StaticResource FieldLabel}" Text="People getting off per train" />
+                                                    <TextBox Text="{Binding AlightText, Mode=TwoWay}" />
+                                                    <TextBlock Style="{StaticResource FieldLabel}" Text="Getting off takes (s)" />
+                                                    <TextBox Text="{Binding AlightOverText, Mode=TwoWay}" />
+                                                    <TextBlock Style="{StaticResource FieldLabel}" Text="Places per train" />
+                                                    <TextBox Text="{Binding CapacityText, Mode=TwoWay}" />
+                                                    <TextBlock Style="{StaticResource FieldLabel}" Text="Doors" />
+                                                    <TextBlock Text="{Binding DoorsText}" Style="{StaticResource DimDataText}" TextWrapping="Wrap" />
+                                                    <Button Margin="0,4,0,0" HorizontalAlignment="Left" Padding="6,0" Content="SET DOORS" Command="{Binding SetDoorsCommand}"
+                                                            FontFamily="{DynamicResource RetroFont}" FontSize="15" ToolTip="Make the sink zones selected in the plan this service's doors." />
+                                                </StackPanel>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+
                                 <TextBlock Style="{StaticResource FieldLabel}" Text="File" />
                                 <TextBlock Text="{Binding FileText}" Style="{StaticResource DimDataText}" TextWrapping="Wrap" />
                             </StackPanel>

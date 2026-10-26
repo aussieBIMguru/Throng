@@ -44,10 +44,21 @@ public sealed class SimRunner : IDisposable
     private volatile bool _resetRequested;
     private RunSpeed _speed = RunSpeed.RealTime;
 
+    // Crowd waits for the run-time hover label (D-183): connectors first, then route targets, published with each
+    // snapshot; the id lookup is built once.
+    private readonly Dictionary<Guid, int> _waitIndex = new();
+    private double[] _frontWaits = [];
+    private double[] _backWaits = [];
+
+    // Train states for the train box (D-190): 0 = no train, 1 = in, 2 = in and boarding.
+    private byte[] _frontTrains = [];
+    private byte[] _backTrains = [];
+
     /// <summary>Creates a paused runner and starts its thread.</summary>
     public SimRunner(SimModel model)
     {
         _engine = new SimEngine(model);
+        BuildWaitIndex();
         Publish();
         _thread = new Thread(Loop) { IsBackground = true, Name = "Throng simulation" };
         _thread.Start();
@@ -145,6 +156,25 @@ public sealed class SimRunner : IDisposable
             stats = _frontStats;
             version = _version;
             return _frontCount;
+        }
+    }
+
+    /// <summary>
+    /// The latest crowd wait in seconds for a connector or an exit zone (D-183), by its study id. False for anything
+    /// else (devices, zones that aren't exits).
+    /// </summary>
+    public bool TryGetCrowdWait(Guid id, out double seconds)
+    {
+        seconds = 0;
+        if (!_waitIndex.TryGetValue(id, out int index))
+        {
+            return false;
+        }
+
+        lock (_gate)
+        {
+            seconds = index < _frontWaits.Length ? _frontWaits[index] : 0;
+            return true;
         }
     }
 
@@ -260,13 +290,69 @@ public sealed class SimRunner : IDisposable
         }
     }
 
+    private void BuildWaitIndex()
+    {
+        Nav.NavWorld world = _engine.Model.World;
+        int connectors = world.Connectors.Count;
+        for (int k = 0; k < connectors; k++)
+        {
+            _waitIndex.TryAdd(world.Connectors[k].ConnectorId, k);
+        }
+
+        for (int s = 0; s < world.Sinks.Count; s++)
+        {
+            if (world.Sinks[s].Role == Nav.NavTargetRole.Exit)
+            {
+                _waitIndex.TryAdd(world.Sinks[s].RegionId, connectors + s);
+            }
+        }
+
+        _frontWaits = new double[connectors + world.Sinks.Count];
+        _backWaits = new double[_frontWaits.Length];
+        _frontTrains = new byte[_engine.Model.Trains.Count];
+        _backTrains = new byte[_frontTrains.Length];
+    }
+
+    /// <summary>
+    /// The latest state of every train service (D-190): whether a train is in and whether it's boarding, with the
+    /// compiled service (its box and doors).
+    /// </summary>
+    public IReadOnlyList<(SimTrain Train, bool In, bool Boarding)> CopyTrainStates()
+    {
+        IReadOnlyList<SimTrain> trains = _engine.Model.Trains;
+        var result = new List<(SimTrain, bool, bool)>(trains.Count);
+        lock (_gate)
+        {
+            for (int v = 0; v < trains.Count && v < _frontTrains.Length; v++)
+            {
+                result.Add((trains[v], _frontTrains[v] > 0, _frontTrains[v] > 1));
+            }
+        }
+
+        return result;
+    }
+
     private void Publish()
     {
         int count = _engine.WriteSnapshot(ref _back);
         SimStats stats = _engine.Stats;
+        int connectors = _engine.Model.World.Connectors.Count;
+        for (int w = 0; w < _backWaits.Length; w++)
+        {
+            _backWaits[w] = w < connectors ? _engine.ConnectorWaitS(w) : _engine.ExitCrowdS(w - connectors);
+        }
+
+        for (int v = 0; v < _backTrains.Length; v++)
+        {
+            (bool isIn, bool boarding) = _engine.TrainState(v);
+            _backTrains[v] = (byte)(!isIn ? 0 : boarding ? 2 : 1);
+        }
+
         lock (_gate)
         {
             (_front, _back) = (_back, _front);
+            (_frontWaits, _backWaits) = (_backWaits, _frontWaits);
+            (_frontTrains, _backTrains) = (_backTrains, _frontTrains);
             _frontCount = count;
             _frontStats = stats;
             _version++;

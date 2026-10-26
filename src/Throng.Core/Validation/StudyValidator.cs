@@ -123,7 +123,87 @@ public static class StudyValidator
         ValidateVertical(study, polygons, levelIds, messages);
         ValidateDevicesAndUnderlays(study, polygons, levelIds, messages);
         ValidateDemand(study, messages);
+        ValidateTrains(study, messages);
         return messages;
+    }
+
+    /// <summary>
+    /// Train services (D-184–D-187): doors exist, are sink zones on one level and belong to one service; the timetable
+    /// leaves time between trains; counts aren't negative; doors that people get off at have rules saying who.
+    /// </summary>
+    private static void ValidateTrains(Study study, List<ValidationMessage> messages)
+    {
+        CultureInfo c = CultureInfo.InvariantCulture;
+        var owner = new Dictionary<Guid, string>();
+        foreach (TrainService service in study.TrainServices)
+        {
+            if (service is null)
+            {
+                continue;
+            }
+
+            string label = $"Train service '{service.Name}'";
+            if (service.DoorZoneIds.Count == 0)
+            {
+                messages.Add(new ValidationMessage(ValidationSeverity.Warning, $"{label} has no doors, so no train stops."));
+            }
+
+            Guid? level = null;
+            foreach (Guid doorId in service.DoorZoneIds)
+            {
+                if (study.FindRegion(doorId) is not { } door)
+                {
+                    messages.Add(new ValidationMessage(ValidationSeverity.Error, $"{label} has a door zone that no longer exists."));
+                    continue;
+                }
+
+                if (!door.IsSink)
+                {
+                    messages.Add(new ValidationMessage(ValidationSeverity.Error, $"{label}: door '{door.Name}' must be a sink or spawn/sink zone (people board there).", door.Id));
+                }
+                else if (service.AlightPerTrain > 0 && !door.IsSpawn)
+                {
+                    messages.Add(new ValidationMessage(ValidationSeverity.Warning, $"{label}: no one can get off at door '{door.Name}' (make it a spawn/sink zone).", door.Id));
+                }
+                else if (service.AlightPerTrain > 0 && !door.EmissionRules.Any(r => r is { RatePerMinute: > 0 }))
+                {
+                    messages.Add(new ValidationMessage(ValidationSeverity.Warning,
+                        $"{label}: door '{door.Name}' has no emission rule, so no one gets off there. Its rules say who gets off and where they go.", door.Id));
+                }
+
+                if (level is { } l && l != door.LevelId)
+                {
+                    messages.Add(new ValidationMessage(ValidationSeverity.Error, $"{label}: its doors must all be on one level.", door.Id));
+                }
+
+                level ??= door.LevelId;
+                if (!owner.TryAdd(doorId, service.Name))
+                {
+                    messages.Add(new ValidationMessage(ValidationSeverity.Error, $"Door '{door.Name}' belongs to two train services ('{owner[doorId]}' and '{service.Name}').", door.Id));
+                }
+            }
+
+            if (!(service.DwellS >= 10))
+            {
+                messages.Add(new ValidationMessage(ValidationSeverity.Error, string.Create(c, $"{label}: doors open for {service.DwellS:0} s; at least 10 s is needed.")));
+            }
+
+            if (!(service.HeadwayS >= service.DwellS + 10))
+            {
+                messages.Add(new ValidationMessage(ValidationSeverity.Error,
+                    string.Create(c, $"{label}: trains every {service.HeadwayS:0} s with doors open {service.DwellS:0} s leave no gap; make the headway at least 10 s longer.")));
+            }
+
+            if (service.AlightOverS > service.DwellS)
+            {
+                messages.Add(new ValidationMessage(ValidationSeverity.Warning, string.Create(c, $"{label}: getting off takes {service.AlightOverS:0} s but the doors close after {service.DwellS:0} s, so no one boards.")));
+            }
+
+            if (service.AlightPerTrain < 0 || service.Capacity < 0 || !(service.OffsetS >= 0))
+            {
+                messages.Add(new ValidationMessage(ValidationSeverity.Error, $"{label}: people getting off, places and the first arrival can't be negative."));
+            }
+        }
     }
 
     /// <summary>True when the findings contain no errors.</summary>
@@ -456,6 +536,11 @@ public static class StudyValidator
 
                     case JourneyStepKind.GoToDevice when !deviceTags.Contains(step.TargetTag):
                         messages.Add(new ValidationMessage(ValidationSeverity.Error, $"{at} needs a '{step.TargetTag}' device, but the study has none.", region.Id));
+                        break;
+
+                    case JourneyStepKind.BoardTrain when TrainService.Matching(study, step.TargetTag).Count == 0:
+                        string service = string.IsNullOrWhiteSpace(step.TargetTag) ? "a train service" : $"a train service tagged '{step.TargetTag.Trim()}'";
+                        messages.Add(new ValidationMessage(ValidationSeverity.Error, $"{at} needs {service}, but the study has none.", region.Id));
                         break;
 
                     case JourneyStepKind.PassZone or JourneyStepKind.Dwell when JourneyZones.Matching(study, step).Count == 0:

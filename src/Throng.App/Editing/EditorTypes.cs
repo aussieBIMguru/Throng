@@ -72,4 +72,19 @@ public interface IEditorHost
 
     /// <summary>Opens the Copy to Levels… dialog for the current selection (Ctrl+Shift+V, D-060).</summary>
     void RequestCopyToLevels();
+
+    /// <summary>
+    /// Extra hover text while a run is going (D-183), e.g. "~14 S" for a stair's current crowd wait; null when the
+    /// object has none or nothing is running.
+    /// </summary>
+    string? RunHoverInfo(Guid id) => null;
+
+    /// <summary>Trains in on the given level while running (D-190): their boxes and open doors; empty otherwise.</summary>
+    IReadOnlyList<RunTrainView> RunTrains(Guid levelId) => [];
 }
+
+/// <summary>A train drawn in the plan while it's in (D-190).</summary>
+/// <param name="Box">The train's outline along the platform edge.</param>
+/// <param name="Doors">Door zone outlines (lit while the doors are open).</param>
+/// <param name="Boarding">True once people are boarding.</param>
+public sealed record RunTrainView(IReadOnlyList<Point2> Box, IReadOnlyList<IReadOnlyList<Point2>> Doors, bool Boarding);

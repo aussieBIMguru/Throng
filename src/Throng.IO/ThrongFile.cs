@@ -30,7 +30,7 @@ public static class ThrongFile
     /// v6: mix lines (profile + journey + share + spawn tags) on emission rules, device queue settings and journeys
     /// in the library (round 009, D-151, D-153, D-157).
     /// </summary>
-    public const int CurrentFormatVersion = 6;
+    public const int CurrentFormatVersion = 7;
 
     /// <summary>Zip folder holding underlay images (§14.2, D-083).</summary>
     public const string UnderlayFolder = "underlays/";

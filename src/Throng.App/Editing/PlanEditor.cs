@@ -176,8 +176,11 @@ public sealed partial class PlanEditor
     /// </summary>
     public bool HoverIsSnapTarget => _tool != EditorTool.Select;
 
-    /// <summary>"STAIR · Street stair" for the object a Select click would pick (D-144), or null.</summary>
-    public string? HoverLabel => _tool == EditorTool.Select && Hover is not null && _hover is { } id ? DescribeObject(id) : null;
+    /// <summary>
+    /// "STAIR · Street stair" for the object a Select click would pick (D-144), or null. While running, connectors and
+    /// exits add their current crowd wait (D-183): "STAIR · Street stair · ~14 S".
+    /// </summary>
+    public string? HoverLabel => _tool == EditorTool.Select && Hover is not null && _hover is { } id ? WithRunInfo(id, DescribeObject(id)) : null;
 
     /// <summary>Selected vertex index on the single grip target, if any.</summary>
     public int? SelectedVertex => _selectedVertex;
@@ -307,7 +310,8 @@ public sealed partial class PlanEditor
         if (_tool == EditorTool.Select)
         {
             _snap = new SnapResult(raw, SnapKind.None);
-            _hover = _gesture == Gesture.None && CanEdit ? PickAt(raw) : null;
+            // While running the plan is locked, but hovering still names things and shows crowd waits (D-183).
+            _hover = _gesture == Gesture.None && (CanEdit || IsLocked) ? PickAt(raw) : null;
         }
         else if (_tool == EditorTool.Connect && _points.Count == 1)
         {
@@ -1526,6 +1530,25 @@ public sealed partial class PlanEditor
             : null;
         return text?.ToUpperInvariant();
     }
+
+    /// <summary>Trains in on the active level while running (D-190).</summary>
+    public IReadOnlyList<RunTrainView> RunTrains =>
+        IsLocked && _host.ActiveLevelModel is { } level ? _host.RunTrains(level.Id) : [];
+
+    /// <summary>
+    /// Redraws the overlay while running so the hover label's crowd wait (D-183) and the trains (D-190) stay current.
+    /// </summary>
+    public void RefreshRunHover()
+    {
+        if (IsLocked && (_hover is not null || _host.Study.TrainServices.Count > 0))
+        {
+            RaiseOverlay();
+        }
+    }
+
+    /// <summary>Appends the host's run-time info (D-183) to a hover label while running.</summary>
+    private string? WithRunInfo(Guid id, string? text) =>
+        text is not null && IsLocked && _host.RunHoverInfo(id) is { Length: > 0 } info ? $"{text} · {info}" : text;
 
     /// <summary>Outline drawn for a selectable object: region outline, connector footprint or shaft outline.</summary>
     private (IReadOnlyList<Point2> Outline, bool Closed)? OutlineOf(Guid id)

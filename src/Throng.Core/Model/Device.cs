@@ -74,6 +74,16 @@ public sealed class Device
     /// </summary>
     public List<Point2> QueuePath { get; set; } = [];
 
+    /// <summary>
+    /// Pass-through devices: the direction of each lane, in lane order (D-196). Missing entries (and every lane of
+    /// studies saved before round 010b) are <see cref="GateLaneDirection.Both"/>.
+    /// </summary>
+    public List<GateLaneDirection> LaneDirections { get; set; } = [];
+
+    /// <summary>Direction of lane <paramref name="lane"/> (D-196); Both when not set.</summary>
+    public GateLaneDirection DirectionOf(int lane) =>
+        LaneDirections is { } list && lane >= 0 && lane < list.Count ? list[lane] : GateLaneDirection.Both;
+
     /// <summary>Unit vector the service side faces.</summary>
     public Point2 Facing()
     {
@@ -108,5 +118,6 @@ public sealed class Device
         ColorHex = other.ColorHex;
         MaxQueue = other.MaxQueue;
         QueuePath = [.. other.QueuePath ?? []];
+        LaneDirections = [.. other.LaneDirections ?? []];
     }
 }

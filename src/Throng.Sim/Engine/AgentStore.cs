@@ -76,6 +76,21 @@ public sealed class AgentStore
     /// <summary>Seconds since the last progress.</summary>
     public float[] Since = [];
 
+    /// <summary>
+    /// Field cost (route seconds left) at the previous step, for the progress pace (D-191); +∞ after a change of
+    /// target or a pause, so the jump isn't counted.
+    /// </summary>
+    public float[] PrevCost = [];
+
+    /// <summary>
+    /// Smoothed progress along the route as a share of the agent's own free pace (D-191): 1 = walking freely towards
+    /// its target, about 0 = shuffling on the spot however much it jiggles.
+    /// </summary>
+    public float[] Pace = [];
+
+    /// <summary>Local density around the agent, people per m² (D-194), updated each step.</summary>
+    public float[] Crowd = [];
+
     /// <summary>Facing, radians counter-clockwise from +X.</summary>
     public float[] Heading = [];
 
@@ -90,6 +105,9 @@ public sealed class AgentStore
 
     /// <summary>Where the agent stepped onto a landing, and its travel direction then (zero once it's carried on; D-137).</summary>
     public double[] JointX = [], JointY = [], JointDx = [], JointDy = [];
+
+    /// <summary>How far to carry straight into the landing before turning, m (D-137, D-192).</summary>
+    public float[] JointDepth = [];
 
     /// <summary>Stress (frustration) 0–1 (D-145).</summary>
     public float[] Stress = [];
@@ -149,6 +167,7 @@ public sealed class AgentStore
         Target[i] = PlannedExit[i] = Sink[i] = Profile[i] = OffPortal[i] = -1;
         OffTime[i] = 0;
         JointX[i] = JointY[i] = JointDx[i] = JointDy[i] = 0;
+        JointDepth[i] = 0;
         V0[i] = 1.34f;
         Radius[i] = 0.25f;
         Height[i] = 1.75f;
@@ -156,6 +175,9 @@ public sealed class AgentStore
         SpawnTime[i] = 0;
         Best[i] = float.PositiveInfinity;
         Since[i] = 0;
+        PrevCost[i] = float.PositiveInfinity;
+        Pace[i] = 1;
+        Crowd[i] = 0;
         Heading[i] = 0;
         Stress[i] = HeldS[i] = 0;
         Emitter[i] = Journey[i] = QDevice[i] = QLine[i] = -1;
@@ -192,6 +214,9 @@ public sealed class AgentStore
         SpawnTime[i] = SpawnTime[last];
         Best[i] = Best[last];
         Since[i] = Since[last];
+        PrevCost[i] = PrevCost[last];
+        Pace[i] = Pace[last];
+        Crowd[i] = Crowd[last];
         Heading[i] = Heading[last];
         Z[i] = Z[last];
         OffPortal[i] = OffPortal[last];
@@ -199,6 +224,7 @@ public sealed class AgentStore
         JointX[i] = JointX[last];
         JointY[i] = JointY[last];
         JointDx[i] = JointDx[last];
+        JointDepth[i] = JointDepth[last];
         JointDy[i] = JointDy[last];
         Stress[i] = Stress[last];
         HeldS[i] = HeldS[last];
@@ -239,6 +265,9 @@ public sealed class AgentStore
         Array.Resize(ref SpawnTime, capacity);
         Array.Resize(ref Best, capacity);
         Array.Resize(ref Since, capacity);
+        Array.Resize(ref PrevCost, capacity);
+        Array.Resize(ref Pace, capacity);
+        Array.Resize(ref Crowd, capacity);
         Array.Resize(ref Heading, capacity);
         Array.Resize(ref Z, capacity);
         Array.Resize(ref OffPortal, capacity);
@@ -246,6 +275,7 @@ public sealed class AgentStore
         Array.Resize(ref JointX, capacity);
         Array.Resize(ref JointY, capacity);
         Array.Resize(ref JointDx, capacity);
+        Array.Resize(ref JointDepth, capacity);
         Array.Resize(ref JointDy, capacity);
         Array.Resize(ref Stress, capacity);
         Array.Resize(ref HeldS, capacity);

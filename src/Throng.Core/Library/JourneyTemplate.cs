@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json.Serialization;
 
 namespace Throng.Core.Library;
 
@@ -16,6 +17,12 @@ public enum JourneyStepKind
 
     /// <summary>Leave the study at one of the emission rule's sinks (the rule's destinations decide which).</summary>
     Exit,
+
+    /// <summary>
+    /// Leave on a train (D-186): go to a door of a train service whose tag is <see cref="JourneyStep.TargetTag"/>
+    /// (empty = any service), wait beside it, and board when the doors open, if there's room. Ends the journey.
+    /// </summary>
+    BoardTrain,
 }
 
 /// <summary>
@@ -72,6 +79,13 @@ public sealed record JourneyStep
     /// <summary>The exit step.</summary>
     public static JourneyStep ExitStep() => new() { Kind = JourneyStepKind.Exit };
 
+    /// <summary>Creates a Board train step for services with a tag (empty = any service).</summary>
+    public static JourneyStep BoardTrainStep(string serviceTag = "") => new() { Kind = JourneyStepKind.BoardTrain, TargetTag = serviceTag };
+
+    /// <summary>True for the steps that end a journey (exit and board train).</summary>
+    [JsonIgnore]
+    public bool EndsJourney => Kind is JourneyStepKind.Exit or JourneyStepKind.BoardTrain;
+
     /// <summary>Short description for lists, e.g. "TicketMachine (no ticket → ticket)".</summary>
     public string Describe()
     {
@@ -80,6 +94,7 @@ public sealed record JourneyStep
             JourneyStepKind.GoToDevice => TargetTag,
             JourneyStepKind.PassZone => $"through {(string.IsNullOrEmpty(TargetTag) ? "zone" : TargetTag)}",
             JourneyStepKind.Dwell => $"dwell {(string.IsNullOrEmpty(TargetTag) ? "zone" : TargetTag)} {DwellS.Describe()} s",
+            JourneyStepKind.BoardTrain => $"board {(string.IsNullOrEmpty(TargetTag) ? "any" : TargetTag)} train",
             _ => "exit",
         };
 

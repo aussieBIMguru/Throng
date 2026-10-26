@@ -52,6 +52,16 @@ public sealed class AgentProfileTemplate : TemplateBase
     /// <summary>The same for walking down a stair (D-174).</summary>
     public double StairDownEffort { get; set; } = DefaultStairDownEffort;
 
+    /// <summary>Default <see cref="SightRadiusM"/> (D-179).</summary>
+    public const double DefaultSightRadiusM = 30.0;
+
+    /// <summary>
+    /// How far this person can see crowding, in metres (D-179): stairs, escalators and exits on their floor within
+    /// this straight-line distance are judged on their live crowd; further ones on their uncrowded time. Profiles
+    /// saved before round 010 load the default.
+    /// </summary>
+    public double SightRadiusM { get; set; } = DefaultSightRadiusM;
+
     /// <summary>When true the agent can only use lifts and ramps for level changes.</summary>
     public bool LiftOnly { get; set; }
 
@@ -99,6 +109,6 @@ public sealed class AgentProfileTemplate : TemplateBase
             prefers = $" · prefers {string.Join(", ", names)}";
         }
 
-        return $"{Speed.Describe()} m/s · r {RadiusM.ToString("0.00", c)} m · patience {PatienceS.ToString("0", c)} s{access}{prefers}";
+        return $"{Speed.Describe()} m/s · r {RadiusM.ToString("0.00", c)} m · patience {PatienceS.ToString("0", c)} s · sees {SightRadiusM.ToString("0", c)} m{access}{prefers}";
     }
 }

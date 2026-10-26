@@ -106,14 +106,15 @@ public static class BuiltInLibrary
         {
             Speed = Distribution.Normal(1.45, 0.20, 0.9, 2.0),
             PatienceS = 180, Decisiveness = 0.9, LiftPreference = -0.6, MechanisedPreference = -0.2, EscalatorWalkProbability = 0.5, AcceptableJourneyS = 600,
-            StairUpEffort = 1.5, StairDownEffort = 1.2,
-        }, "agent.commuter", "Commuter", cat, "#22D3EE", "Regular traveller. Fast, decisive, low patience; walks on escalators and avoids lifts.", version: 2));
+            StairUpEffort = 1.5, StairDownEffort = 1.2, SightRadiusM = 40,
+        }, "agent.commuter", "Commuter", cat, "#22D3EE", "Regular traveller. Fast, decisive, low patience; walks on escalators and avoids lifts.", version: 3));
 
         lib.Add(Init(new AgentProfileTemplate
         {
             Speed = Distribution.Normal(1.20, 0.22, 0.6, 1.8),
             PatienceS = 420, Decisiveness = 0.4, MechanisedPreference = 0.3, EscalatorWalkProbability = 0.1, AcceptableJourneyS = 900,
-        }, "agent.infrequent", "Infrequent traveller", cat, "#FACC15", "Tourist or occasional user. Slower and less decisive; often needs a ticket and the info desk."));
+            SightRadiusM = 20,
+        }, "agent.infrequent", "Infrequent traveller", cat, "#FACC15", "Tourist or occasional user. Slower and less decisive; often needs a ticket and the info desk.", version: 2));
 
         lib.Add(Init(new AgentProfileTemplate
         {
