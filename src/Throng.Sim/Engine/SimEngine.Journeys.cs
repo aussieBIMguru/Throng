@@ -38,11 +38,16 @@ public sealed partial class SimEngine
 
     // After service: step aside this far for this long (machines); give up walking through after this long (gates);
     // dwellers stroll at this share of their speed and pick a new spot this close to the last.
-    private const double AsideM = 1.0, AsideS = 1.2, ThroughTimeoutS = 6.0, ThroughDoneM = 0.4, DwellSpeed = 0.5, DwellReachM = 0.5;
+    private const double AsideM = 1.0, AsideS = 1.2, ThroughTimeoutS = 6.0, ThroughDoneM = 0.4, ThroughProgressM = 0.25, LaneCarrotM = 0.8, DwellSpeed = 0.5, DwellReachM = 0.5;
 
     private readonly sbyte[] _laneDir;
     private readonly bool[] _laneServing;
     private readonly int[] _laneThrough;
+
+    // D-209: per lane, the most distance any walker still going through has left to the far point; read this step
+    // (last step's values) and written this step (for the next).
+    private float[] _laneThroughLeft;
+    private float[] _laneThroughLeftNext;
     private readonly bool[] _laneClosing;
     private readonly int[] _lineCount;
     private readonly int[] _waitJoin;
@@ -112,6 +117,8 @@ public sealed partial class SimEngine
 
         Array.Clear(_laneServing);
         Array.Clear(_laneThrough);
+        Array.Clear(_laneThroughLeft);
+        Array.Clear(_laneThroughLeftNext);
         Array.Clear(_laneClosing);
         Array.Clear(_lineCount);
         Array.Clear(_waitJoin);
@@ -317,14 +324,19 @@ public sealed partial class SimEngine
                 continue;
             }
 
-            double walk = RoutePlanner.Choose(_routes, a.Surface[i], a.X[i], a.Y[i], device.Target, profile.Mobility, profile.Template, random, out _, out _, _wait, BeltWalkSpeed(i), stairEffort: _tuning.StairEffort, standingRest: _tuning.StandingRest, sightRadius: Sight(i));
+            if (!AccessAllows(profile, step, device))
+            {
+                continue;
+            }
+
+            double walk = RoutePlanner.Choose(_routes, a.Surface[i], a.X[i], a.Y[i], device.Target, profile.Mobility, profile.Template, random, out _, out _, _wait, BeltWalkSpeed(i), stairEffort: _tuning.StairEffort, standingRest: _tuning.StandingRest, sightRadius: Sight(i), priorityPenaltyS: _liftPriorityS);
             if (!double.IsFinite(walk))
             {
                 continue;
             }
 
             // Preset choice weight and the profile's device preferences (D-166) are seconds on or off the cost.
-            double total = walk + ExpectedWait(device) + device.ChoicePenaltyS - profile.BonusFor(d);
+            double total = walk + ExpectedWait(device) + device.ChoicePenaltyS - profile.BonusFor(d) + AccessAvoidS(profile, device);
             if (total < bestTotal)
             {
                 bestTotal = total;
@@ -334,6 +346,42 @@ public sealed partial class SimEngine
 
         return best;
     }
+
+    /// <summary>
+    /// Seconds people who don't need accessible devices add to an accessible device's cost (D-224), unless their
+    /// profile favours that device (luggage keeps its +15 s preference for the accessible gate, D-213).
+    /// </summary>
+    public const double AccessibleAvoidS = 15.0;
+
+    /// <summary>
+    /// The hard accessible rule (D-213): someone who needs accessible devices may use a device that isn't accessible
+    /// only when no device of the step on that device's floor is accessible.
+    /// </summary>
+    private bool AccessAllows(SimProfile profile, SimStep step, SimDevice device)
+    {
+        if (!_tuning.AccessibleRule || !profile.Template.NeedsAccessibleDevices || device.Accessible)
+        {
+            return true;
+        }
+
+        // Steps hold a handful of devices; a scan beats keeping per-floor tables.
+        foreach (int other in step.Targets)
+        {
+            SimDevice candidate = _model.Devices[other];
+            if (candidate.Accessible && candidate.Floor == device.Floor)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>The soft avoid (D-224): <see cref="AccessibleAvoidS"/> or 0.</summary>
+    private double AccessAvoidS(SimProfile profile, SimDevice device) =>
+        _tuning.AccessibleRule && device.Accessible && !profile.Template.NeedsAccessibleDevices && profile.BonusFor(device.Index) <= 0
+            ? AccessibleAvoidS
+            : 0;
 
     /// <summary>The quickest zone of the step to reach from here; −1 when none can be reached.</summary>
     private int ChooseZone(int i, SimStep step, DeterministicRandom random)
@@ -349,7 +397,7 @@ public sealed partial class SimEngine
         double bestCost = double.PositiveInfinity;
         foreach (int target in step.Targets)
         {
-            double c = RoutePlanner.Choose(_routes, a.Surface[i], a.X[i], a.Y[i], target, profile.Mobility, profile.Template, random, out _, out _, _wait, BeltWalkSpeed(i), stairEffort: _tuning.StairEffort, standingRest: _tuning.StandingRest, sightRadius: Sight(i));
+            double c = RoutePlanner.Choose(_routes, a.Surface[i], a.X[i], a.Y[i], target, profile.Mobility, profile.Template, random, out _, out _, _wait, BeltWalkSpeed(i), stairEffort: _tuning.StairEffort, standingRest: _tuning.StandingRest, sightRadius: Sight(i), priorityPenaltyS: _liftPriorityS);
             if (c < bestCost)
             {
                 bestCost = c;
@@ -439,6 +487,8 @@ public sealed partial class SimEngine
             return;
         }
 
+        (_laneThroughLeft, _laneThroughLeftNext) = (_laneThroughLeftNext, _laneThroughLeft);
+        Array.Clear(_laneThroughLeftNext);
         Array.Clear(_waitJoin);
         AgentStore a = _agents;
         for (int i = 0; i < a.Count; i++)
@@ -521,6 +571,12 @@ public sealed partial class SimEngine
             UpdateTrainWait(i);
         }
 
+        if (_carCount > 0 && a.Phase[i] == AgentPhase.Walk)
+        {
+            // Lift landings (round 013): start waiting once on the landing.
+            CheckLiftArrival(i);
+        }
+
         switch (a.Phase[i])
         {
             case AgentPhase.Walk:
@@ -548,7 +604,7 @@ public sealed partial class SimEngine
                 break;
 
             case AgentPhase.Service:
-                if (TimeS >= a.Timer[i])
+                if (TimeS >= a.Timer[i] && LaneAheadClear(i))
                 {
                     FinishService(i);
                 }
@@ -558,11 +614,24 @@ public sealed partial class SimEngine
             case AgentPhase.Through:
             {
                 double dx = a.AimX[i] - a.X[i], dy = a.AimY[i] - a.Y[i];
-                if ((dx * dx) + (dy * dy) < ThroughDoneM * ThroughDoneM || TimeS >= a.Timer[i])
+                double left = Math.Sqrt((dx * dx) + (dy * dy));
+                if (_tuning.LaneClear && left < a.ThroughLeft[i] - ThroughProgressM)
                 {
-                    SimDevice device = _model.Devices[a.QDevice[i]];
-                    _laneThrough[device.LaneBase + a.QSlot[i]]--;
+                    // Still getting through (D-209): a slow wheelchair in a tight lane isn't timed out.
+                    a.ThroughLeft[i] = (float)left;
+                    a.Timer[i] = TimeS + ThroughTimeoutS;
+                }
+
+                SimDevice device = _model.Devices[a.QDevice[i]];
+                int g = device.LaneBase + a.QSlot[i];
+                if (left < ThroughDoneM || TimeS >= a.Timer[i])
+                {
+                    _laneThrough[g]--;
                     CompleteStep(i);
+                }
+                else if (left > _laneThroughLeftNext[g])
+                {
+                    _laneThroughLeftNext[g] = (float)left;
                 }
 
                 break;
@@ -787,6 +856,8 @@ public sealed partial class SimEngine
             return false;
         }
 
+        RecordGaveUp(a.QDevice[i]);
+        NoteWait(i, TimeS - a.JoinTime[i]);
         if (a.Phase[i] == AgentPhase.Queue)
         {
             LeaveLine(i);
@@ -802,6 +873,7 @@ public sealed partial class SimEngine
         }
 
         _gaveUp++;
+        a.LeftEarly[i] = true;
         BeginExit(i, _random);
         return true;
     }
@@ -821,7 +893,8 @@ public sealed partial class SimEngine
         // Like for like (r009b-3): the other device's total includes its choice weight and the profile's preference,
         // so this device's wait carries its own too. A favoured device is kept through a longer queue (D-166).
         AgentStore a = _agents;
-        double adjustHere = device.ChoicePenaltyS - _model.Profiles[a.Profile[i]].BonusFor(device.Index);
+        SimProfile profile = _model.Profiles[a.Profile[i]];
+        double adjustHere = device.ChoicePenaltyS - profile.BonusFor(device.Index) + AccessAvoidS(profile, device);
         int other = ChooseDevice(i, step, device.Index, null, out double otherTotal);
         if (other < 0 || !(waitHere + adjustHere > BalkFactor * otherTotal))
         {
@@ -829,6 +902,7 @@ public sealed partial class SimEngine
         }
 
         LeaveLine(i);
+        RecordBalk(device.Index);
         a.Phase[i] = AgentPhase.Walk;
         a.QDevice[i] = other;
         a.Sink[i] = _model.Devices[other].Target;
@@ -884,6 +958,8 @@ public sealed partial class SimEngine
             a.Timer[i] = TimeS + Math.Max(0, DistributionSampler.Sample(device.ServiceTime, _random));
             _queueWaitSum[device.Index] += TimeS - a.JoinTime[i];
             _queueWaitCount[device.Index]++;
+            RecordServed(device.Index, TimeS - a.JoinTime[i]);
+            NoteWait(i, TimeS - a.JoinTime[i]);
             return;
         }
 
@@ -956,6 +1032,7 @@ public sealed partial class SimEngine
             a.AimX[i] = far.X;
             a.AimY[i] = far.Y;
             a.Timer[i] = TimeS + ThroughTimeoutS;
+            a.ThroughLeft[i] = (float)Point2.Distance(new Point2(a.X[i], a.Y[i]), far);
             _laneThrough[device.LaneBase + lane]++;
             return;
         }
@@ -969,6 +1046,78 @@ public sealed partial class SimEngine
         a.AimX[i] = x + aside.X;
         a.AimY[i] = y + aside.Y;
         a.Timer[i] = TimeS + AsideS;
+    }
+
+    /// <summary>
+    /// True when a person whose service is done may start through their lane (D-209): nobody who went before is still
+    /// short of the middle of the gate. Normal walkers clear it within a tap, so this only holds people back behind a
+    /// slow mover (a wheelchair in the accessible gate). Always true for machines and with the switch off.
+    /// </summary>
+    private bool LaneAheadClear(int i)
+    {
+        SimDevice device = _model.Devices[_agents.QDevice[i]];
+        if (!_tuning.LaneClear || !device.PassThrough)
+        {
+            return true;
+        }
+
+        int g = device.LaneBase + (_agents.QLine[i] % device.Lanes);
+        double clearLeft = SimDevice.ServiceOffsetM + 0.5 + (0.5 * device.DepthM);
+        return _laneThroughLeft[g] <= clearLeft;
+    }
+
+    /// <summary>
+    /// The lane an agent is lined up in or walking through at a pass-through device (D-209): its service point and
+    /// the walking direction through it. False for machines, snakes and anyone not at a lane.
+    /// </summary>
+    private bool LaneAxis(int i, out Point2 start, out Point2 dir)
+    {
+        AgentStore a = _agents;
+        start = dir = default;
+        int d = a.QDevice[i];
+        if (d < 0)
+        {
+            return false;
+        }
+
+        SimDevice device = _model.Devices[d];
+        if (!device.PassThrough)
+        {
+            return false;
+        }
+
+        int lane, side;
+        switch (a.Phase[i])
+        {
+            case AgentPhase.Through:
+                lane = a.QSlot[i];
+                side = a.QSide[i];
+                break;
+
+            case AgentPhase.Service:
+            case AgentPhase.Queue when a.QSlot[i] == 0:
+                if (a.QLine[i] < 0 || a.QLine[i] == device.SnakeLine)
+                {
+                    return false;
+                }
+
+                lane = a.QLine[i] % device.Lanes;
+                side = a.QLine[i] / device.Lanes;
+                break;
+
+            default:
+                return false;
+        }
+
+        if (lane < 0 || lane >= device.Lanes || side < 0 || side > 1)
+        {
+            return false;
+        }
+
+        Point2[] line = device.Slots[device.Line(side, lane)];
+        start = line.Length > 0 ? line[0] : device.Centre;
+        dir = side == 0 ? device.Facing * -1 : device.Facing;
+        return true;
     }
 
     /// <summary>Takes the agent out of its line; everyone behind moves up a slot.</summary>
@@ -1103,7 +1252,8 @@ public sealed partial class SimEngine
 
             case AgentPhase.WaitJoin:
             case AgentPhase.WaitTrain:
-                // To the hold point (D-167) or the spot beside a train door (D-186), then stand.
+            case AgentPhase.LiftWait:
+                // To the hold point (D-167), the spot beside a train door (D-186) or on a lift landing, then stand.
                 tx = a.AimX[i];
                 ty = a.AimY[i];
                 arrive = true;
@@ -1114,6 +1264,19 @@ public sealed partial class SimEngine
                 ty = a.AimY[i];
                 scale = DwellSpeed;
                 break;
+
+            case AgentPhase.Through when _tuning.LaneClear && LaneAxis(i, out Point2 start, out Point2 dir):
+            {
+                // Follow the lane's centreline (D-209): aim a little ahead of the closest point on it, so someone who
+                // starts off-centre lines up with the lane mouth instead of cutting its corner.
+                Point2 far = new(a.AimX[i], a.AimY[i]);
+                double total = Point2.Distance(start, far);
+                double along = Point2.Dot(new Point2(x, y) - start, dir);
+                Point2 carrot = start + (dir * Math.Clamp(along + LaneCarrotM, 0, total));
+                tx = carrot.X;
+                ty = carrot.Y;
+                break;
+            }
 
             default:
                 tx = a.AimX[i];

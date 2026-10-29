@@ -50,7 +50,7 @@ public sealed class Round009bFileTests
 
         string path = Path.Combine(_folder, "rt.throng");
         Assert.IsTrue(ThrongFile.Save(study, path).IsSuccess);
-        Assert.AreEqual(ThrongFile.CurrentFormatVersion, ThrongFile.ReadManifest(path).Value!.FormatVersion, "Saved at the current format (v7 since 010b, D-188).");
+        Assert.AreEqual(ThrongFile.CurrentFormatVersion, ThrongFile.ReadManifest(path).Value!.FormatVersion, "Saved at the current format (v8 since 011b, D-213).");
 
         Study loaded = ThrongFile.Load(path).Value!;
         var journey = (JourneyTemplate)loaded.Library.Find(copy.Id)!;

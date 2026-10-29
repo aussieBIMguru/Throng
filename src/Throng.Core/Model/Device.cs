@@ -80,6 +80,12 @@ public sealed class Device
     /// </summary>
     public List<GateLaneDirection> LaneDirections { get; set; } = [];
 
+    /// <summary>
+    /// Accessible override (D-223): null takes the preset's <see cref="Library.DeviceTemplate.Accessible"/>; true or
+    /// false sets it for this device only. Resolve with <see cref="Library.StudyTemplates.IsAccessible"/>.
+    /// </summary>
+    public bool? AccessibleOverride { get; set; }
+
     /// <summary>Direction of lane <paramref name="lane"/> (D-196); Both when not set.</summary>
     public GateLaneDirection DirectionOf(int lane) =>
         LaneDirections is { } list && lane >= 0 && lane < list.Count ? list[lane] : GateLaneDirection.Both;
@@ -119,5 +125,6 @@ public sealed class Device
         MaxQueue = other.MaxQueue;
         QueuePath = [.. other.QueuePath ?? []];
         LaneDirections = [.. other.LaneDirections ?? []];
+        AccessibleOverride = other.AccessibleOverride;
     }
 }

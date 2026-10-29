@@ -45,11 +45,16 @@ public static class RoutePlanner
     /// <param name="sightRadius">
     /// Straight-line distance within which a connector entry's live wait counts (D-179); +∞ = every wait counts.
     /// </param>
+    /// <param name="priorityPenaltyS">
+    /// Extra seconds per connector for people without boarding priority (D-248: a lift with someone who needs
+    /// accessible devices waiting at it), counted only when its entry is in sight; ignored for profiles that have
+    /// priority themselves (<see cref="HasLiftPriority"/>). Null for none.
+    /// </param>
     public static double Choose(
         NavRoutes routes, int floor, double x, double y, int sink, MobilityClass mobility, AgentProfileTemplate? profile,
         DeterministicRandom? random, out bool direct, out RouteOption choice, double[]? waitSeconds = null,
         double beltWalkSpeed = -1, int stayConnector = -1, double staySeconds = 0, bool stairEffort = true, bool standingRest = true,
-        double sightRadius = double.PositiveInfinity)
+        double sightRadius = double.PositiveInfinity, double[]? priorityPenaltyS = null)
     {
         NavWorld world = routes.World;
         NavSurface surface = world.Surfaces[floor];
@@ -57,6 +62,7 @@ public static class RoutePlanner
         choice = default;
         double best = double.PositiveInfinity;
         double spread = profile is null ? 0 : NoiseSpread * (1 - Math.Clamp(profile.Decisiveness, 0, 1));
+        double[]? penalty = HasLiftPriority(profile) ? null : priorityPenaltyS;
 
         if (world.Sinks[sink].Floor == floor)
         {
@@ -84,7 +90,13 @@ public static class RoutePlanner
                 rideTime *= StandingRideWeight;
             }
 
-            double wait = waitSeconds is not null && InSight(world.Portals[option.Entry], x, y, sightRadius) ? waitSeconds[option.Connector] : 0;
+            bool inSight = InSight(world.Portals[option.Entry], x, y, sightRadius);
+            double wait = waitSeconds is not null && inSight ? waitSeconds[option.Connector] : 0;
+            if (penalty is not null && inSight)
+            {
+                // Not part of the felt ride, so not scaled by the lift preference: it's other people's turn.
+                wait += penalty[option.Connector] / MechanisedFactor(connector.Kind, profile);
+            }
             double ride = (rideTime + wait) * MechanisedFactor(connector.Kind, profile);
             double c = toEntry.Sample(surface, x, y) + ride + routes.Remaining(mobility, sink, option.Exit)
                 + StairCorrection(connector, option.DeltaZ, profile, stairEffort)
@@ -106,6 +118,12 @@ public static class RoutePlanner
         return best;
     }
 
+    /// <summary>
+    /// True for people who board lifts first (D-247): profiles that need accessible devices or are lift/ramp only.
+    /// </summary>
+    public static bool HasLiftPriority(AgentProfileTemplate? profile) =>
+        profile is not null && (profile.NeedsAccessibleDevices || profile.LiftOnly);
+
     /// <summary>True when the portal's edge is within <paramref name="sightRadius"/> of (x, y) (D-179).</summary>
     public static bool InSight(NavPortal portal, double x, double y, double sightRadius) =>
         double.IsPositiveInfinity(sightRadius) || portal.DistanceTo(new Point2(x, y)) <= sightRadius;
@@ -114,14 +132,20 @@ public static class RoutePlanner
     /// How long a connector's ride and queue feel to this profile (D-138): 1 − <see cref="MechanisedWeight"/> ×
     /// preference on escalators and travelators (lifts too, from M4), 1 on stairs, ramps and with no profile.
     /// </summary>
+    /// <remarks>Lifts (round 013) use the profile's lift preference the same way.</remarks>
     public static double MechanisedFactor(ConnectorKind kind, AgentProfileTemplate? profile)
     {
-        if (profile is null || kind is not (ConnectorKind.Escalator or ConnectorKind.Travelator))
+        if (profile is null)
         {
             return 1.0;
         }
 
-        return 1.0 - (MechanisedWeight * Math.Clamp(profile.MechanisedPreference, -1.0, 1.0));
+        return kind switch
+        {
+            ConnectorKind.Escalator or ConnectorKind.Travelator => 1.0 - (MechanisedWeight * Math.Clamp(profile.MechanisedPreference, -1.0, 1.0)),
+            ConnectorKind.Lift => 1.0 - (MechanisedWeight * Math.Clamp(profile.LiftPreference, -1.0, 1.0)),
+            _ => 1.0,
+        };
     }
 
     /// <summary>

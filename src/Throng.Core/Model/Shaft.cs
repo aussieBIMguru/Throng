@@ -37,6 +37,9 @@ public sealed class Shaft
     /// </summary>
     public List<Guid> NoStopLevelIds { get; set; } = [];
 
+    /// <summary>The lift bank in this shaft (round 013, D-236), or null for a plain opening. Format v9.</summary>
+    public Lift? Lift { get; set; }
+
     /// <summary>Returns an independent copy, including the id.</summary>
     public Shaft Clone()
     {
@@ -55,5 +58,6 @@ public sealed class Shaft
         Outline = [.. other.Outline];
         Tag = other.Tag;
         NoStopLevelIds = [.. other.NoStopLevelIds];
+        Lift = other.Lift?.Clone();
     }
 }

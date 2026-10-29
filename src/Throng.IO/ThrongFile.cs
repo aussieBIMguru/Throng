@@ -29,8 +29,14 @@ public static class ThrongFile
     /// v5: rate curves on emission rules (round 007, D-129).
     /// v6: mix lines (profile + journey + share + spawn tags) on emission rules, device queue settings and journeys
     /// in the library (round 009, D-151, D-153, D-157).
+    /// v7: train services (round 010b, D-188); colour-blind heatmap setting (round 011a, additive).
+    /// v8: accessible devices (round 011b, D-213, D-223): <c>Accessible</c> on device presets, an
+    /// <c>accessibleOverride</c> on placed devices and <c>NeedsAccessibleDevices</c> on profiles.
+    /// v9: lift banks in shafts (round 013, D-236–D-244): <c>Shaft.Lift</c> with cars, front edge, landing depth,
+    /// lobby, dispatch, schedule and per-level doors; drawn train shapes (round 013b, D-249, additive:
+    /// <c>TrainService.Shape</c>, empty = the automatic box).
     /// </summary>
-    public const int CurrentFormatVersion = 7;
+    public const int CurrentFormatVersion = 9;
 
     /// <summary>Zip folder holding underlay images (§14.2, D-083).</summary>
     public const string UnderlayFolder = "underlays/";

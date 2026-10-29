@@ -217,6 +217,12 @@ public sealed class Study
         return level.ElevationM >= bottom.ElevationM - tolerance && level.ElevationM <= top.ElevationM + tolerance;
     }
 
+    /// <summary>
+    /// Levels a shaft's lift serves (D-236): the levels it spans minus its no-stop levels (D-087), lowest first.
+    /// </summary>
+    public IReadOnlyList<Level> LiftStops(Shaft shaft) =>
+        [.. Levels.Where(l => ShaftSpans(shaft, l.Id) && !shaft.NoStopLevelIds.Contains(l.Id)).OrderBy(l => l.ElevationM)];
+
     /// <summary>Shafts passing through the given level.</summary>
     public IEnumerable<Shaft> ShaftsSpanning(Guid levelId) => Shafts.Where(s => ShaftSpans(s, levelId));
 

@@ -92,6 +92,9 @@ public sealed class Round007Tests
             ("no landing waypoints (D-192)", new SimTuning { LandingWaypoints = false }),
             ("stress from half patience (D-145)", new SimTuning { EarlyStress = false }),
             ("no crowd stress (D-194)", new SimTuning { CrowdStress = false }),
+            ("no lane clear (D-209)", new SimTuning { LaneClear = false }),
+            ("no accessible rule (D-213)", new SimTuning { AccessibleRule = false }),
+            ("no lift priority (D-247, D-248)", new SimTuning { LiftPriority = false }),
             ("as r009 (no round 010 rules)", new SimTuning { StairMeasuredWait = false, SightLimited = false, ApproachReview = false, ExitCrowd = false, ProgressStress = false, LandingWaypoints = false, EarlyStress = false, CrowdStress = false }),
         ];
 
@@ -105,6 +108,7 @@ public sealed class Round007Tests
             ("STAIR 3.6 m one way, 120/min, 240 s", () => SimTestStudies.TwoLevels("connector.stair-3600", 120), 240),
             ("STAIR 1.5 m + ESCALATOR up, 120/min up, 240 s (r010a)", () => Round010aTests.StairAndEscalator(120), 240),
             ("STAIR + ESCALATOR, counterflow: 120/min up, 60/min down the stair, 240 s (r010a-2)", () => Round010aTests.StairCounterflow(120, 60), 240),
+            ("OFFICE TOWER 300 s (r013b, lifts only)", OfficeTowerBuilder.Build, 300),
         })
         {
             output.AppendLine(label);

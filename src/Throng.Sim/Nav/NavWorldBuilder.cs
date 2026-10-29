@@ -77,6 +77,15 @@ public static class NavWorldBuilder
             AddConnector(study, connector, l, bottom, cs, surfaces, floorByLevel, connectors, portals, links, findings);
         }
 
+        // Lift banks (round 013): one connector each, a landing portal per served level and door side.
+        foreach (Shaft shaft in study.Shafts)
+        {
+            if (shaft.Lift is not null)
+            {
+                AddLift(study, shaft, surfaces, floorByLevel, connectors, portals, findings);
+            }
+        }
+
         // Global cell numbering.
         int[] cellBase = new int[surfaces.Count];
         int total = 0;
@@ -128,6 +137,122 @@ public static class NavWorldBuilder
             Bounds = bounds,
             FloorByLevel = floorByLevel,
         });
+    }
+
+    /// <summary>
+    /// A lift bank as a connector (round 013, D-236–D-244): no pieces; a portal per served level and door side whose
+    /// door isn't closed, with the landing rectangle's walkable cells (D-241) as its floor cells, the door edge as its
+    /// edge and the ride timed from the preset. A shuttle only gets landings at its lowest and highest stops (D-244).
+    /// </summary>
+    private static void AddLift(
+        Study study, Shaft shaft, List<NavSurface> surfaces, Dictionary<Guid, int> floorByLevel, List<NavConnector> connectors, List<NavPortal> portals,
+        List<ValidationMessage> findings)
+    {
+        Lift lift = shaft.Lift!;
+        LiftTemplate preset = StudyTemplates.FindLiftTemplate(study, lift) ?? new LiftTemplate();
+        Result<LiftLayout> layout = LiftLayout.Compute(shaft.Outline, lift.FrontEdge, lift.Cars, lift.LandingDepthM);
+        if (!layout.IsSuccess || layout.Value is not { } l)
+        {
+            findings.Add(new ValidationMessage(ValidationSeverity.Warning, $"Lift '{lift.Name}': {layout.Error}", shaft.Id));
+            return;
+        }
+
+        IReadOnlyList<Level> stops = study.LiftStops(shaft);
+        if (stops.Count < 2)
+        {
+            return;
+        }
+
+        int cars = Math.Clamp(lift.Cars, 1, Lift.MaxCars);
+        double speed = Math.Max(0.1, preset.SpeedMps), accel = Math.Max(0.1, preset.AccelerationMps2);
+        double stopS = Math.Max(0, preset.DoorOpenS) + Math.Max(0, preset.DwellS) + Math.Max(0, preset.DoorCloseS);
+        double rise = stops[^1].ElevationM - stops[0].ElevationM;
+        double roundTrip = (2 * LiftTiming.TravelS(rise, speed, accel)) + (2 * stopS);
+        double fixedS = (roundTrip / cars / 2) + Math.Max(0, preset.DoorCloseS) + Math.Max(0, preset.DoorOpenS) + 2.0;
+        var nav = new NavConnector
+        {
+            Index = connectors.Count,
+            ConnectorId = shaft.Id,
+            ShaftId = shaft.Id,
+            Name = lift.Name,
+            Kind = ConnectorKind.Lift,
+            StepFreeOk = true,
+            LiftSpeedMps = speed,
+            LiftAccelMps2 = accel,
+            LiftFixedS = fixedS,
+            CapacityPerSecond = Math.Max(0.05, cars * Math.Max(1, preset.CapacityPersons) / Math.Max(1, roundTrip)),
+        };
+
+        bool shuttle = lift.Dispatch == LiftDispatch.Shuttle;
+        for (int stop = 0; stop < stops.Count; stop++)
+        {
+            Level level = stops[stop];
+            if ((shuttle && stop != 0 && stop != stops.Count - 1) || !floorByLevel.TryGetValue(level.Id, out int floor))
+            {
+                continue;
+            }
+
+            LiftLevelDoors doors = lift.DoorsAt(level.Id);
+            for (int side = 0; side < 2; side++)
+            {
+                LiftDoorUse use = side == 0 ? doors.Front : doors.Rear;
+                if (use == LiftDoorUse.Closed || l.Side(side) is not { } edge)
+                {
+                    continue;
+                }
+
+                NavSurface surface = surfaces[floor];
+                List<int> cells = CellsInside(surface, [edge.Landing], walkableOnly: true);
+                if (cells.Count == 0)
+                {
+                    findings.Add(new ValidationMessage(ValidationSeverity.Warning, $"Lift '{lift.Name}': the {(side == 0 ? "front" : "rear")} landing on {level.Name} has no walkable floor, so that door isn't used.", shaft.Id));
+                    continue;
+                }
+
+                // The cell nearest the door's middle goes in the middle, so FloorCell is a sensible landing point.
+                int nearest = 0;
+                double best = double.PositiveInfinity;
+                Point2 aim = edge.Mid + (edge.Outward * 0.6);
+                for (int c = 0; c < cells.Count; c++)
+                {
+                    double d = Point2.Distance(surface.CellCentre(cells[c]), aim);
+                    if (d < best)
+                    {
+                        best = d;
+                        nearest = c;
+                    }
+                }
+
+                (cells[nearest], cells[cells.Count / 2]) = (cells[cells.Count / 2], cells[nearest]);
+                var portal = new NavPortal
+                {
+                    Index = portals.Count,
+                    Connector = nav.Index,
+                    Floor = floor,
+                    Piece = -1,
+                    LevelId = level.Id,
+                    ElevationM = level.ElevationM,
+                    AllowsEntry = use is LiftDoorUse.Both or LiftDoorUse.Entry,
+                    AllowsExit = use is LiftDoorUse.Both or LiftDoorUse.Exit,
+                    A = edge.A,
+                    B = edge.B,
+                    Outward = edge.Outward,
+                    FloorCells = [.. cells],
+                    PieceCells = [],
+                    LiftStop = stop,
+                    LiftSide = side,
+                };
+                nav.Portals.Add(portal.Index);
+                portals.Add(portal);
+            }
+        }
+
+        if (nav.Portals.Count < 2)
+        {
+            findings.Add(new ValidationMessage(ValidationSeverity.Warning, $"Lift '{lift.Name}' has fewer than two usable landings, so no one rides it.", shaft.Id));
+        }
+
+        connectors.Add(nav);
     }
 
     /// <summary>Raster cells (by centre) of polygons on a floor grid.</summary>

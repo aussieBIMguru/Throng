@@ -27,6 +27,9 @@ public partial class MainWindow : Window
         DataContext = _viewModel;
         Viewport.Editor = _viewModel.Editor;
         Viewport.Agents = _viewModel.FetchAgents;
+        Viewport.Heat = _viewModel.FetchHeat;
+        Viewport.LiftCars = _viewModel.FetchLiftCars3D;
+        _viewModel.CaptureViewport = Viewport.CaptureAsync;
         Viewport.TemplateDropped += OnTemplateDropped;
 
         _viewModel.SceneInvalidated += (_, _) => RebuildScene();

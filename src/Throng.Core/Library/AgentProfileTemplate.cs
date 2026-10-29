@@ -65,6 +65,13 @@ public sealed class AgentProfileTemplate : TemplateBase
     /// <summary>When true the agent can only use lifts and ramps for level changes.</summary>
     public bool LiftOnly { get; set; }
 
+    /// <summary>
+    /// Needs accessible devices (D-213): where a journey step's device type has an accessible device on a floor, these
+    /// people use only the accessible ones there; with none they use what's there and CHECK warns (D-225). Profiles
+    /// saved before format v8 don't (the built-in wheelchair profile is upgraded on load).
+    /// </summary>
+    public bool NeedsAccessibleDevices { get; set; }
+
     /// <summary>Probability of walking (not standing) on an escalator.</summary>
     public double EscalatorWalkProbability { get; set; } = 0.3;
 
@@ -99,7 +106,7 @@ public sealed class AgentProfileTemplate : TemplateBase
     public override string Summarise()
     {
         CultureInfo c = CultureInfo.InvariantCulture;
-        string access = LiftOnly ? " · lift/ramp only" : string.Empty;
+        string access = (LiftOnly ? " · lift/ramp only" : string.Empty) + (NeedsAccessibleDevices ? " · accessible devices only" : string.Empty);
         string prefers = string.Empty;
         if (DevicePreferences is { Count: > 0 } preferences)
         {

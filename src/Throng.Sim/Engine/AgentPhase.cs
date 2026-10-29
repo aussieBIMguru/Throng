@@ -26,4 +26,10 @@ public enum AgentPhase : byte
 
     /// <summary>Standing aside of a train door until the train can take them (D-186).</summary>
     WaitTrain,
+
+    /// <summary>Waiting on a lift landing for a car going their way with room (round 013, D-239).</summary>
+    LiftWait,
+
+    /// <summary>Riding a lift car (round 013): held in the car, carried with it, off the floor.</summary>
+    LiftRide,
 }

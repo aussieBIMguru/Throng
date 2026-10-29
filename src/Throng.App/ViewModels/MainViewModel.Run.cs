@@ -63,6 +63,7 @@ public sealed partial class MainViewModel
             OnPropertyChanged(nameof(IsEditable));
             OnPropertyChanged(nameof(RunStatusText));
             OnPropertyChanged(nameof(ClockText));
+            OnPropertyChanged(nameof(ShowHeatLegend));
         }
     }
 
@@ -152,6 +153,7 @@ public sealed partial class MainViewModel
                 ? string.Create(c, $"{_stats.StuckNow} (+{_stats.StuckRemoved} removed)")
                 : _stats.StuckNow.ToString(c);
             string leftBehind = _runner?.Model.Trains.Count > 0 ? string.Create(c, $" · LEFT BEHIND {_stats.LeftBehind}") : string.Empty;
+            leftBehind += _runner?.Model.Lifts.Count > 0 ? string.Create(c, $" · AT LIFTS {_stats.AtLifts}") : string.Empty;
             return string.Create(c,
                 $"{speed} · AGENTS {_stats.InSystem} · IN {_stats.Spawned} · OUT {_stats.Arrived} · JOURNEY {(int)journey.TotalMinutes}:{journey.Seconds:00} · QUEUING {_stats.Queuing} · STRESSED {_stats.Stressed} · GAVE UP {_stats.GaveUp}{leftBehind} · STUCK {stuck}");
         }
@@ -246,6 +248,13 @@ public sealed partial class MainViewModel
         {
             Ticker = "RUNNING ▸ RESET TO EDIT";
             return;
+        }
+
+        // A lift dropped onto a shaft goes into that shaft (round 013b, D-245).
+        if (item.Template is Throng.Core.Library.LiftTemplate && planPoint is { } at && ActiveLevelModel is { } level
+            && _study.Shafts.FirstOrDefault(s => _study.ShaftSpans(s, level.Id) && PolygonMath.Contains(s.Outline, at)) is { } target)
+        {
+            Editor.Select(target.Id);
         }
 
         UseTemplate(item);
@@ -473,6 +482,35 @@ public sealed partial class MainViewModel
             ? string.Create(CultureInfo.InvariantCulture, $"~{seconds:0} S")
             : null;
 
+    /// <summary>
+    /// Lift cars while running, for the plan overlay (round 013, D-240): every car of a shaft passing through the level,
+    /// filled when it's at this level, with its direction and riders.
+    /// </summary>
+    public IReadOnlyList<RunLiftCarView> RunLiftCars(Guid levelId)
+    {
+        if (_runner is not { } runner || _study.FindLevel(levelId) is not { } level)
+        {
+            return [];
+        }
+
+        var views = new List<RunLiftCarView>();
+        foreach ((SimLift lift, int car, double z, LiftCarStatus state, int riders, int direction) in runner.CopyLiftCarStates())
+        {
+            Shaft? shaft = _study.Shafts.FirstOrDefault(s => s.Id == lift.ShaftId);
+            if (shaft is null || !_study.ShaftSpans(shaft, levelId) || car >= lift.CarLayouts.Count)
+            {
+                continue;
+            }
+
+            bool here = Math.Abs(z - level.ElevationM) < 0.05;
+            string arrow = direction > 0 ? "▲" : direction < 0 ? "▼" : "■";
+            string label = here || riders > 0 || state == LiftCarStatus.Moving ? string.Create(CultureInfo.InvariantCulture, $"{arrow}{riders}") : string.Empty;
+            views.Add(new RunLiftCarView(lift.CarLayouts[car].Footprint, here, here && state is LiftCarStatus.Opening or LiftCarStatus.Open, label));
+        }
+
+        return views;
+    }
+
     /// <summary>Trains in on a level while running, for the plan overlay (D-190).</summary>
     public IReadOnlyList<RunTrainView> RunTrains(Guid levelId)
     {
@@ -500,6 +538,8 @@ public sealed partial class MainViewModel
     {
         _stats = _runner?.LatestStats ?? default;
         Editor?.RefreshRunHover();
+        RefreshHeatTicker();
+        RefreshResults();
         OnPropertyChanged(nameof(RunStatusText));
         OnPropertyChanged(nameof(ClockText));
         OnPropertyChanged(nameof(IsPlaying));

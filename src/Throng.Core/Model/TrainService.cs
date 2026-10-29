@@ -1,4 +1,5 @@
 using System.Globalization;
+using Throng.Core.Geometry;
 
 namespace Throng.Core.Model;
 
@@ -35,6 +36,12 @@ public sealed record TrainService
 
     /// <summary>The door zones (spawn/sink zones on one level), in platform order.</summary>
     public List<Guid> DoorZoneIds { get; init; } = [];
+
+    /// <summary>
+    /// The train's drawn outline on the doors' level (D-249), in plan metres; empty = placed automatically as a box
+    /// along the platform edge. Drawing only: the door zones stay the doors. Additive within format v9.
+    /// </summary>
+    public List<Point2> Shape { get; init; } = [];
 
     /// <summary>Time between trains, seconds.</summary>
     public double HeadwayS { get; init; } = DefaultHeadwayS;

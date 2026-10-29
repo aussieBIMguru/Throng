@@ -99,6 +99,28 @@ public sealed record SimTuning
     /// off = D-137's fixed 0.6 m carry (when <see cref="LandingCarry"/> is on).
     /// </summary>
     public bool LandingWaypoints { get; init; } = true;
+
+    /// <summary>
+    /// Gate lanes (D-209): the next person through a lane waits at the end of their service until whoever went before
+    /// is past the middle of the gate, and the walk-through timeout only runs out without progress; off = r009's fixed
+    /// 6 s timeout and no wait.
+    /// </summary>
+    public bool LaneClear { get; init; } = true;
+
+    /// <summary>
+    /// Accessible devices (D-213, D-224): people who need accessible devices use only accessible ones of a step's type
+    /// on floors that have one, and others add <see cref="SimEngine.AccessibleAvoidS"/> to an accessible device's cost
+    /// unless their profile favours it; off = r011a (preferences only).
+    /// </summary>
+    public bool AccessibleRule { get; init; } = true;
+
+    /// <summary>
+    /// Lift priority (D-247, D-248): people who need accessible devices (or are lift/ramp only) board first at every
+    /// lift, and while one of them waits at a lift everyone else in sight of it sees it as
+    /// <see cref="SimEngine.LiftPriorityPenaltyS"/> slower; off = r013a (priority only at accessible-priority presets,
+    /// no penalty).
+    /// </summary>
+    public bool LiftPriority { get; init; } = true;
 }
 
 /// <summary>Where and how an agent was removed as stuck (D-106), for diagnostics.</summary>

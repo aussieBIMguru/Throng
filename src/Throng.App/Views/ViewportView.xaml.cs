@@ -3,7 +3,9 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
+using Throng.Core.Common;
 using OpenTK.Wpf;
 using Throng.App.Editing;
 using Throng.App.Services;
@@ -18,6 +20,17 @@ namespace Throng.App.Views;
 /// <param name="mode">Current view mode (plan shows the active level only).</param>
 /// <param name="buffer">Buffer to fill (grown by the callee when needed).</param>
 public delegate int AgentFeed(ViewMode mode, ref float[] buffer);
+
+/// <summary>Supplies the live heatmap layers to drape this frame (D-202), or null for none.</summary>
+/// <param name="mode">Current view mode (plan shows the active level only).</param>
+/// <param name="version">Changes whenever the layers' pixels change.</param>
+public delegate IReadOnlyList<HeatLayerDraw>? HeatFeed(ViewMode mode, out long version);
+
+/// <summary>
+/// Supplies the lift cars to draw in 3D this frame (round 013b), or null for none. Return the same list instance while
+/// nothing changed so the renderer doesn't rebuild its meshes.
+/// </summary>
+public delegate IReadOnlyList<LiftCarDraw>? LiftCarFeed();
 
 /// <summary>A LIBRARY row dropped on the viewport (D-098).</summary>
 /// <param name="Data">The dragged item.</param>
@@ -37,6 +50,8 @@ public partial class ViewportView : UserControl
 {
     private const double WheelZoomStep = 1.15;
     private static readonly TimeSpan FlashDuration = TimeSpan.FromSeconds(2.2);
+    private static readonly TimeSpan CaptureTimeout = TimeSpan.FromSeconds(4);
+    private const int CaptureSamples = 4;
 
     private readonly SceneRenderer _renderer = new();
     private readonly PlanCamera _planCamera = new();
@@ -53,6 +68,9 @@ public partial class ViewportView : UserControl
     private PlanEditor? _editor;
     private EditorTool _lastTool = EditorTool.Select;
     private float[] _agentBuffer = new float[640];
+    private TaskCompletionSource<Result<byte[]>>? _capture;
+    private int _captureWidth, _captureHeight;
+    private double _captureScale = 1;
 
     /// <summary>Creates the viewport and starts the GL control.</summary>
     public ViewportView()
@@ -110,6 +128,12 @@ public partial class ViewportView : UserControl
 
     /// <summary>Agents source, read every frame (null = none).</summary>
     public AgentFeed? Agents { get; set; }
+
+    /// <summary>Live heatmap source, read every frame (null = none).</summary>
+    public HeatFeed? Heat { get; set; }
+
+    /// <summary>Lift cars for the 3D view, read every frame (null = none; plan shows cars in the overlay).</summary>
+    public LiftCarFeed? LiftCars { get; set; }
 
     /// <summary>What agent bodies are coloured by (D-146).</summary>
     public AgentColoring AgentColoring
@@ -193,6 +217,80 @@ public partial class ViewportView : UserControl
     /// <summary>Frames the content in both cameras (deferred until the viewport has a size).</summary>
     public void ZoomExtents() => _zoomExtentsPending = true;
 
+    /// <summary>
+    /// Captures the view at <paramref name="scale"/> × its on-screen pixel size (PNG export, D-234): the GL scene is
+    /// drawn again into an offscreen framebuffer on the next frame, and the plan overlay (labels, queues, trains) is
+    /// drawn over it. The image's DPI is set so its size in DIPs matches the viewport. Never throws.
+    /// </summary>
+    /// <param name="scale">Multiple of the on-screen size (2 for the export).</param>
+    public async Task<Result<BitmapSource>> CaptureAsync(double scale)
+    {
+        if (_failed || _gl is null)
+        {
+            return Result<BitmapSource>.Fail("The viewport is offline, so there's no view to export.");
+        }
+
+        if (_capture is not null)
+        {
+            return Result<BitmapSource>.Fail("An export is already in progress.");
+        }
+
+        double width = ActualWidth, height = ActualHeight;
+        if (width < 1 || height < 1 || !IsVisible)
+        {
+            return Result<BitmapSource>.Fail("The viewport isn't showing, so there's no view to export.");
+        }
+
+        DpiScale dpi = VisualTreeHelper.GetDpi(this);
+        double dpiX = 96.0 * dpi.DpiScaleX * scale, dpiY = 96.0 * dpi.DpiScaleY * scale;
+        int pixelWidth = (int)Math.Round(width * dpi.DpiScaleX * scale);
+        int pixelHeight = (int)Math.Round(height * dpi.DpiScaleY * scale);
+        var capture = new TaskCompletionSource<Result<byte[]>>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _captureWidth = pixelWidth;
+        _captureHeight = pixelHeight;
+        _captureScale = scale;
+        _capture = capture;
+        Task finished = await Task.WhenAny(capture.Task, Task.Delay(CaptureTimeout));
+        _capture = null;
+        if (finished != capture.Task)
+        {
+            return Result<BitmapSource>.Fail("The viewport didn't draw a frame in time. Make sure it's showing and try again.");
+        }
+
+        Result<byte[]> pixels = await capture.Task;
+        if (!pixels.IsSuccess || pixels.Value is null)
+        {
+            return Result<BitmapSource>.Fail(pixels.Error ?? "The view couldn't be captured.");
+        }
+
+        try
+        {
+            BitmapSource frame = BitmapSource.Create(pixelWidth, pixelHeight, dpiX, dpiY, PixelFormats.Bgra32, null, pixels.Value, pixelWidth * 4);
+            frame.Freeze();
+            var overlay = new RenderTargetBitmap(pixelWidth, pixelHeight, dpiX, dpiY, PixelFormats.Pbgra32);
+            overlay.Render(Overlay);
+            overlay.Freeze();
+
+            var visual = new DrawingVisual();
+            using (DrawingContext dc = visual.RenderOpen())
+            {
+                var area = new Rect(0, 0, width, height);
+                dc.DrawImage(frame, area);
+                dc.DrawImage(overlay, area);
+            }
+
+            var image = new RenderTargetBitmap(pixelWidth, pixelHeight, dpiX, dpiY, PixelFormats.Pbgra32);
+            image.Render(visual);
+            image.Freeze();
+            return Result<BitmapSource>.Ok(image);
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or OutOfMemoryException or System.Runtime.InteropServices.COMException)
+        {
+            AppLog.Error("Viewport capture failed", ex);
+            return Result<BitmapSource>.Fail($"The view couldn't be captured: {ex.Message}");
+        }
+    }
+
     /// <summary>Gives the viewport keyboard focus so tool shortcuts work.</summary>
     public void FocusInput()
     {
@@ -245,13 +343,43 @@ public partial class ViewportView : UserControl
 
             int agents = Agents?.Invoke(_mode, ref _agentBuffer) ?? 0;
             _renderer.SetAgents(_agentBuffer, agents);
+            long heatVersion = -1;
+            IReadOnlyList<HeatLayerDraw>? heat = Heat?.Invoke(_mode, out heatVersion);
+            _renderer.SetHeatmap(heat, heatVersion);
+            _renderer.SetLiftCars(_mode == ViewMode.Plan ? null : LiftCars?.Invoke());
             _renderer.Render(pixelWidth, pixelHeight, viewProjection, _mode, (float)dpi.DpiScaleX);
+            if (_capture is { Task.IsCompleted: false } capture)
+            {
+                capture.TrySetResult(CaptureFrame(viewProjection, (float)(dpi.DpiScaleX * _captureScale)));
+            }
         }
         catch (Exception ex)
         {
             // Boundary: a GL fault stops rendering with a message rather than throwing every frame.
             AppLog.Error("Viewport render failed", ex);
             Fail($"Rendering stopped: {ex.Message}");
+        }
+    }
+
+    /// <summary>Draws the current frame offscreen at the capture size (GL thread); problems come back as a failure.</summary>
+    private Result<byte[]> CaptureFrame(Matrix4x4 viewProjection, float pixelsPerDip)
+    {
+        try
+        {
+            int max = OffscreenCapture.MaxSize();
+            if (max > 0 && (_captureWidth > max || _captureHeight > max))
+            {
+                return Result<byte[]>.Fail($"The image would be {_captureWidth} × {_captureHeight} pixels; this graphics card can make at most {max} × {max}. Make the window smaller and try again.");
+            }
+
+            int width = _captureWidth, height = _captureHeight;
+            return OffscreenCapture.Capture(width, height, CaptureSamples, () => _renderer.Render(width, height, viewProjection, _mode, pixelsPerDip));
+        }
+        catch (Exception ex)
+        {
+            // Boundary: a failed capture must not take the live viewport down with it.
+            AppLog.Error("Offscreen capture failed", ex);
+            return Result<byte[]>.Fail($"The view couldn't be captured: {ex.Message}");
         }
     }
 

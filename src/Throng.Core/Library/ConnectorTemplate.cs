@@ -17,6 +17,12 @@ public enum ConnectorKind
 
     /// <summary>Sloped walkable connector.</summary>
     Ramp,
+
+    /// <summary>
+    /// A lift bank (round 013). Never a connector preset: lifts live in shafts (<see cref="Model.Shaft.Lift"/>); the
+    /// simulation uses this kind for its lift route-graph entries.
+    /// </summary>
+    Lift,
 }
 
 /// <summary>Allowed travel direction on a connector.</summary>

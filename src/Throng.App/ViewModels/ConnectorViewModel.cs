@@ -399,7 +399,7 @@ public sealed class ConnectorViewModel : ObservableObject
 }
 
 /// <summary>SELECTION-tab properties of the single selected shaft (D-056). Every setter is undoable.</summary>
-public sealed class ShaftViewModel : ObservableObject
+public sealed partial class ShaftViewModel : ObservableObject
 {
     private readonly MainViewModel _owner;
 

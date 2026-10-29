@@ -53,11 +53,32 @@ public sealed class SimRunner : IDisposable
     // Train states for the train box (D-190): 0 = no train, 1 = in, 2 = in and boarding.
     private byte[] _frontTrains = [];
     private byte[] _backTrains = [];
+    private double[] _frontCars = [];
+    private double[] _backCars = [];
+
+    // Density maps (D-202, D-216): every measure back to back (DensityMeasure order, CellCount each), copied only
+    // when the engine has sampled since the last publish.
+    private static readonly DensityMeasure[] Measures = Enum.GetValues<DensityMeasure>();
+    private float[] _frontDensity = [];
+    private float[] _backDensity = [];
+    private long _frontDensityVersion = -1;
+    private long _backDensityVersion = -1;
+    private double _frontAccumulatedS;
+    private double _backAccumulatedS;
+
+    // Run results (round 011c): an immutable copy, rebuilt at most every ResultsIntervalMs while playing.
+    private const long ResultsIntervalMs = 500;
+    private readonly Stopwatch _resultsClock = Stopwatch.StartNew();
+    private RunResults _frontResults = RunResults.Empty;
+    private long _publishedResultsVersion = -1;
 
     /// <summary>Creates a paused runner and starts its thread.</summary>
     public SimRunner(SimModel model)
     {
         _engine = new SimEngine(model);
+        DensityLayout = _engine.Density;
+        _frontDensity = new float[DensityLayout.CellCount * Measures.Length];
+        _backDensity = new float[DensityLayout.CellCount * Measures.Length];
         BuildWaitIndex();
         Publish();
         _thread = new Thread(Loop) { IsBackground = true, Name = "Throng simulation" };
@@ -72,6 +93,65 @@ public sealed class SimRunner : IDisposable
 
     /// <summary>The model being run.</summary>
     public SimModel Model => _engine.Model;
+
+    /// <summary>
+    /// The density map's layers and cell kinds (fixed for the run, safe to read from any thread). Its values come from
+    /// <see cref="CopyDensity"/>, never read them here directly.
+    /// </summary>
+    public DensityGrid DensityLayout { get; }
+
+    /// <summary>
+    /// Copies the latest density map for <paramref name="measure"/> (one value per cell, <see cref="DensityLayout"/>
+    /// order; live is people/m²) into <paramref name="buffer"/> when it differs from <paramref name="version"/>, and
+    /// returns true when it did. Callers switching measure reset their version to −1.
+    /// </summary>
+    public bool CopyDensity(ref float[] buffer, ref long version, DensityMeasure measure = DensityMeasure.Live)
+    {
+        int cells = DensityLayout.CellCount;
+        lock (_gate)
+        {
+            if (_frontDensityVersion == version)
+            {
+                return false;
+            }
+
+            if (buffer.Length != cells)
+            {
+                buffer = new float[cells];
+            }
+
+            Array.Copy(_frontDensity, (int)measure * cells, buffer, 0, cells);
+            version = _frontDensityVersion;
+            return true;
+        }
+    }
+
+    /// <summary>Seconds gathered into the cumulative maps at the last publish (0 during the warm-up, D-218).</summary>
+    public double DensityAccumulatedS
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _frontAccumulatedS;
+            }
+        }
+    }
+
+    /// <summary>
+    /// The latest results copy (device stats after the warm-up and the time series, round 011c). Safe from any
+    /// thread; at most about half a second behind while playing, current once paused or finished.
+    /// </summary>
+    public RunResults LatestResults
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _frontResults;
+            }
+        }
+    }
 
     /// <summary>True while playing.</summary>
     public bool IsPlaying => _playing;
@@ -230,6 +310,7 @@ public sealed class SimRunner : IDisposable
 
                 if (!_playing)
                 {
+                    PublishResults(force: true);
                     Interlocked.Exchange(ref _stepRequests, 0);
                     lastWall = clock.Elapsed.TotalSeconds;
                     owedSimSeconds = 0;
@@ -311,6 +392,34 @@ public sealed class SimRunner : IDisposable
         _backWaits = new double[_frontWaits.Length];
         _frontTrains = new byte[_engine.Model.Trains.Count];
         _backTrains = new byte[_frontTrains.Length];
+        _frontCars = new double[_engine.LiftCarCount * 4];
+        _backCars = new double[_frontCars.Length];
+    }
+
+    /// <summary>
+    /// The latest state of every lift car (round 013, plan symbols): its bank, its place in the bank, height, state,
+    /// riders and direction.
+    /// </summary>
+    public IReadOnlyList<(SimLift Lift, int Car, double Z, LiftCarStatus State, int Riders, int Direction)> CopyLiftCarStates()
+    {
+        IReadOnlyList<SimLift> lifts = _engine.Model.Lifts;
+        var result = new List<(SimLift, int, double, LiftCarStatus, int, int)>();
+        lock (_gate)
+        {
+            foreach (SimLift lift in lifts)
+            {
+                for (int c = 0; c < lift.Cars; c++)
+                {
+                    int o = (lift.FirstCar + c) * 4;
+                    if (o + 3 < _frontCars.Length)
+                    {
+                        result.Add((lift, c, _frontCars[o], (LiftCarStatus)(int)_frontCars[o + 1], (int)_frontCars[o + 2], (int)_frontCars[o + 3]));
+                    }
+                }
+            }
+        }
+
+        return result;
     }
 
     /// <summary>
@@ -348,14 +457,68 @@ public sealed class SimRunner : IDisposable
             _backTrains[v] = (byte)(!isIn ? 0 : boarding ? 2 : 1);
         }
 
+        for (int c = 0; c * 4 < _backCars.Length; c++)
+        {
+            (int _, double z, LiftCarStatus state, int riders, int direction) = _engine.LiftCarState(c);
+            _backCars[c * 4] = z;
+            _backCars[(c * 4) + 1] = (int)state;
+            _backCars[(c * 4) + 2] = riders;
+            _backCars[(c * 4) + 3] = direction;
+        }
+
+        // The back buffer holds the map from two publishes ago; refresh it only when the engine has sampled since.
+        DensityGrid density = _engine.Density;
+        bool densityChanged = density.Version != _frontDensityVersion;
+        if (densityChanged && density.Version != _backDensityVersion)
+        {
+            int cells = density.CellCount;
+            foreach (DensityMeasure measure in Measures)
+            {
+                density.Values(measure).CopyTo(_backDensity.AsSpan((int)measure * cells, cells));
+            }
+
+            _backDensityVersion = density.Version;
+            _backAccumulatedS = density.AccumulatedS;
+        }
+
         lock (_gate)
         {
             (_front, _back) = (_back, _front);
             (_frontWaits, _backWaits) = (_backWaits, _frontWaits);
             (_frontTrains, _backTrains) = (_backTrains, _frontTrains);
+            (_frontCars, _backCars) = (_backCars, _frontCars);
+            if (densityChanged)
+            {
+                (_frontDensity, _backDensity) = (_backDensity, _frontDensity);
+                (_frontDensityVersion, _backDensityVersion) = (_backDensityVersion, _frontDensityVersion);
+                (_frontAccumulatedS, _backAccumulatedS) = (_backAccumulatedS, _frontAccumulatedS);
+            }
             _frontCount = count;
             _frontStats = stats;
             _version++;
+        }
+
+        PublishResults(force: !_playing || _engine.IsFinished);
+    }
+
+    /// <summary>
+    /// Copies the engine's results when they've changed, throttled to <see cref="ResultsIntervalMs"/> unless
+    /// <paramref name="force"/> (paused, finished, reset). Runs on the simulation thread.
+    /// </summary>
+    private void PublishResults(bool force)
+    {
+        long version = _engine.ResultsVersion;
+        if (version == _publishedResultsVersion || (!force && _resultsClock.ElapsedMilliseconds < ResultsIntervalMs))
+        {
+            return;
+        }
+
+        RunResults results = _engine.CopyResults();
+        _resultsClock.Restart();
+        _publishedResultsVersion = version;
+        lock (_gate)
+        {
+            _frontResults = results;
         }
     }
 }

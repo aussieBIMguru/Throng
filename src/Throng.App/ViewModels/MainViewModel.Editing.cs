@@ -61,7 +61,7 @@ public sealed partial class MainViewModel : IEditorHost
     // ------------------------------------------------------------------ right panel tabs (D-045)
 
     /// <summary>Tab labels for the right panel.</summary>
-    public IReadOnlyList<string> PropertiesTabs { get; } = ["SELECTION", "LEVEL", "STUDY"];
+    public IReadOnlyList<string> PropertiesTabs { get; } = ["SELECTION", "LEVEL", "STUDY", "RESULTS"];
 
     /// <summary>Selected right-panel tab. Selecting anything in the viewport switches to SELECTION.</summary>
     public int PropertiesTabIndex
@@ -69,7 +69,7 @@ public sealed partial class MainViewModel : IEditorHost
         get => _propertiesTabIndex;
         set
         {
-            if (value is < PropertiesTabSelection or > PropertiesTabStudy)
+            if (value is < PropertiesTabSelection or > PropertiesTabResults)
             {
                 OnPropertyChanged();
                 return;
@@ -80,6 +80,7 @@ public sealed partial class MainViewModel : IEditorHost
                 OnPropertyChanged(nameof(IsSelectionTab));
                 OnPropertyChanged(nameof(IsLevelTab));
                 OnPropertyChanged(nameof(IsStudyTab));
+                OnPropertyChanged(nameof(IsResultsTab));
             }
         }
     }
@@ -257,8 +258,12 @@ public sealed partial class MainViewModel : IEditorHost
                 SelectJourney(journey);
                 return;
 
+            case LiftTemplate lift:
+                UseLiftTemplate(lift);
+                return;
+
             default:
-                Ticker = "Agent profiles, lifts and schedules are set up in later milestones.";
+                Ticker = "Agent profiles and schedules are set up in later milestones.";
                 return;
         }
 
@@ -266,6 +271,29 @@ public sealed partial class MainViewModel : IEditorHost
 
         SelectedConnectPreset = ConnectPresetOptions.FirstOrDefault(p => p.Id == connector.Id) ?? connector;
         SetTool(EditorTool.Connect, true);
+    }
+
+    /// <summary>
+    /// A LIFTS library item (r013a fix, D-245): with a shaft selected it puts that lift preset in the shaft (or swaps
+    /// the preset of the lift already there), through the same undoable path as SELECTION ▸ LIFT; otherwise the
+    /// ticker says where lifts go.
+    /// </summary>
+    private void UseLiftTemplate(LiftTemplate lift)
+    {
+        if (_selectedShaft is not { } shaft)
+        {
+            Ticker = $"{lift.Name}: lifts go in shafts. Draw or select a shaft, then click this preset again (or use SELECTION ▸ LIFT).";
+            return;
+        }
+
+        if (shaft.LiftPresetKey == lift.Key)
+        {
+            Ticker = $"{shaft.Model.Name} already has a {lift.Name}; its settings are in SELECTION ▸ LIFT.";
+            return;
+        }
+
+        shaft.LiftPresetKey = lift.Key;
+        PropertiesTabIndex = PropertiesTabSelection;
     }
 
     // ------------------------------------------------------------------ tools
@@ -692,12 +720,17 @@ public sealed partial class MainViewModel : IEditorHost
         }
 
         // Selecting anything brings the SELECTION tab forward (and replaces a journey shown there); clearing leaves
-        // the current tab alone (D-045).
+        // the current tab alone (D-045). On RESULTS the tab stays and the device's row lights up instead (D-219).
         if (Editor.SelectionCount > 0)
         {
             ClearJourneySelection();
-            PropertiesTabIndex = PropertiesTabSelection;
+            if (_propertiesTabIndex != PropertiesTabResults)
+            {
+                PropertiesTabIndex = PropertiesTabSelection;
+            }
         }
+
+        SyncResultSelection();
 
         OnPropertyChanged(nameof(SelectionText));
     }

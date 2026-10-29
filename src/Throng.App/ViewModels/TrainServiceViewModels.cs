@@ -21,7 +21,20 @@ public sealed class TrainServiceViewModel : ObservableObject
         _index = index;
         DeleteCommand = new RelayCommand(() => _owner.RemoveTrainService(_index));
         SetDoorsCommand = new RelayCommand(SetDoors);
+        DrawShapeCommand = new RelayCommand(() => _owner.StartTrainShape(_index));
+        ClearShapeCommand = new RelayCommand(() => _owner.ClearTrainShape(_index));
     }
+
+    /// <summary>Arms the polygon tool to draw the train's outline (D-249).</summary>
+    public RelayCommand DrawShapeCommand { get; }
+
+    /// <summary>Back to the automatic box along the platform edge.</summary>
+    public RelayCommand ClearShapeCommand { get; }
+
+    /// <summary>"Drawn (6 points)" or "Automatic box along the platform edge".</summary>
+    public string ShapeText => Service.Shape.Count >= 3
+        ? string.Create(CultureInfo.InvariantCulture, $"Drawn ({Service.Shape.Count} points)")
+        : "Automatic box along the platform edge.";
 
     /// <summary>Deletes the service.</summary>
     public RelayCommand DeleteCommand { get; }

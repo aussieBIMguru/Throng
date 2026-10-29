@@ -182,6 +182,7 @@ public sealed partial class SimEngine
         MarkOpenEnds();
         InitCrowd();
         InitTrains();
+        InitLifts();
         _reviewTicks = Math.Max(1, (int)Math.Round(ReviewS / _dt));
         _random = new DeterministicRandom(0);
         int lanes = 0, lines = 0;
@@ -194,6 +195,8 @@ public sealed partial class SimEngine
         _laneDir = new sbyte[lanes];
         _laneServing = new bool[lanes];
         _laneThrough = new int[lanes];
+        _laneThroughLeft = new float[lanes];
+        _laneThroughLeftNext = new float[lanes];
         _laneClosing = new bool[lanes];
         _lineCount = new int[lines];
         _waitJoin = new int[model.Devices.Count * 2];
@@ -233,7 +236,7 @@ public sealed partial class SimEngine
                 waiting += p;
             }
 
-            int stressed = 0, queuing = 0;
+            int stressed = 0, queuing = 0, atLifts = 0;
             for (int i = 0; i < _agents.Count; i++)
             {
                 if (_agents.Stress[i] >= StressedLevel)
@@ -245,9 +248,13 @@ public sealed partial class SimEngine
                 {
                     queuing++;
                 }
+                else if (_agents.Phase[i] is AgentPhase.LiftWait or AgentPhase.LiftRide)
+                {
+                    atLifts++;
+                }
             }
 
-            return new SimStats(TimeS, _agents.Count, _spawned, _arrived, _arrived > 0 ? _journeySum / _arrived : 0, _stuckNow, _stuckRemoved, waiting, stressed, queuing, _gaveUp, _leftBehind);
+            return new SimStats(TimeS, _agents.Count, _spawned, _arrived, _arrived > 0 ? _journeySum / _arrived : 0, _stuckNow, _stuckRemoved, waiting, stressed, queuing, _gaveUp, _leftBehind, atLifts);
         }
     }
 
@@ -255,6 +262,8 @@ public sealed partial class SimEngine
     public void Reset()
     {
         _agents.Clear();
+        _density?.Clear();
+        ResetResults();
         _stuckLog.Clear();
         _tick = _spawned = _arrived = _stuckRemoved = 0;
         _journeySum = 0;
@@ -295,6 +304,7 @@ public sealed partial class SimEngine
 
         ResetDevices();
         ResetTrains();
+        ResetLifts();
     }
 
     /// <summary>Advances one fixed step.</summary>
@@ -304,6 +314,7 @@ public sealed partial class SimEngine
         RefillTokens();
         CountArrivals();
         UpdateTrains();
+        UpdateLifts();
 
         UpdateWaits();
         _hash.Build(_agents.X, _agents.Y, _agents.Count);
@@ -313,7 +324,9 @@ public sealed partial class SimEngine
         for (int i = 0; i < n; i++)
         {
             NavSurface s = _world.Surfaces[_agents.Surface[i]];
-            _agents.Z[i] = s.ZAt(_agents.X[i], _agents.Y[i]);
+            _agents.Z[i] = _agents.Phase[i] == AgentPhase.LiftRide && _agents.LiftCar[i] >= 0
+                ? _carZ[_agents.LiftCar[i]]
+                : s.ZAt(_agents.X[i], _agents.Y[i]);
         }
 
         _hash.Build(_agents.X, _agents.Y, n);
@@ -358,6 +371,7 @@ public sealed partial class SimEngine
         {
             (int index, bool arrived) = _removals[k];
             ReleaseDevice(index);
+            RecordJourneyEnd(index, arrived, t1);
             if (arrived)
             {
                 _arrived++;
@@ -373,6 +387,8 @@ public sealed partial class SimEngine
         }
 
         _tick++;
+        SampleDensity();
+        RecordResults();
     }
 
     /// <summary>
@@ -393,7 +409,9 @@ public sealed partial class SimEngine
             SimProfile profile = _model.Profiles[_agents.Profile[i]];
             buffer[o] = (float)_agents.X[i];
             buffer[o + 1] = (float)_agents.Y[i];
-            buffer[o + 2] = (float)_world.Surfaces[_agents.Surface[i]].ZAt(_agents.X[i], _agents.Y[i]);
+            buffer[o + 2] = _agents.Phase[i] == AgentPhase.LiftRide && _agents.LiftCar[i] >= 0
+                ? (float)_carZ[_agents.LiftCar[i]]
+                : (float)_world.Surfaces[_agents.Surface[i]].ZAt(_agents.X[i], _agents.Y[i]);
             buffer[o + 3] = _agents.Heading[i];
             buffer[o + 4] = profile.R;
             buffer[o + 5] = profile.G;
@@ -488,6 +506,14 @@ public sealed partial class SimEngine
         {
             NavConnector connector = _world.Connectors[k];
             _jammed[k] = false;
+            if (connector.IsLift)
+            {
+                // Lifts (round 013): people waiting ÷ the bank's places per round trip.
+                _wait[k] = LiftWaitS(k);
+                _laneFactor[k] = 0;
+                _boarded[k] = 0;
+                continue;
+            }
             if (connector.ThroughputPerMin > 0 && _tuning.MeasuredWait)
             {
                 double cap = connector.ThroughputPerMin / 60.0;
@@ -522,6 +548,7 @@ public sealed partial class SimEngine
             _boarded[k] = 0;
         }
 
+        UpdateLiftPriorityPenalty();
         UpdateExitWaits();
 
         // Indexed loop: the step allocates nothing (no interface enumerator).
@@ -576,7 +603,8 @@ public sealed partial class SimEngine
         var lists = new List<int>?[world.Surfaces.Count];
         foreach (NavPortal portal in world.Portals)
         {
-            if (!portal.AllowsExit || portal.AllowsEntry)
+            // Lift landings have no run-off: people step out of the car onto the landing (round 013).
+            if (!portal.AllowsExit || portal.AllowsEntry || portal.IsLiftLanding)
             {
                 continue;
             }
@@ -730,6 +758,7 @@ public sealed partial class SimEngine
             _agents.Height[i] = (float)Math.Clamp(template.HeightM, 0.5, 2.5);
             _agents.Walks[i] = random.NextDouble() < template.EscalatorWalkProbability;
             _agents.SpawnTime[i] = TimeS;
+            _agents.ZoneBits[i] = ZoneBitsAt(emitter.Floor, x, y);
             _agents.Heading[i] = (float)(random.NextDouble() * 2 * Math.PI);
             StartJourney(i, random);
             _justSpawned.Add(i);
@@ -752,7 +781,7 @@ public sealed partial class SimEngine
             double sight = Sight(i);
             foreach ((int sink, double _) in options)
             {
-                double c = RoutePlanner.Choose(_routes, _agents.Surface[i], x, y, sink, profile.Mobility, profile.Template, random, out _, out _, _wait, BeltWalkSpeed(i), stairEffort: _tuning.StairEffort, standingRest: _tuning.StandingRest, sightRadius: sight)
+                double c = RoutePlanner.Choose(_routes, _agents.Surface[i], x, y, sink, profile.Mobility, profile.Template, random, out _, out _, _wait, BeltWalkSpeed(i), stairEffort: _tuning.StairEffort, standingRest: _tuning.StandingRest, sightRadius: sight, priorityPenaltyS: _liftPriorityS)
                     + ExitCrowdFor(i, sink);
                 if (c < bestCost)
                 {
@@ -812,7 +841,7 @@ public sealed partial class SimEngine
 
     private bool Touches(int j, double x, double y, double z, double radius)
     {
-        if (Math.Abs(_agents.Z[j] - z) >= LevelBand)
+        if (j >= _agents.Count || Math.Abs(_agents.Z[j] - z) >= LevelBand || _agents.Phase[j] == AgentPhase.LiftRide)
         {
             return false;
         }
@@ -838,7 +867,7 @@ public sealed partial class SimEngine
         SimProfile profile = _model.Profiles[_agents.Profile[i]];
         double cost = RoutePlanner.Choose(
             _routes, s, _agents.X[i], _agents.Y[i], _agents.Sink[i], profile.Mobility, profile.Template, random, out bool direct, out RouteOption option, _wait,
-            BeltWalkSpeed(i), stairEffort: _tuning.StairEffort, standingRest: _tuning.StandingRest, sightRadius: Sight(i));
+            BeltWalkSpeed(i), stairEffort: _tuning.StairEffort, standingRest: _tuning.StandingRest, sightRadius: Sight(i), priorityPenaltyS: _liftPriorityS);
         if (direct || !double.IsFinite(cost))
         {
             SetMode(i, AgentMode.Direct, -1);
@@ -879,7 +908,7 @@ public sealed partial class SimEngine
     {
         AgentStore a = _agents;
         int target = a.Target[i];
-        if (!_tuning.Balk || a.Mode[i] != AgentMode.ToPortal || target < 0)
+        if (!_tuning.Balk || a.Phase[i] != AgentPhase.Walk || a.Mode[i] != AgentMode.ToPortal || target < 0)
         {
             return;
         }
@@ -901,7 +930,7 @@ public sealed partial class SimEngine
         SimProfile profile = _model.Profiles[a.Profile[i]];
         double cost = RoutePlanner.Choose(
             _routes, a.Surface[i], a.X[i], a.Y[i], a.Sink[i], profile.Mobility, profile.Template, null, out bool direct, out RouteOption option, _wait,
-            BeltWalkSpeed(i), k, StayBonusS, _tuning.StairEffort, _tuning.StandingRest, Sight(i));
+            BeltWalkSpeed(i), k, StayBonusS, _tuning.StairEffort, _tuning.StandingRest, Sight(i), priorityPenaltyS: _liftPriorityS);
         if (!double.IsFinite(cost))
         {
             return;
@@ -1007,6 +1036,14 @@ public sealed partial class SimEngine
     private void Plan(int i)
     {
         AgentStore a = _agents;
+        if (a.Phase[i] == AgentPhase.LiftRide)
+        {
+            // Held in the car (round 013): it carries them; no walking, no forces.
+            _dx[i] = _dy[i] = 0;
+            a.Vx[i] = a.Vy[i] = 0;
+            return;
+        }
+
         NavSurface s = _world.Surfaces[a.Surface[i]];
         FlowField? field = FieldOf(i);
         if (field is null || !field.Covers(s.Index))
@@ -1105,7 +1142,7 @@ public sealed partial class SimEngine
             for (int k = start; k < end; k++)
             {
                 int j = items[k];
-                if (j == i || Math.Abs(a.Z[j] - zi) >= LevelBand)
+                if (j == i || Math.Abs(a.Z[j] - zi) >= LevelBand || a.Phase[j] == AgentPhase.LiftRide)
                 {
                     continue;
                 }
@@ -1341,7 +1378,7 @@ public sealed partial class SimEngine
     {
         if (s.Kind == NavSurfaceKind.Floor)
         {
-            if (_agents.Mode[i] == AgentMode.ToPortal && _agents.Target[i] >= 0
+            if (_agents.Mode[i] == AgentMode.ToPortal && _agents.Target[i] >= 0 && !_world.Portals[_agents.Target[i]].IsLiftLanding
                 && _world.Portals[_agents.Target[i]].DistanceTo(new Point2(x, y)) < WallOffNearPortal)
             {
                 return;
@@ -1359,8 +1396,19 @@ public sealed partial class SimEngine
             }
 
             double push = WallA * Math.Exp((radius - distance) / WallB);
-            ax += gx / g * push;
-            ay += gy / g * push;
+            double px = gx / g * push, py = gy / g * push;
+            if (_tuning.LaneClear && _agents.Phase[i] is AgentPhase.Service or AgentPhase.Through or AgentPhase.Queue
+                && LaneAxis(i, out _, out Point2 laneDir))
+            {
+                // In or at a gate lane (D-209): walls only push sideways, so the lane mouth's corners can't shove a
+                // wide wheelchair back out of a lane it only just fits.
+                double along = (px * laneDir.X) + (py * laneDir.Y);
+                px -= laneDir.X * along;
+                py -= laneDir.Y * along;
+            }
+
+            ax += px;
+            ay += py;
             return;
         }
 
@@ -1453,6 +1501,11 @@ public sealed partial class SimEngine
     private void Move(int i)
     {
         AgentStore a = _agents;
+        if (a.Phase[i] == AgentPhase.LiftRide)
+        {
+            return;
+        }
+
         NavSurface s = _world.Surfaces[a.Surface[i]];
         double nx = a.X[i] + _dx[i];
         double ny = a.Y[i] + _dy[i];
@@ -1716,7 +1769,7 @@ public sealed partial class SimEngine
             heldUp = false;
         }
         else if (_tuning.CrowdStress && a.Crowd[i] > CrowdStressDensity(t.DensityTolerance)
-            && a.Phase[i] is not (AgentPhase.Service or AgentPhase.Through))
+            && a.Phase[i] is not (AgentPhase.Service or AgentPhase.Through or AgentPhase.LiftRide))
         {
             // D-194: packed in, moving or not, past what this profile tolerates.
             heldUp = true;
@@ -1729,7 +1782,7 @@ public sealed partial class SimEngine
             heldUp = a.Phase[i] switch
             {
                 AgentPhase.Walk => a.Pace[i] < StressSlowFraction,
-                AgentPhase.Queue or AgentPhase.WaitJoin => true,
+                AgentPhase.Queue or AgentPhase.WaitJoin or AgentPhase.LiftWait => true,
                 _ => false,
             };
         }
@@ -1738,7 +1791,7 @@ public sealed partial class SimEngine
             // Before D-191: instantaneous speed under half the desired speed.
             double speed2 = (a.Vx[i] * a.Vx[i]) + (a.Vy[i] * a.Vy[i]);
             double slow = StressSlowFraction * a.V0[i];
-            heldUp = speed2 < slow * slow && (a.Phase[i] is AgentPhase.Walk or AgentPhase.Queue or AgentPhase.WaitJoin);
+            heldUp = speed2 < slow * slow && (a.Phase[i] is AgentPhase.Walk or AgentPhase.Queue or AgentPhase.WaitJoin or AgentPhase.LiftWait);
         }
 
         double held = HeldStep(a.HeldS[i], heldUp, t.DensityTolerance, _dt);

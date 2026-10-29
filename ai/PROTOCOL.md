@@ -22,6 +22,18 @@
 
 ### Phase 2 — Build (only what was decided)
 
+**Gavin is usually away (AFK) while Claude builds, and Claude usually runs in manual-approval mode.** So:
+
+- Anything that will need a permission prompt (connecting a folder, writing to the project, sending files, network
+  or package installs, anything outside the working directory) is asked for **at the end of the Query phase or at
+  the go-ahead**, before the build starts, never mid-build.
+- During the build, avoid actions that trigger approvals: work inside the sandbox working directory, use plain
+  file edits and local checks, and batch the unavoidable ones (project doc sync, returning the zip) into one step
+  at the very end.
+- If a build step turns out to need a permission that wasn't asked for, skip it, finish the rest, and list it
+  under "Needs your OK" in the round notes instead of stopping and waiting.
+- Rounds aren't split further once the split is agreed (e.g. 011b then 011c, no 011c-2 or 011d).
+
 1. Gavin says what's decided (answers, or "go with recommendations") and gives the go-ahead to build.
 2. Claude logs each answer as a numbered decision in `DECISIONS.md` (with a "why") **before** building.
 3. Claude builds exactly the decided scope on the zipped project. Anything new that comes up mid-build and would

@@ -75,6 +75,13 @@ public sealed class DeviceTemplate : TemplateBase
     /// <summary>Agents can leave the study here.</summary>
     public bool IsSink { get; set; }
 
+    /// <summary>
+    /// Accessible device (D-213, D-223): people whose profile needs accessible devices use only these where the floor
+    /// has one of the step's type; others soft-avoid them (D-224). The default for placed devices, which can override
+    /// it. Presets saved before format v8 are not accessible (the built-in accessible gate is upgraded on load).
+    /// </summary>
+    public bool Accessible { get; set; }
+
     /// <inheritdoc />
     public override string Summarise()
     {
@@ -93,6 +100,7 @@ public sealed class DeviceTemplate : TemplateBase
 
         string servers = Servers == 1 ? "1 server" : $"{Servers.ToString(CultureInfo.InvariantCulture)} lanes";
         string flow = PassThrough ? " · pass-through" : string.Empty;
-        return $"{TypeTag} · {servers} · {ServiceTime.Describe()} s · {Queue}{flow}";
+        string access = Accessible ? " · accessible" : string.Empty;
+        return $"{TypeTag} · {servers} · {ServiceTime.Describe()} s · {Queue}{flow}{access}";
     }
 }

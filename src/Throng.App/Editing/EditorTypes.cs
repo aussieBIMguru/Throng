@@ -81,6 +81,17 @@ public interface IEditorHost
 
     /// <summary>Trains in on the given level while running (D-190): their boxes and open doors; empty otherwise.</summary>
     IReadOnlyList<RunTrainView> RunTrains(Guid levelId) => [];
+
+    /// <summary>Lift cars while running (round 013), as seen on the given level; empty otherwise.</summary>
+    IReadOnlyList<RunLiftCarView> RunLiftCars(Guid levelId) => [];
+
+    /// <summary>Drawn train shapes on the given level (D-249), shown dashed while not running; empty for none.</summary>
+    IReadOnlyList<IReadOnlyList<Point2>> TrainShapes(Guid levelId) => [];
+
+    /// <summary>Stores a finished DRAW TRAIN polygon on its train service (D-249, undoable).</summary>
+    void SetTrainShape(Guid serviceId, IReadOnlyList<Point2> outline)
+    {
+    }
 }
 
 /// <summary>A train drawn in the plan while it's in (D-190).</summary>

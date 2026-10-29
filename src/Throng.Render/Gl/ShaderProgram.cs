@@ -22,6 +22,7 @@ internal sealed class ShaderProgram : IDisposable
     private int _lineWidthLocation;
     private int _timeLocation;
     private int _colorModeLocation;
+    private int _dimLocation = -1;
 
     /// <summary>Creates a program from vertex, optional geometry, and fragment sources (compiled in <see cref="Initialise"/>).</summary>
     public ShaderProgram(string vertexSource, string? geometrySource, string fragmentSource)
@@ -97,6 +98,7 @@ internal sealed class ShaderProgram : IDisposable
         _lineWidthLocation = GL.GetUniformLocation(_handle, "uLineWidth");
         _timeLocation = GL.GetUniformLocation(_handle, "uTime");
         _colorModeLocation = GL.GetUniformLocation(_handle, "uColorMode");
+        _dimLocation = GL.GetUniformLocation(_handle, "uDim");
         return Result.Ok();
     }
 
@@ -130,6 +132,9 @@ internal sealed class ShaderProgram : IDisposable
 
     /// <summary>Sets <c>uColorMode</c> (agents: 0 profile, 1 stress; D-146).</summary>
     public void SetColorMode(int mode) => GL.Uniform1(_colorModeLocation, mode);
+
+    /// <summary>Sets <c>uDim</c> (agents drawn smaller and greyer over a heatmap, D-207; 0 = normal).</summary>
+    public void SetDim(float dim) => GL.Uniform1(_dimLocation, dim);
 
     /// <inheritdoc />
     public void Dispose()

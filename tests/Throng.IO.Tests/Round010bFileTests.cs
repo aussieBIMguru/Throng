@@ -63,7 +63,7 @@ public sealed class Round010bFileTests
 
         string path = Path.Combine(_folder, "trains" + ThrongFile.Extension);
         Assert.IsTrue(ThrongFile.Save(demo, path).IsSuccess);
-        Assert.AreEqual(7, ThrongFile.ReadManifest(path).Value!.FormatVersion);
+        Assert.AreEqual(ThrongFile.CurrentFormatVersion, ThrongFile.ReadManifest(path).Value!.FormatVersion);
         Study loaded = ThrongFile.Load(path).Value!;
 
         Assert.AreEqual(2, loaded.TrainServices.Count);

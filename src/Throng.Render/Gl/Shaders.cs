@@ -150,6 +150,7 @@ internal static class Shaders
         uniform mat4 uViewProjection;
         uniform float uTime;
         uniform int uColorMode;
+        uniform float uDim;
         out vec4 vColor;
         vec3 stressRamp(float t)
         {
@@ -162,7 +163,7 @@ internal static class Shaders
         {
             float c = cos(iPosHeading.w);
             float s = sin(iPosHeading.w);
-            vec2 local = aPosition.xy * iSize.x;
+            vec2 local = aPosition.xy * iSize.x * (1.0 - 0.3 * uDim);
             vec2 rotated = vec2(local.x * c - local.y * s, local.x * s + local.y * c);
             float z = aPart > 2.5 ? aPosition.z : aPosition.z * iSize.y;
             vec3 world = vec3(iPosHeading.xy + rotated, iPosHeading.z + z);
@@ -178,6 +179,11 @@ internal static class Shaders
             else if (aPart > 1.5)
             {
                 rgb = mix(base, vec3(1.0), 0.6) * aShade;
+            }
+
+            if (aPart < 2.5)
+            {
+                rgb = mix(rgb, vec3(0.55), 0.45 * uDim);
             }
 
             vColor = vec4(rgb, alpha);

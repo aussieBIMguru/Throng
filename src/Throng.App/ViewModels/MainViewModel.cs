@@ -45,7 +45,8 @@ public sealed partial class MainViewModel : ObservableObject
         InitialiseLevels();
 
         NewCommand = new RelayCommand(New);
-        NewFromDemoCommand = new RelayCommand(NewFromDemo);
+        NewFromDemoCommand = new RelayCommand(() => LoadDemo(DemoStudyBuilder.Build));
+        NewOfficeTowerDemoCommand = new RelayCommand(() => LoadDemo(OfficeTowerBuilder.Build));
         OpenCommand = new RelayCommand(Open);
         SaveCommand = new RelayCommand(() => Save());
         SaveAsCommand = new RelayCommand(() => SaveAs());
@@ -78,6 +79,9 @@ public sealed partial class MainViewModel : ObservableObject
 
     public RelayCommand NewCommand { get; }
     public RelayCommand NewFromDemoCommand { get; }
+
+    /// <summary>New from Demo ▸ Office tower (round 013b, D-250): lifts on their own.</summary>
+    public RelayCommand NewOfficeTowerDemoCommand { get; }
     public RelayCommand OpenCommand { get; }
     public RelayCommand SaveCommand { get; }
     public RelayCommand SaveAsCommand { get; }
@@ -208,6 +212,23 @@ public sealed partial class MainViewModel : ObservableObject
         }
     }
 
+    /// <summary>Long wait threshold for the journey results, seconds (undoable; D-231).</summary>
+    public double LongWaitS
+    {
+        get => _study.Settings.LongWaitS;
+        set
+        {
+            if (!(value > 0))
+            {
+                Ticker = "Long wait must be greater than zero.";
+                OnPropertyChanged();
+                return;
+            }
+
+            Apply("Change long wait", () => _study.Settings.LongWaitS, v => _study.Settings.LongWaitS = v, Math.Round(value, 1));
+        }
+    }
+
     /// <summary>Study clock: the run's time of day while running (D-104), otherwise the start time.</summary>
     public string ClockText => RunClockText();
 
@@ -289,14 +310,15 @@ public sealed partial class MainViewModel : ObservableObject
         }
     }
 
-    private void NewFromDemo()
+    /// <summary>Loads a built-in demo (the interchange station, or the office tower from round 013b).</summary>
+    private void LoadDemo(Func<Study> build)
     {
         if (!ConfirmDiscardChanges())
         {
             return;
         }
 
-        Study demo = DemoStudyBuilder.Build();
+        Study demo = build();
         IReadOnlyList<ValidationMessage> findings = StudyValidator.Validate(demo);
         int errors = findings.Count(f => f.Severity == ValidationSeverity.Error);
         int warnings = findings.Count(f => f.Severity == ValidationSeverity.Warning);
@@ -436,6 +458,7 @@ public sealed partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(StartTimeText));
         OnPropertyChanged(nameof(Seed));
         OnPropertyChanged(nameof(DurationMinutes));
+        OnPropertyChanged(nameof(LongWaitS));
         OnPropertyChanged(nameof(EndCondition));
         OnPropertyChanged(nameof(HasDuration));
         OnPropertyChanged(nameof(KeepSide));

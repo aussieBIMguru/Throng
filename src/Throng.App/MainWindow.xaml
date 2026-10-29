@@ -41,11 +41,16 @@
         <Menu DockPanel.Dock="Top">
             <MenuItem Header="_File">
                 <MenuItem Header="_New" InputGestureText="Ctrl+N" Command="{Binding NewCommand}" />
-                <MenuItem Header="New from _Demo" InputGestureText="Ctrl+Shift+D" Command="{Binding NewFromDemoCommand}" />
+                <MenuItem Header="New from _Demo">
+                    <MenuItem Header="_Interchange station" InputGestureText="Ctrl+Shift+D" Command="{Binding NewFromDemoCommand}" />
+                    <MenuItem Header="_Office tower" Command="{Binding NewOfficeTowerDemoCommand}" ToolTip="Ground lobby and ten floors served only by a four-car lift bank (up-peak morning)." />
+                </MenuItem>
                 <MenuItem Header="_Open…" InputGestureText="Ctrl+O" Command="{Binding OpenCommand}" />
                 <Separator />
                 <MenuItem Header="_Save" InputGestureText="Ctrl+S" Command="{Binding SaveCommand}" />
                 <MenuItem Header="Save _As…" InputGestureText="Ctrl+Shift+S" Command="{Binding SaveAsCommand}" />
+                <Separator />
+                <MenuItem Header="Export _PNG…" Command="{Binding ExportPngCommand}" ToolTip="The view at twice its size, with a legend and title block." />
                 <Separator />
                 <MenuItem Header="E_xit" InputGestureText="Alt+F4" Click="OnExitClick" />
             </MenuItem>
@@ -161,6 +166,27 @@
                         <ToggleButton Style="{StaticResource ChipToggle}" Content="PROFILE" IsChecked="{Binding IsColourProfile, Mode=TwoWay}" ToolTip="Colour people by profile (commuter, luggage…)." />
                         <ToggleButton Style="{StaticResource ChipToggle}" Content="STRESS" IsChecked="{Binding IsColourStress, Mode=TwoWay}"
                                       ToolTip="Colour people by stress: blue calm, yellow tense, red fed up. Builds after half their patience is spent held up below half speed." />
+                    </StackPanel>
+                    <!-- MAP (D-201): live heatmap on floors and stair flights while running; people are drawn smaller and dimmed over it. -->
+                    <Border Style="{StaticResource ToolSeparator}" />
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="6,0,0,0">
+                        <ToggleButton Style="{StaticResource ChipToggle}" Content="NO MAP" IsChecked="{Binding IsHeatOff, Mode=TwoWay}" ToolTip="No heatmap." />
+                        <ToggleButton Style="{StaticResource ChipToggle}" Content="DENSITY" IsChecked="{Binding IsHeatDensity, Mode=TwoWay}"
+                                      ToolTip="Live density: people per m², each person spread over 1 m and smoothed over about 5 s. Shows while running, in plan and 3D." />
+                        <ToggleButton Style="{StaticResource ChipToggle}" Content="LOS" IsChecked="{Binding IsHeatLos, Mode=TwoWay}"
+                                      ToolTip="Fruin Level of Service, A free to F critical: stair table on flights, queuing table in queues and dwell zones, walkway table elsewhere. Escalators aren't mapped." />
+                    </StackPanel>
+                    <!-- RUN maps (D-216, D-217): gathered after the warm-up while running, kept until RESET. -->
+                    <TextBlock Text="RUN" Margin="8,0,2,0" VerticalAlignment="Center" FontFamily="{DynamicResource RetroFont}" FontSize="15" Foreground="{StaticResource TextDimBrush}" />
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <ToggleButton Style="{StaticResource ChipToggle}" Content="MAX" IsChecked="{Binding IsHeatMax, Mode=TwoWay}"
+                                      ToolTip="Run map: the worst Level of Service each place reached after the warm-up (highest smoothed density, Fruin bands)." />
+                        <ToggleButton Style="{StaticResource ChipToggle}" Content="E+ TIME" IsChecked="{Binding IsHeatLosEOrWorse, Mode=TwoWay}"
+                                      ToolTip="Run map: how long each place spent at Level of Service E or worse after the warm-up, by the table for that place." />
+                        <ToggleButton Style="{StaticResource ChipToggle}" Content="MEAN" IsChecked="{Binding IsHeatMean, Mode=TwoWay}"
+                                      ToolTip="Run map: mean density after the warm-up, people per m²." />
+                        <ToggleButton Style="{StaticResource ChipToggle}" Content="TRAIL" IsChecked="{Binding IsHeatFootfall, Mode=TwoWay}"
+                                      ToolTip="Run map: footfall, how many people walked over each place after the warm-up. Shows the routes people actually take." />
                     </StackPanel>
                 </StackPanel>
             </DockPanel>
@@ -381,6 +407,28 @@
 
             <!-- Viewport -->
             <views:ViewportView x:Name="Viewport" Grid.Column="2" />
+
+            <!-- Heatmap legend (D-204): bottom right of the viewport while a map shows. -->
+            <Border Grid.Column="2" Margin="0,0,14,14" Padding="8,6" HorizontalAlignment="Right" VerticalAlignment="Bottom" IsHitTestVisible="False"
+                    Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
+                    Visibility="{Binding ShowHeatLegend, Converter={StaticResource BoolToVis}}">
+                <StackPanel>
+                    <TextBlock Text="{Binding HeatLegendTitle}" FontFamily="{DynamicResource RetroFont}" FontSize="15" Foreground="{StaticResource TextDimBrush}" />
+                    <TextBlock Text="{Binding HeatLegendNote}" FontFamily="{DynamicResource RetroFont}" FontSize="13" Foreground="{StaticResource TextDimBrush}"
+                               Visibility="{Binding HasHeatLegendNote, Converter={StaticResource BoolToVis}}" />
+                    <ItemsControl ItemsSource="{Binding HeatLegend}" Margin="0,4,0,0">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel Orientation="Horizontal" Margin="0,1">
+                                    <Border Width="14" Height="10" Background="{Binding Swatch}" VerticalAlignment="Center" />
+                                    <TextBlock Text="{Binding Label}" Margin="6,0,0,0" FontFamily="{DynamicResource RetroFont}" FontSize="15"
+                                               Foreground="{StaticResource TextBrush}" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </Border>
 
             <GridSplitter Grid.Column="3" HorizontalAlignment="Stretch" ResizeBehavior="PreviousAndNext" />
 
@@ -653,6 +701,56 @@
                                     <TextBlock Margin="0,8,0,0" Text="{Binding SizeText}" Style="{StaticResource DataText}" />
                                     <TextBlock Margin="0,6,0,0" Style="{StaticResource DimText}" TextWrapping="Wrap"
                                                Text="Cut from the walkable area of every level from base to top, including levels with no stop. Grips and edge arrows reshape it on any of those levels." />
+
+                                    <!-- LIFT (round 013, D-236-D-244): a bank of cars from a preset, doors per level, dispatch. -->
+                                    <TextBlock Style="{StaticResource PanelHeader}" Text="LIFT" Margin="0,14,0,0" />
+                                    <TextBlock Style="{StaticResource FieldLabel}" Text="Lift preset" />
+                                    <ComboBox ItemsSource="{Binding LiftPresetOptions}" DisplayMemberPath="Label" SelectedValuePath="Value" SelectedValue="{Binding LiftPresetKey, Mode=TwoWay}"
+                                              ToolTip="Put a lift bank in this shaft. It serves the levels ticked above; No lift removes it." />
+                                    <StackPanel Visibility="{Binding HasLift, Converter={StaticResource BoolToVis}}">
+                                        <TextBlock Margin="0,4,0,0" Text="{Binding LiftPresetText}" Style="{StaticResource DataText}" TextWrapping="Wrap" />
+                                        <TextBlock Style="{StaticResource FieldLabel}" Text="Lift name" />
+                                        <TextBox Text="{Binding LiftName, Mode=TwoWay}" />
+                                        <TextBlock Style="{StaticResource FieldLabel}" Text="Cars" />
+                                        <ComboBox ItemsSource="{Binding LiftCarOptions}" DisplayMemberPath="Label" SelectedValuePath="Value" SelectedValue="{Binding LiftCars, Mode=TwoWay}"
+                                                  ToolTip="Cars side by side along the front edge, sharing the landings." />
+                                        <TextBlock Style="{StaticResource FieldLabel}" Text="Front edge" />
+                                        <ComboBox ItemsSource="{Binding LiftEdgeOptions}" DisplayMemberPath="Label" SelectedValuePath="Value" SelectedValue="{Binding LiftFrontEdge, Mode=TwoWay}"
+                                                  ToolTip="The shaft edge with the front doors. Rear doors go on the edge most nearly opposite." />
+                                        <TextBlock Style="{StaticResource FieldLabel}" Text="Landing depth (m)" />
+                                        <TextBox Text="{Binding LiftLandingDepthM, Mode=TwoWay}" ToolTip="How far in front of each door people gather to wait." />
+                                        <TextBlock Style="{StaticResource FieldLabel}" Text="Dispatch" />
+                                        <ComboBox ItemsSource="{Binding LiftDispatchOptions}" DisplayMemberPath="Label" SelectedValuePath="Value" SelectedValue="{Binding LiftDispatchMode, Mode=TwoWay}"
+                                                  ToolTip="Collective: stops for calls on the way. Up-peak: back to the lobby when empty. Shuttle: only the lowest and highest levels." />
+                                        <TextBlock Style="{StaticResource FieldLabel}" Text="Lobby (Up-peak)" />
+                                        <ComboBox ItemsSource="{Binding LiftStopOptions}" DisplayMemberPath="Name" SelectedValuePath="Id" SelectedValue="{Binding LiftLobbyLevelId, Mode=TwoWay}" />
+                                        <TextBlock Style="{StaticResource FieldLabel}" Text="Schedule (from 24 h time)" />
+                                        <ItemsControl ItemsSource="{Binding LiftScheduleRows}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <DockPanel Margin="0,2">
+                                                        <Button DockPanel.Dock="Right" Margin="4,0,0,0" Padding="4,0" Content="✕" Command="{Binding RemoveCommand}" ToolTip="Remove this row." />
+                                                        <TextBox DockPanel.Dock="Left" Width="56" Text="{Binding FromText, Mode=TwoWay}" />
+                                                        <ComboBox Margin="4,0,0,0" ItemsSource="{Binding Options}" DisplayMemberPath="Label" SelectedValuePath="Value" SelectedValue="{Binding DispatchChoice, Mode=TwoWay}" />
+                                                    </DockPanel>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                        <Button Margin="0,4,0,0" HorizontalAlignment="Left" Padding="6,0" Content="ADD ROW" Command="{Binding AddScheduleRowCommand}"
+                                                FontFamily="{DynamicResource RetroFont}" FontSize="15" ToolTip="Switch dispatch at a time of day (e.g. Up-peak 07:30, Collective 09:30)." />
+                                        <TextBlock Style="{StaticResource FieldLabel}" Text="Doors (front · rear)" />
+                                        <ItemsControl ItemsSource="{Binding LiftDoorRows}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <DockPanel Margin="0,2">
+                                                        <ComboBox DockPanel.Dock="Right" Width="78" Margin="4,0,0,0" IsEnabled="{Binding HasRear}" ItemsSource="{Binding Options}" DisplayMemberPath="Label" SelectedValuePath="Value" SelectedValue="{Binding Rear, Mode=TwoWay}" ToolTip="Rear door" />
+                                                        <ComboBox DockPanel.Dock="Right" Width="78" ItemsSource="{Binding Options}" DisplayMemberPath="Label" SelectedValuePath="Value" SelectedValue="{Binding Front, Mode=TwoWay}" ToolTip="Front door" />
+                                                        <TextBlock Text="{Binding LevelName}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                                                    </DockPanel>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </StackPanel>
                                 </StackPanel>
                             </Border>
 
@@ -674,6 +772,10 @@
                                     <TextBlock Style="{StaticResource FieldLabel}" Text="Height (m)" />
                                     <TextBox Text="{Binding HeightM, Mode=TwoWay}" />
                                     <TextBlock Margin="0,8,0,0" Text="{Binding FlowText}" Style="{StaticResource DimText}" TextWrapping="Wrap" />
+                                    <!-- Accessible (D-213, D-223): preset default, per-device override. -->
+                                    <ToggleButton Style="{StaticResource SwitchToggle}" Margin="0,12,0,0" Content="Accessible" IsChecked="{Binding Accessible, Mode=TwoWay}"
+                                                  ToolTip="Wheelchair users use only accessible devices of a type where the level has one; everyone else avoids them unless they prefer them (luggage and the accessible gate)." />
+                                    <TextBlock Margin="0,2,0,0" Text="{Binding AccessibleText}" Style="{StaticResource DimText}" TextWrapping="Wrap" />
 
                                     <!-- Queue (D-153, D-163, D-164) -->
                                     <TextBlock Style="{StaticResource PanelHeader}" Text="QUEUE" Margin="0,14,0,2" />
@@ -873,6 +975,9 @@
                                     <TextBlock Style="{StaticResource FieldLabel}" Text="Duration (minutes)" />
                                     <TextBox Text="{Binding DurationMinutes, Mode=TwoWay}" />
                                 </StackPanel>
+                                <TextBlock Style="{StaticResource FieldLabel}" Text="Long wait (seconds)" />
+                                <TextBox Text="{Binding LongWaitS, Mode=TwoWay}"
+                                         ToolTip="RESULTS ▸ JOURNEYS counts people whose longest single queue wait was over this (D-231)." />
                                 <TextBlock Style="{StaticResource FieldLabel}" Text="Random seed" />
                                 <DockPanel>
                                     <Button DockPanel.Dock="Right" Margin="6,0,0,0" Padding="6,0" Content="RE-ROLL" Command="{Binding ReRollSeedCommand}"
@@ -882,6 +987,8 @@
                                 <TextBlock Style="{StaticResource FieldLabel}" Text="Keep side" />
                                 <ComboBox ItemsSource="{Binding KeepSideOptions}" SelectedItem="{Binding KeepSide, Mode=TwoWay}"
                                           ToolTip="Which side people drift to when meeting oncoming flows. Escalators: stand on this side, walk on the other." />
+                                <ToggleButton Style="{StaticResource SwitchToggle}" Margin="0,12,0,0" Content="Colour-blind-safe heatmap" IsChecked="{Binding ColourBlindHeatmap, Mode=TwoWay}"
+                                              ToolTip="Heatmaps in a purple-teal-yellow ramp that reads with any colour vision, instead of the classic green-to-red Fruin colours." />
 
                                 <!-- TRAINS (D-184-D-187): door zones driven by a timetable. -->
                                 <TextBlock Style="{StaticResource PanelHeader}" Text="TRAINS" Margin="0,14,0,0" />
@@ -920,6 +1027,14 @@
                                                     <TextBlock Text="{Binding DoorsText}" Style="{StaticResource DimDataText}" TextWrapping="Wrap" />
                                                     <Button Margin="0,4,0,0" HorizontalAlignment="Left" Padding="6,0" Content="SET DOORS" Command="{Binding SetDoorsCommand}"
                                                             FontFamily="{DynamicResource RetroFont}" FontSize="15" ToolTip="Make the sink zones selected in the plan this service's doors." />
+                                                    <TextBlock Style="{StaticResource FieldLabel}" Text="Train shape" />
+                                                    <TextBlock Text="{Binding ShapeText}" Style="{StaticResource DimDataText}" TextWrapping="Wrap" />
+                                                    <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                                                        <Button Padding="6,0" Content="DRAW TRAIN" Command="{Binding DrawShapeCommand}"
+                                                                FontFamily="{DynamicResource RetroFont}" FontSize="15" ToolTip="Draw the train's outline with the polygon tool on the doors' level. The door zones stay the doors." />
+                                                        <Button Margin="6,0,0,0" Padding="6,0" Content="AUTO" Command="{Binding ClearShapeCommand}"
+                                                                FontFamily="{DynamicResource RetroFont}" FontSize="15" ToolTip="Remove the drawn shape: the train is placed as a box along the platform edge." />
+                                                    </StackPanel>
                                                 </StackPanel>
                                             </Border>
                                         </DataTemplate>
@@ -934,6 +1049,117 @@
                         </StackPanel>
                     </Grid>
                 </ScrollViewer>
+
+                <!-- RESULTS (D-219): outside the edit-locked scroller, so it works while running. Device stats after the
+                     warm-up (D-218), the hand-drawn graph (D-220, D-221, D-226) and CSV export (D-222). -->
+                <Grid Grid.Row="1" Margin="10,0,10,10" Visibility="{Binding IsResultsTab, Converter={StaticResource BoolToVis}}">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" MinHeight="120" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="220" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <!-- Table chips (D-232) and the summary line for the table showing. -->
+                    <StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                            <TextBlock Text="TABLE" Margin="0,0,6,0" VerticalAlignment="Center" FontFamily="{DynamicResource RetroFont}" FontSize="15" Foreground="{StaticResource TextDimBrush}" />
+                            <ToggleButton Style="{StaticResource ChipToggle}" Content="DEVICES" IsChecked="{Binding IsTableDevices, Mode=TwoWay}" ToolTip="Served, waits, queues and utilisation per device, after the warm-up." />
+                            <ToggleButton Style="{StaticResource ChipToggle}" Content="ZONES" IsChecked="{Binding IsTableZones, Mode=TwoWay}" ToolTip="Occupancy and flow through each measurement zone, after the warm-up." />
+                            <ToggleButton Style="{StaticResource ChipToggle}" Content="JOURNEYS" IsChecked="{Binding IsTableJourneys, Mode=TwoWay}" ToolTip="Journey times per profile and journey, for people spawned after the warm-up." />
+                        </StackPanel>
+                        <TextBlock Margin="2,0,2,6" Style="{StaticResource DimText}" TextWrapping="Wrap" Text="{Binding ResultsSummary}" />
+                    </StackPanel>
+
+                    <DataGrid Grid.Row="1" Style="{StaticResource ResultsGrid}" ItemsSource="{Binding ResultRows}"
+                              Visibility="{Binding IsTableDevices, Converter={StaticResource BoolToVis}}"
+                              SelectedItem="{Binding SelectedResultRow, Mode=TwoWay}">
+                        <DataGrid.Columns>
+                            <DataGridTemplateColumn Header="▸" SortMemberPath="IsGraphed">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <CheckBox IsChecked="{Binding IsGraphed, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" HorizontalAlignment="Center"
+                                                  ToolTip="Show this device's queue on the graph (QUEUES). With none ticked, the five longest show." />
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTextColumn Header="DEVICE" Binding="{Binding Name}" IsReadOnly="True" />
+                            <DataGridTextColumn Header="TYPE" Binding="{Binding Type}" IsReadOnly="True" />
+                            <DataGridTextColumn Header="SERVED" Binding="{Binding Served}" IsReadOnly="True" />
+                            <DataGridTextColumn Header="MEAN S" Binding="{Binding MeanWaitS, StringFormat={}{0:0.0}}" IsReadOnly="True" />
+                            <DataGridTextColumn Header="95% S" Binding="{Binding P95WaitS, StringFormat={}{0:0.0}}" IsReadOnly="True" />
+                            <DataGridTextColumn Header="MAX S" Binding="{Binding MaxWaitS, StringFormat={}{0:0.0}}" IsReadOnly="True" />
+                            <DataGridTextColumn Header="MAX Q" Binding="{Binding MaxQueue}" IsReadOnly="True" />
+                            <DataGridTextColumn Header="UTIL %" Binding="{Binding UtilisationPct, StringFormat={}{0:0.0}}" IsReadOnly="True" />
+                            <DataGridTextColumn Header="BALK" Binding="{Binding Balked}" IsReadOnly="True" />
+                            <DataGridTextColumn Header="GAVE UP" Binding="{Binding GaveUp}" IsReadOnly="True" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+
+                    <!-- ZONES (D-228): measurement zone occupancy and flow; tick ▸ to graph a zone. -->
+                    <DataGrid Grid.Row="1" Style="{StaticResource ResultsGrid}" ItemsSource="{Binding ZoneResultRows}"
+                              Visibility="{Binding IsTableZones, Converter={StaticResource BoolToVis}}">
+                        <DataGrid.Columns>
+                            <DataGridTemplateColumn Header="▸" SortMemberPath="IsGraphed">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <CheckBox IsChecked="{Binding IsGraphed, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" HorizontalAlignment="Center"
+                                                  ToolTip="Show this zone's occupancy on the graph (ZONES). With none ticked, every zone shows." />
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTextColumn Header="ZONE" Binding="{Binding Name}" IsReadOnly="True" />
+                            <DataGridTextColumn Header="PEAK" Binding="{Binding PeakOccupancy}" IsReadOnly="True" />
+                            <DataGridTextColumn Header="MEAN" Binding="{Binding MeanOccupancy, StringFormat={}{0:0.0}}" IsReadOnly="True" />
+                            <DataGridTextColumn Header="PEAK P/M²" Binding="{Binding PeakDensity, StringFormat={}{0:0.00}}" IsReadOnly="True" />
+                            <DataGridTextColumn Header="ENTRIES" Binding="{Binding Entries}" IsReadOnly="True" />
+                            <DataGridTextColumn Header="/ MIN" Binding="{Binding EntriesPerMin, StringFormat={}{0:0.0}}" IsReadOnly="True" />
+                            <DataGridTextColumn Header="/ MIN / M" Binding="{Binding EntriesPerMinPerM, StringFormat={}{0:0.0}}" IsReadOnly="True" />
+                            <DataGridTextColumn Header="WIDTH M" Binding="{Binding WidthM, StringFormat={}{0:0.00}}" IsReadOnly="True" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+
+                    <!-- JOURNEYS (D-229, D-230): profile × journey, people spawned after the warm-up. -->
+                    <DataGrid Grid.Row="1" Style="{StaticResource ResultsGrid}" ItemsSource="{Binding JourneyResultRows}"
+                              Visibility="{Binding IsTableJourneys, Converter={StaticResource BoolToVis}}">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="PROFILE" Binding="{Binding Profile}" IsReadOnly="True" />
+                            <DataGridTextColumn Header="JOURNEY" Binding="{Binding Journey}" IsReadOnly="True" />
+                            <DataGridTextColumn Header="DONE" Binding="{Binding Finished}" IsReadOnly="True" />
+                            <DataGridTextColumn Header="MEAN S" Binding="{Binding MeanS, StringFormat={}{0:0.0}}" IsReadOnly="True" />
+                            <DataGridTextColumn Header="95% S" Binding="{Binding P95S, StringFormat={}{0:0.0}}" IsReadOnly="True" />
+                            <DataGridTextColumn Header="OK S" Binding="{Binding AcceptableS, StringFormat={}{0:0}}" IsReadOnly="True" />
+                            <DataGridTextColumn Header="WITHIN %" Binding="{Binding WithinPct, StringFormat={}{0:0.0}}" IsReadOnly="True" />
+                            <DataGridTextColumn Header="LONG WAIT %" Binding="{Binding LongWaitPct, StringFormat={}{0:0.0}}" IsReadOnly="True" />
+                            <DataGridTextColumn Header="GAVE UP" Binding="{Binding GaveUp}" IsReadOnly="True" />
+                            <DataGridTextColumn Header="STUCK" Binding="{Binding Stuck}" IsReadOnly="True" />
+                            <DataGridTextColumn Header="IN PROGRESS" Binding="{Binding InProgress}" IsReadOnly="True" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+
+                    <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,4">
+                        <TextBlock Text="GRAPH" Margin="0,0,6,0" VerticalAlignment="Center" FontFamily="{DynamicResource RetroFont}" FontSize="15" Foreground="{StaticResource TextDimBrush}" />
+                        <ToggleButton Style="{StaticResource ChipToggle}" Content="PEOPLE" IsChecked="{Binding IsGraphPeople, Mode=TwoWay}" ToolTip="People in the model over time." />
+                        <ToggleButton Style="{StaticResource ChipToggle}" Content="QUEUES" IsChecked="{Binding IsGraphQueues, Mode=TwoWay}" ToolTip="People in line at the ticked devices (or the five longest)." />
+                        <ToggleButton Style="{StaticResource ChipToggle}" Content="DENSITY" IsChecked="{Binding IsGraphDensity, Mode=TwoWay}" ToolTip="Highest density anywhere on the map, over the walkway Level of Service bands." />
+                        <ToggleButton Style="{StaticResource ChipToggle}" Content="FLOW" IsChecked="{Binding IsGraphFlow, Mode=TwoWay}" ToolTip="People arriving and leaving per minute." />
+                        <ToggleButton Style="{StaticResource ChipToggle}" Content="ZONES" IsChecked="{Binding IsGraphZones, Mode=TwoWay}" ToolTip="People in each measurement zone (the ticked ones, or all)." />
+                    </StackPanel>
+
+                    <Border Grid.Row="3" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
+                        <views:TimeSeriesGraph Data="{Binding ResultsGraph}" />
+                    </Border>
+
+                    <StackPanel Grid.Row="4" Orientation="Horizontal" Margin="0,8,0,0">
+                        <Button Content="EXPORT CSV" Command="{Binding ExportResultsCommand}" Padding="6,0"
+                                FontFamily="{DynamicResource RetroFont}" FontSize="15"
+                                ToolTip="Write devices.csv, zones.csv, journeys.csv (stats after the warm-up) and timeseries.csv (every 5 s from the start) into a folder you pick." />
+                        <Button Margin="6,0,0,0" Content="EXPORT PNG" Command="{Binding ExportPngCommand}" Padding="6,0"
+                                FontFamily="{DynamicResource RetroFont}" FontSize="15"
+                                ToolTip="Save the view at twice its size, with the map legend and a title block." />
+                    </StackPanel>
+                </Grid>
             </Grid>
         </Grid>
     </DockPanel>

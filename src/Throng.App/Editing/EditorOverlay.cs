@@ -31,8 +31,14 @@ public sealed class EditorOverlay : FrameworkElement
     private static readonly Brush QueueDot = Frozen(Color.FromArgb(0x80, 0xFA, 0xCC, 0x15));
     private static readonly Brush TrainFill = Frozen(Color.FromArgb(0x60, 0x94, 0xA3, 0xB8));
     private static readonly Pen TrainPen = FrozenPen(Frozen(Color.FromRgb(0x94, 0xA3, 0xB8)), 1.5);
+    private static readonly Pen TrainShapePen = FrozenPen(Frozen(Color.FromArgb(0xB0, 0x94, 0xA3, 0xB8)), 1.5, dashed: true);
     private static readonly Brush DoorOpenFill = Frozen(Color.FromArgb(0x50, 0xFA, 0xCC, 0x15));
     private static readonly Brush DoorBoardFill = Frozen(Color.FromArgb(0x60, 0x4A, 0xDE, 0x80));
+    private static readonly Pen LiftCarPen = FrozenPen(Frozen(Color.FromRgb(0x38, 0xBD, 0xF8)), 1);
+    private static readonly Pen LiftDoorPen = FrozenPen(Frozen(Color.FromRgb(0x38, 0xBD, 0xF8)), 3);
+    private static readonly Pen LiftLandingPen = FrozenPen(Frozen(Color.FromArgb(0x90, 0x38, 0xBD, 0xF8)), 1, dashed: true);
+    private static readonly Brush LiftHereFill = Frozen(Color.FromArgb(0x70, 0x38, 0xBD, 0xF8));
+    private static readonly Brush LiftOpenFill = Frozen(Color.FromArgb(0xA0, 0x4A, 0xDE, 0x80));
 
     private static readonly Pen SelectionPen = FrozenPen(Yellow, 2);
     // Hover (D-144): what a Select click would pick is cyan with a light fill and a name tag; the object being
@@ -86,6 +92,7 @@ public sealed class EditorOverlay : FrameworkElement
 
         DrawSceneLabels(dc, map);
         DrawTrains(dc, map, editor);
+        DrawLifts(dc, map, editor);
 
         DrawHover(dc, map, editor);
 
@@ -107,6 +114,12 @@ public sealed class EditorOverlay : FrameworkElement
     /// </summary>
     private static void DrawTrains(DrawingContext dc, Func<Point2, Point> map, PlanEditor editor)
     {
+        // Drawn train shapes (D-249) read as a dashed outline while editing.
+        foreach (IReadOnlyList<Point2> shape in editor.TrainShapes)
+        {
+            DrawOutline(dc, map, shape, closed: true, TrainShapePen, null);
+        }
+
         foreach (RunTrainView train in editor.RunTrains)
         {
             DrawOutline(dc, map, train.Box, closed: true, TrainPen, TrainFill);
@@ -114,6 +127,52 @@ public sealed class EditorOverlay : FrameworkElement
             foreach (IReadOnlyList<Point2> door in train.Doors)
             {
                 DrawOutline(dc, map, door, closed: true, null, doorFill);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Lifts (round 013, D-240): landings dashed, car outlines, doors in use at this level as thick ticks; while
+    /// running, a car at this level is filled (green with its doors open) and every car shows its direction and riders.
+    /// </summary>
+    private void DrawLifts(DrawingContext dc, Func<Point2, Point> map, PlanEditor editor)
+    {
+        foreach (LiftSymbolView lift in editor.LiftSymbols)
+        {
+            foreach (IReadOnlyList<Point2> landing in lift.Landings)
+            {
+                DrawOutline(dc, map, landing, closed: true, LiftLandingPen);
+            }
+
+            foreach (IReadOnlyList<Point2> car in lift.Cars)
+            {
+                DrawOutline(dc, map, car, closed: true, LiftCarPen);
+            }
+
+            foreach ((Point2 a, Point2 b) in lift.Doors)
+            {
+                dc.DrawLine(LiftDoorPen, map(a), map(b));
+            }
+        }
+
+        foreach (RunLiftCarView car in editor.RunLiftCars)
+        {
+            if (car.Here)
+            {
+                DrawOutline(dc, map, car.Footprint, closed: true, null, car.DoorsOpen ? LiftOpenFill : LiftHereFill);
+            }
+
+            if (car.Label.Length > 0)
+            {
+                double x = 0, y = 0;
+                foreach (Point2 p in car.Footprint)
+                {
+                    x += p.X;
+                    y += p.Y;
+                }
+
+                Point at = map(new Point2(x / car.Footprint.Count, y / car.Footprint.Count));
+                DrawLabel(dc, car.Label, new Point(at.X - 8, at.Y - 8), car.Here ? TextBrush : Accent);
             }
         }
     }

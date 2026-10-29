@@ -1,19 +1,15 @@
 # Throng — Handover to the next chat
 
-**Written:** 2026-10-26, end of round 010 (r010b-4). **Brief:** v0.24. **Decisions:** D-001–D-199.
-**State:** round 010 done and confirmed by Gavin's runs: 010a crowd-aware choice (stairs measured like belts, sight
-radius per profile, re-choosing while approaching, exit crowding, hover waits), progress stress (D-191), 010b trains
-(services over door zones, Board train step, LEFT BEHIND, train box), landing waypoints (D-192), stress from the first
-second and from crowding (D-193, D-194), fixed gate lane directions (D-196), demo gates moved south (D-198).
-**236 tests expected: 235 pass, 1 skipped** (wheelchair gate parked, D-176). **Format v7.** r010b-4 (demo gate move)
-and r010b-5 (platform stair and escalators moved, D-199, positions read off a screenshot) are small unbuilt edits;
-confirm they build, CHECK is clean and the demo runs first.
-**Start here (next chat):** `ai/PROTOCOL.md`, this file, then `ai/rounds/round-010.md` (sections "010b as built",
-r010b diagnostics, r010b-2…4). Then run the **Query** phase for round 011. Candidates: wheelchair gate (D-176,
-`round-009.md` ▸ Parked), profile editing (sight, stair effort, device preferences), M5 results/heatmaps (Gavin
-leaned this way once the demo started showing real layout problems), M4 lifts. Open watch items: crowd stress
-(D-194) barely shows at 2.5 p/m² with 1 m counting; landing waypoints may slow the platform stair slightly; hold
-points can sit in front of an adjacent device's lane mouth.
+**Written:** 2026-10-29, end of the round 013b build. **Brief:** v0.31. **Decisions:** D-001–D-251.
+**State:** 013a confirmed by Gavin's build. **013b built, unbuilt in sandbox**: 3D lift cars with riders, accessible
+lift priority + 60 s avoidance (D-247, D-248), drawn train shapes (D-249), demo lifts (D-246), Office tower demo
+(D-250), r013a fixes. **Format v9; 281 tests expected.** If Gavin reports 013b build errors, fix those first.
+**Start here (next chat):** `ai/PROTOCOL.md` (AFK / manual-approval rule: ask permissions before the build, none
+during it; agreed splits aren't split again), this file, then `ai/rounds/round-013.md`.
+**Next: round 014, scope not yet queried.** Round 013's open questions (patience at landings, 3D landing doors,
+destination dispatch, tower fire stairs) are at the end of `round-013.md`.
+Open watch items: crowd stress (D-194) barely shows at 2.5 p/m² with 1 m counting; hold points can sit in front of an
+adjacent device's lane mouth; gate throughput with D-209/D-211 (diagnostics row "no lane clear").
 **Quota:** Gavin's weekly quota ran to ~98% in round 010. Keep reads to the files a change touches, batch edits,
 short replies, and sync docs with `project_write` from `local_path`.
 **Tuning loop that works (use it, don't guess):** `Throng.Sim.Tests/Round007Tests.Diagnostics_Round007Rules` runs
@@ -180,15 +176,21 @@ served level** (D-068). Shafts already carry "no stop" levels (D-087) for that.
 | Queue layout, snake, hold points | `Core/Geometry/{QueueLines,QueueLineSet}.cs`, `SimSetup.BuildDevices/BuildHoldPoints`, `SimEngine.{TryJoinSnake,PromoteSnakeHead,WaitForLane}`, `App/Editing/PlanEditor.Queue.cs`, `EditorOverlay.DrawQueueDots` |
 | Crowd-aware choice, progress stress | `Sim/Engine/SimEngine.Crowd.cs`, `Sim/Nav/RoutePlanner.cs` (`sightRadius`, `InSight`), `SimEngine.UpdateWaits/Review/PickSink/UpdatePace/UpdateStress`, `SimRunner.TryGetCrowdWait`, `PlanEditor.HoverLabel` + `IEditorHost.RunHoverInfo` |
 | Trains | `Core/Model/TrainService.cs`, `Sim/SimTrain.cs`, `SimSetup.BuildTrains`, `Sim/Engine/SimEngine.Trains.cs`, `App/ViewModels/{MainViewModel.Trains,TrainServiceViewModels}.cs`, STUDY ▸ TRAINS in `MainWindow.xaml`, `EditorOverlay.DrawTrains` |
+| Live and run heatmaps (M5) | `Sim/Engine/{DensityGrid,DensityLayer,DensityCellKind,DensityMeasure,SimEngine.Density}.cs`, `SimRunner.CopyDensity`, `Analysis/{HeatmapPainter,HeatmapMode,HeatmapRamp}.cs`, `Render/Gl/GpuHeatLayer.cs`, `Render/Scene/HeatLayerDraw.cs`, `SceneRenderer.SetHeatmap`, `App/ViewModels/MainViewModel.Heatmap.cs`, MAP chips + legend in `MainWindow.xaml` |
+| Accessible devices | `Core/Library/{DeviceTemplate,AgentProfileTemplate,StudyTemplates}.cs` (`Accessible`, `NeedsAccessibleDevices`, `IsAccessible`), `Core/Model/Device.cs` (`AccessibleOverride`), `SimEngine.{AccessAllows,AccessAvoidS}`, `StudyValidator.ValidateAccessibleDevices`, `FormatMigrations.UpgradeV7ToV8`, SELECTION ▸ device switch |
+| Results (011c) | `Sim/Engine/{SimEngine.Results,RunResults,DeviceResult}.cs`, `SimRunner.LatestResults`, `Analysis/ResultsCsv.cs`, `App/ViewModels/{MainViewModel.Results,DeviceResultRow,GraphMetric}.cs`, `App/Views/{TimeSeriesGraph,GraphData,GraphLine,GraphBand}.cs`, RESULTS tab in `MainWindow.xaml`, `ResultsGrid` styles in `Theme.xaml` |
+| Zone and journey results, PNG (012) | `Core/Geometry/OrientedBounds.cs`, `Sim/SimZone.cs`, `SimSetup.BuildZones`, `Sim/Engine/{SimEngine.ZoneResults,SimEngine.JourneyResults,ZoneResult,JourneyResult}.cs`, `AgentStore.{ZoneBits,MaxWaitS,LeftEarly}`, `App/ViewModels/{ZoneResultRow,JourneyResultRow,ResultsTable,MainViewModel.Png}.cs`, `Render/Gl/OffscreenCapture.cs`, `ViewportView.CaptureAsync`, `App/Services/{PngExport,PngExportInfo,PngLegendRow}.cs` |
+| Lifts (013a) | `Core/Model/{Lift,LiftDoorUse,LiftLevelDoors,LiftScheduleEntry,Shaft}.cs`, `Core/Geometry/{LiftLayout,LiftSide,LiftCarLayout}.cs`, `Core/Editing/LiftFactory.cs`, `NavWorldBuilder.AddLift`, `Nav/LiftTiming.cs`, `NavRoutes` (lift options), `Sim/SimLift.cs`, `SimSetup.BuildLifts`, `Sim/Engine/{SimEngine.Lifts,LiftCarStatus}.cs`, `AgentPhase.{LiftWait,LiftRide}`, `SimRunner.CopyLiftCarStates`, `App/ViewModels/{ShaftViewModel.Lift,LiftDoorRowViewModel,LiftScheduleRowViewModel}.cs`, `App/Editing/{LiftSymbolView,RunLiftCarView}.cs`, `PlanEditor.LiftSymbolsOn`, `EditorOverlay.DrawLifts` |
+| Lifts 3D, priority, train shapes, tower (013b) | `Render/Scene/{LiftCarDraw,LiftCarMeshes}.cs`, `SceneRenderer.SetLiftCars`, `App/ViewModels/MainViewModel.LiftCars.cs`, `ViewportView.LiftCars`; `RoutePlanner.HasLiftPriority` + `priorityPenaltyS`, `SimEngine.{LiftPriorityPenaltyS,UpdateLiftPriorityPenalty,HasLiftPriority}`, `SimTuning.LiftPriority`; `TrainService.Shape`, `App/Editing/PlanEditor.Train.cs`, `MainViewModel.Trains` (DRAW TRAIN / AUTO); `IO/OfficeTowerBuilder.cs`, `MainViewModel.LoadDemo` |
 | Clean script | `clean.bat` (repo root) |
 
 ## 8. Don't regress
 
-- Demo loads clean (0 errors, 0 warnings) and all tests pass (235 pass, 1 skipped on 010b; un-skip the wheelchair test once D-176 is fixed).
+- Demo loads clean (0 errors, 0 warnings) and all tests pass (281 on 013b; the wheelchair test expects > 95 % at the accessible gate, D-213).
 - Test helpers live in classes named for what they test, not the file (`VerticalCutTests.TwoLevelsWithStair` is in
   `ConnectorTests.cs`): grep for the class before calling a helper.
 - Demo PLAY runs: people cross all three levels; editing locks until RESET.
-- Older files open with their old behaviour (v1/v2: single-level fixed regions, single-run switchbacks; v1–v3: no emission rules; v1–v4: flat rates; v1–v5: one profile per rule, no journey, straight to a sink; v1–v6: no train services, doors emit continuously).
+- Older files open with their old behaviour (v1/v2: single-level fixed regions, single-run switchbacks; v1–v3: no emission rules; v1–v4: flat rates; v1–v5: one profile per rule, no journey, straight to a sink; v1–v6: no train services, doors emit continuously; v1–v7: no accessible flags, except the built-in accessible gate and wheelchair profile, upgraded on load; v1–v8: no lifts; v9 before 013b: automatic train boxes).
 - Queuers, people being served and dwellers are never removed as stuck; device line membership is per agent (device, line, slot), never agent indices (the store swap-removes).
 - Built-in journeys (and their embedded copies, same id) stay read-only; only `StudyTemplates.IsEditableJourney` ones are edited. Steps and step lists are replaced, never mutated.
 - Editing shortcuts only fire while the viewport has focus; New from Demo is Ctrl+Shift+D (D-043).

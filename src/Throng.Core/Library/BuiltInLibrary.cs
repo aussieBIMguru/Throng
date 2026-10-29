@@ -26,6 +26,9 @@ public static class BuiltInLibrary
     /// <summary>Key of the accessible wide gate preset, which wheelchair and luggage profiles favour (D-166).</summary>
     public const string AccessibleGateKey = "device.gate-accessible";
 
+    /// <summary>Key of the wheelchair profile, which needs accessible devices (D-213).</summary>
+    public const string MobilityProfileKey = "agent.mobility";
+
     private static readonly Lazy<TemplateLibrary> Cached = new(Build);
 
     /// <summary>
@@ -128,8 +131,8 @@ public static class BuiltInLibrary
         {
             RadiusM = 0.45, HeightM = 1.35, Speed = Distribution.Normal(0.90, 0.15, 0.5, 1.3),
             PatienceS = 600, LiftPreference = 1.0, MechanisedPreference = 1.0, LiftOnly = true, EscalatorWalkProbability = 0, AcceptableJourneyS = 1200,
-            DevicePreferences = [new DevicePreference { Target = AccessibleGateKey, BonusS = 30 }],
-        }, "agent.mobility", "Mobility-impaired (wheelchair)", cat, "#A78BFA", "Wheelchair user. Lifts and ramps only; uses accessible gates.", version: 2));
+            DevicePreferences = [new DevicePreference { Target = AccessibleGateKey, BonusS = 30 }], NeedsAccessibleDevices = true,
+        }, MobilityProfileKey, "Mobility-impaired (wheelchair)", cat, "#A78BFA", "Wheelchair user. Lifts and ramps only; uses only accessible devices where there are any.", version: 3));
 
         lib.Add(Init(new AgentProfileTemplate
         {
@@ -181,7 +184,8 @@ public static class BuiltInLibrary
         lib.Add(Init(new DeviceTemplate
         {
             TypeTag = "Gate", ServiceTime = Distribution.Uniform(3, 5), Queue = QueueMode.AutoCrowd, PassThrough = true, WidthM = 1.2, DepthM = 1.2, ChoiceWeight = -10,
-        }, AccessibleGateKey, "Accessible wide gate", cat, "#67E8F9", "Single wide gate. Slower; preferred by mobility-impaired and luggage profiles."));
+            Accessible = true,
+        }, AccessibleGateKey, "Accessible wide gate", cat, "#67E8F9", "Single wide accessible gate. Slower; wheelchair users use it where there is one, luggage prefers it, others avoid it.", version: 2));
 
         lib.Add(Init(new DeviceTemplate
         {

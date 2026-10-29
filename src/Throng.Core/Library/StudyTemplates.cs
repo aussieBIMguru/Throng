@@ -107,6 +107,38 @@ public static class StudyTemplates
             : study.Library.FindByKey(device.PresetKey) as DeviceTemplate ?? BuiltInLibrary.Instance.FindByKey(device.PresetKey) as DeviceTemplate;
     }
 
+    /// <summary>
+    /// The preset a lift was made from (round 013): by template id in the study library, then the built-ins, then
+    /// the built-in with the same preset key. Null when none is found (the simulation then uses the class defaults).
+    /// </summary>
+    public static LiftTemplate? FindLiftTemplate(Study study, Lift lift)
+    {
+        if (lift.TemplateId is { } id
+            && (study.Library.Find(id) ?? BuiltInLibrary.Instance.Find(id)) is LiftTemplate byId)
+        {
+            return byId;
+        }
+
+        return string.IsNullOrEmpty(lift.PresetKey)
+            ? null
+            : study.Library.FindByKey(lift.PresetKey) as LiftTemplate ?? BuiltInLibrary.Instance.FindByKey(lift.PresetKey) as LiftTemplate;
+    }
+
+    /// <summary>All lift presets a study can use: its embedded ones, then built-ins not already embedded.</summary>
+    public static IReadOnlyList<LiftTemplate> AvailableLifts(Study study)
+    {
+        var own = new List<LiftTemplate>(study.Library.Lifts);
+        var keys = own.Select(t => t.Key).ToHashSet(StringComparer.Ordinal);
+        own.AddRange(BuiltInLibrary.Instance.Lifts.Where(t => !keys.Contains(t.Key)));
+        return own;
+    }
+
+    /// <summary>
+    /// Whether a placed device is accessible (D-223): its own override, else its preset's flag, else not.
+    /// </summary>
+    public static bool IsAccessible(Study study, Device device) =>
+        device.AccessibleOverride ?? FindDeviceTemplate(study, device)?.Accessible ?? false;
+
     /// <summary>All agent profiles a study can use: its embedded ones, then built-ins not already embedded.</summary>
     public static IReadOnlyList<AgentProfileTemplate> AvailableProfiles(Study study)
     {

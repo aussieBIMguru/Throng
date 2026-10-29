@@ -52,7 +52,6 @@ public sealed class Round009bTests
     }
 
     [TestMethod]
-    [Ignore("Parked (D-176): wheelchairs jam the 1.0 m accessible lane; the walk-through timeout frees the lane while it's still occupied. See round-009.md ▸ Parked.")]
     public void DevicePreference_WheelchairUsersPickTheAccessibleGate()
     {
         string diagnosis = string.Empty;
@@ -70,7 +69,8 @@ public sealed class Round009bTests
         double wheelchairs = Accessible(Mobility);
         string wheelchairRun = diagnosis;
         double commuters = Accessible(SimTestStudies.Commuter);
-        Assert.IsTrue(wheelchairs > 0.6, $"{wheelchairs:P0} of wheelchair users used the accessible gate. {wheelchairRun}");
+        // D-213: the hard rule sends every wheelchair user to the accessible gate when the floor has one.
+        Assert.IsTrue(wheelchairs > 0.95, $"{wheelchairs:P0} of wheelchair users used the accessible gate. {wheelchairRun}");
         Assert.IsTrue(commuters < wheelchairs, $"Commuters {commuters:P0} vs wheelchair users {wheelchairs:P0}.");
     }
 
@@ -202,7 +202,7 @@ public sealed class Round009bTests
     /// A 40 × 8 m hall closed by a four-lane gate line (y 2–6) and an accessible gate (y 6.4–7.6) at x = 20, with
     /// obstacles filling the gaps; everyone walks west to east through a gate.
     /// </summary>
-    private static Study WideGates(Guid profile, double perMinute)
+    internal static Study WideGates(Guid profile, double perMinute)
     {
         var study = new Study { Name = "Wide gates" };
         study.Settings.Seed = 5;
@@ -259,7 +259,7 @@ public sealed class Round009bTests
         return study;
     }
 
-    private static SimEngine Run(Study study, double seconds)
+    internal static SimEngine Run(Study study, double seconds)
     {
         var engine = new SimEngine(SimTestStudies.Compile(study));
         int steps = (int)Math.Round(seconds / engine.Model.TimeStepS, MidpointRounding.AwayFromZero);

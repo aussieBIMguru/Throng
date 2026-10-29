@@ -115,6 +115,12 @@ public sealed class AgentStore
     /// <summary>Weighted seconds spent held up, decaying in free flow; drives <see cref="Stress"/> (D-145).</summary>
     public float[] HeldS = [];
 
+    /// <summary>
+    /// Distance left to the far point at the last checkpoint while walking through a gate (D-209): the walk-through
+    /// timeout only runs out after this long without getting closer.
+    /// </summary>
+    public float[] ThroughLeft = [];
+
     /// <summary>Emitter that spawned the agent (its destinations decide the exit).</summary>
     public int[] Emitter = [];
 
@@ -151,6 +157,21 @@ public sealed class AgentStore
     /// <summary>Point it is heading for while queueing, walking through, stepping aside or dwelling.</summary>
     public double[] AimX = [], AimY = [];
 
+    /// <summary>Density map cell it stood on at the last map sample, or −1 (footfall trail, D-216).</summary>
+    public int[] TrailCell = [];
+
+    /// <summary>Bits of the measurement zones the agent stood in at the last count (D-228).</summary>
+    public ulong[] ZoneBits = [];
+
+    /// <summary>Longest single queue wait so far, s (journey results, D-229).</summary>
+    public float[] MaxWaitS = [];
+
+    /// <summary>True once its patience ran out in a line and it headed for an exit (journey results, D-229).</summary>
+    public bool[] LeftEarly = [];
+
+    /// <summary>Lift car (global car index) it's waiting for or riding, or −1 (round 013).</summary>
+    public int[] LiftCar = [];
+
     /// <summary>Adds an agent with default state and returns its index.</summary>
     public int Add()
     {
@@ -179,12 +200,17 @@ public sealed class AgentStore
         Pace[i] = 1;
         Crowd[i] = 0;
         Heading[i] = 0;
-        Stress[i] = HeldS[i] = 0;
+        Stress[i] = HeldS[i] = ThroughLeft[i] = 0;
         Emitter[i] = Journey[i] = QDevice[i] = QLine[i] = -1;
         Step[i] = QSlot[i] = QSide[i] = 0;
         Tags[i] = 0;
         Phase[i] = AgentPhase.Walk;
         Timer[i] = JoinTime[i] = AimX[i] = AimY[i] = 0;
+        TrailCell[i] = -1;
+        ZoneBits[i] = 0;
+        MaxWaitS[i] = 0;
+        LeftEarly[i] = false;
+        LiftCar[i] = -1;
         return i;
     }
 
@@ -228,6 +254,7 @@ public sealed class AgentStore
         JointDy[i] = JointDy[last];
         Stress[i] = Stress[last];
         HeldS[i] = HeldS[last];
+        ThroughLeft[i] = ThroughLeft[last];
         Emitter[i] = Emitter[last];
         Journey[i] = Journey[last];
         Step[i] = Step[last];
@@ -241,6 +268,11 @@ public sealed class AgentStore
         JoinTime[i] = JoinTime[last];
         AimX[i] = AimX[last];
         AimY[i] = AimY[last];
+        TrailCell[i] = TrailCell[last];
+        ZoneBits[i] = ZoneBits[last];
+        MaxWaitS[i] = MaxWaitS[last];
+        LeftEarly[i] = LeftEarly[last];
+        LiftCar[i] = LiftCar[last];
     }
 
     /// <summary>Removes every agent.</summary>
@@ -279,6 +311,7 @@ public sealed class AgentStore
         Array.Resize(ref JointDy, capacity);
         Array.Resize(ref Stress, capacity);
         Array.Resize(ref HeldS, capacity);
+        Array.Resize(ref ThroughLeft, capacity);
         Array.Resize(ref Emitter, capacity);
         Array.Resize(ref Journey, capacity);
         Array.Resize(ref Step, capacity);
@@ -292,5 +325,10 @@ public sealed class AgentStore
         Array.Resize(ref JoinTime, capacity);
         Array.Resize(ref AimX, capacity);
         Array.Resize(ref AimY, capacity);
+        Array.Resize(ref TrailCell, capacity);
+        Array.Resize(ref ZoneBits, capacity);
+        Array.Resize(ref MaxWaitS, capacity);
+        Array.Resize(ref LeftEarly, capacity);
+        Array.Resize(ref LiftCar, capacity);
     }
 }

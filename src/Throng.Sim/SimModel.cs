@@ -106,6 +106,9 @@ public sealed class SimModel
     /// <summary>Devices with queues (D-152, D-153); only those some journey can use.</summary>
     public IReadOnlyList<SimDevice> Devices { get; init; } = [];
 
+    /// <summary>Lift banks (round 013), each with its connector in the navigation world.</summary>
+    public IReadOnlyList<SimLift> Lifts { get; init; } = [];
+
     /// <summary>Train services with at least one usable door (D-184).</summary>
     public IReadOnlyList<SimTrain> Trains { get; init; } = [];
 
@@ -126,6 +129,21 @@ public sealed class SimModel
 
     /// <summary>Keep-side bias (D-105).</summary>
     public required KeepSide KeepSide { get; init; }
+
+    /// <summary>Seconds at the start left out of the cumulative maps and results (D-218); 0 for none.</summary>
+    public double WarmUpS { get; init; }
+
+    /// <summary>A single queue wait longer than this is a long wait in the journey results, seconds (D-231).</summary>
+    public double LongWaitS { get; init; } = 120;
+
+    /// <summary>Measurement zones counted in the results (D-228), at most <see cref="SimZone.MaxZones"/>.</summary>
+    public IReadOnlyList<SimZone> Zones { get; init; } = [];
+
+    /// <summary>
+    /// Per surface (indexed like <see cref="NavWorld.Surfaces"/>): the zone bits of each cell, or null for a surface
+    /// with no measurement zone on it.
+    /// </summary>
+    public IReadOnlyList<ulong[]?> ZoneCellBits { get; init; } = [];
 
     /// <summary>Warnings and info found while compiling.</summary>
     public required IReadOnlyList<ValidationMessage> Findings { get; init; }

@@ -57,4 +57,16 @@ public sealed class StudySettings
 
     /// <summary>Keep-side bias for bidirectional flows (file format v4, D-105).</summary>
     public KeepSide KeepSide { get; set; } = KeepSide.Left;
+
+    /// <summary>
+    /// Heatmaps use the colour-blind-safe ramp instead of the classic Fruin colours (round 011a, D-206). Additive
+    /// within format v7: older files read as false.
+    /// </summary>
+    public bool ColourBlindHeatmap { get; set; }
+
+    /// <summary>
+    /// A single queue wait longer than this counts as a long wait in the journey results, seconds (round 012, D-231).
+    /// Additive within format v8: older files read as 120.
+    /// </summary>
+    public double LongWaitS { get; set; } = 120;
 }

@@ -133,6 +133,9 @@ public sealed class SimDevice
     /// <summary>Seconds added to this device's cost in choices (minus the preset's choice weight).</summary>
     public required double ChoicePenaltyS { get; init; }
 
+    /// <summary>Accessible device (D-213, D-223): the device's override, else its preset's flag.</summary>
+    public bool Accessible { get; init; }
+
     /// <summary>First lane index in the engine's per-lane arrays.</summary>
     public required int LaneBase { get; init; }
 

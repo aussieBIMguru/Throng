@@ -14,7 +14,9 @@ namespace Throng.IO;
 /// D-061): street ↔ concourse wide stair and escalator pair, concourse ↔ platform switchback stair and escalator
 /// pair, and the accessible lift's shaft (the lift itself arrives in M4). Openings are cut automatically by the
 /// connectors. Round 005 adds devices, floor-to-floor columns, lift core walls spanning two levels, a goods lift
-/// shaft that skips the concourse and a back-of-house stair core with one circuit per level (staff only, D-110).
+/// shaft that skips the concourse (removed in round 013b, D-246) and a back-of-house stair core with one circuit per
+/// level (staff only, D-110). Round 013b puts accessible lifts in: street ↔ concourse in a new shaft on the unpaid side
+/// and concourse ↔ platform in the existing shaft, with 2% wheelchair users in the flows (D-246, D-247).
 /// Round 006 adds constant-rate emission rules between the street entrances and the platform doors (D-109); round
 /// 009 gives them journeys through the ticket machines, retail and gates (D-155). The agent profiles, schedules,
 /// journeys, connector and device presets used are embedded in the study library.
@@ -98,12 +100,12 @@ public static class DemoStudyBuilder
     {
         Add(study, level, "Ticket hall and paid concourse", RegionKind.Walkable, ZoneKind.None, Rect(0, 0, 60, 30));
 
-        // Gate line barrier: two solid runs leaving a 6 m gap where the gates go (M3). D-198: the gap sits 4.5 m
-        // further south than before (Gavin's layout), clear of the street stairs' landing flows.
-        Add(study, level, "Gate line barrier south", RegionKind.Obstacle, ZoneKind.None, Rect(27.6, 0, 28.4, 7.5), height: 1.1);
-        Add(study, level, "Gate line barrier north", RegionKind.Obstacle, ZoneKind.None, Rect(27.6, 13.5, 28.4, 30), height: 1.1);
-        Add(study, level, "Gate line barrier middle", RegionKind.Obstacle, ZoneKind.None, Rect(27.6, 11.5, 28.4, 12.3), height: 1.1);
-        Add(study, level, "Gate line count", RegionKind.Zone, ZoneKind.Measurement, Rect(27, 7.5, 29, 13.5));
+        // Gate line barrier: two solid runs leaving a 6 m gap where the gates go (M3). D-198 moved the gap 4.5 m south
+        // (Gavin's layout), clear of the street stairs' landing flows; D-210 a further 5 m (it still clogged).
+        Add(study, level, "Gate line barrier south", RegionKind.Obstacle, ZoneKind.None, Rect(27.6, 0, 28.4, 2.5), height: 1.1);
+        Add(study, level, "Gate line barrier north", RegionKind.Obstacle, ZoneKind.None, Rect(27.6, 8.5, 28.4, 30), height: 1.1);
+        Add(study, level, "Gate line barrier middle", RegionKind.Obstacle, ZoneKind.None, Rect(27.6, 6.5, 28.4, 7.3), height: 1.1);
+        Add(study, level, "Gate line count", RegionKind.Zone, ZoneKind.Measurement, Rect(27, 2.5, 29, 8.5));
 
         foreach (double x in new[] { 10.0, 20.0, 40.0, 50.0 })
         {
@@ -148,12 +150,12 @@ public static class DemoStudyBuilder
     /// Vertical set (D-061). Every connector starts on its lower level and runs east (+X); the openings in the
     /// upper levels are cut automatically (D-055), which replaces the hand-drawn voids of rounds 001–003.
     /// </summary>
-    private static void BuildVertical(Study study, Level street, Level concourse, Level platform)
+    private static void BuildVertical(Study study, Level streetLevel, Level concourse, Level platform)
     {
         // Street ↔ concourse: 3.6 m stair from the unpaid side of the concourse up to the entry hall, with an
         // escalator pair beside it.
-        Place(study, "connector.stair-3600", concourse, street, new Point2(12, 16.5), "Street stair");
-        Place(study, "connector.escalator-pair", concourse, street, new Point2(12, 21), "Street escalator");
+        Place(study, "connector.stair-3600", concourse, streetLevel, new Point2(12, 16.5), "Street stair");
+        Place(study, "connector.escalator-pair", concourse, streetLevel, new Point2(12, 21), "Street escalator");
 
         // Concourse ↔ platform: a deliberately tight 1.5 m switchback (§21.1) returning on the north side, and an
         // escalator pair to the south, both on the paid side of the gate line.
@@ -162,11 +164,35 @@ public static class DemoStudyBuilder
         Place(study, "connector.stair-switchback-1500", platform, concourse, new Point2(42.6, 15.8), "Platform stair");
         Place(study, "connector.escalator-pair", platform, concourse, new Point2(36, 12.0), "Platform escalator");
 
-        // Accessible lift shaft, concourse ↔ platform (the car and its doors arrive in M4, D-068).
+        // Accessible lift shaft, concourse ↔ platform, on the paid side; its lift since round 013b (D-246). Edge 0 (the
+        // south side) is the door side the core walls leave open.
         Shaft shaft = ConnectorFactory.CreateShaft(study, platform.Id, concourse.Id, Rect(30, 19.5, 32.4, 21.9));
         shaft.Name = "Accessible lift shaft";
         shaft.Tag = "Lift";
+        AddLift(study, shaft, "lift.accessible", "Platform lift");
         study.Shafts.Add(shaft);
+
+        // Street ↔ concourse accessible lift on the unpaid side, between the ticket machines and the gate line, doors
+        // south (D-246).
+        Shaft street = ConnectorFactory.CreateShaft(study, concourse.Id, streetLevel.Id, Rect(22, 11, 24.4, 13.4));
+        street.Name = "Street lift shaft";
+        street.Tag = "Lift";
+        AddLift(study, street, "lift.accessible", "Street lift");
+        study.Shafts.Add(street);
+    }
+
+    /// <summary>Puts a one-car lift from a built-in preset in a shaft, front doors on edge 0 (D-236, D-242).</summary>
+    private static void AddLift(Study study, Shaft shaft, string presetKey, string name)
+    {
+        if (BuiltInLibrary.Instance.FindByKey(presetKey) is not LiftTemplate preset)
+        {
+            return;
+        }
+
+        TemplateBase embedded = study.Library.AddCopy(preset, TemplateSource.Embedded);
+        Lift lift = LiftFactory.FromTemplate(shaft, preset, embedded.Id);
+        lift.Name = name;
+        shaft.Lift = lift;
     }
 
     /// <summary>
@@ -183,19 +209,20 @@ public static class DemoStudyBuilder
 
         PlaceDevice(study, "device.ticket-counter", concourse, new Point2(6, 29.5), 270);
         PlaceDevice(study, "device.ticket-counter", concourse, new Point2(10, 29.5), 270);
-        PlaceDevice(study, "device.gate-line", concourse, new Point2(28, 9.5), 0);
+        PlaceDevice(study, "device.gate-line", concourse, new Point2(28, 4.5), 0);
 
         // D-196: the gate line faces east (the platform side), so people coming in from the street enter from the
         // back. Two lanes in, two out, so a train's worth of people and the steady flow in don't lock the lanes.
         study.Devices[^1].LaneDirections = [GateLaneDirection.FromBack, GateLaneDirection.FromBack, GateLaneDirection.FromFront, GateLaneDirection.FromFront];
-        PlaceDevice(study, "device.gate-accessible", concourse, new Point2(28, 12.9), 0);
+        PlaceDevice(study, "device.gate-accessible", concourse, new Point2(28, 7.9), 0);
         PlaceDevice(study, "device.info-desk", concourse, new Point2(50, 26.5), 270);
     }
 
     /// <summary>
-    /// Multi-level elements (D-076–D-093): columns run floor to floor; the accessible lift's core walls rise from
-    /// the platform to the concourse; a goods lift shaft runs from the platform to the street without stopping at
-    /// the concourse; a back-of-house switchback stair core climbs all three levels, one circuit per level.
+    /// Multi-level elements (D-076–D-093): columns run floor to floor; the accessible lifts' core walls rise from
+    /// the platform to the concourse and from the concourse to the street; a back-of-house switchback stair core
+    /// climbs all three levels, one circuit per level. The goods lift shaft that skipped the concourse is gone
+    /// (D-246: one lift per level change).
     /// </summary>
     private static void BuildSpanning(Study study, Level street, Level concourse, Level platform)
     {
@@ -210,11 +237,11 @@ public static class DemoStudyBuilder
         core.HeightMode = RegionHeightMode.FullStorey;
         core.TopLevelId = concourse.Id;
 
-        Shaft goods = ConnectorFactory.CreateShaft(study, platform.Id, street.Id, Rect(56, 9, 58.4, 11.4));
-        goods.Name = "Goods lift shaft";
-        goods.Tag = "Lift";
-        goods.NoStopLevelIds = [concourse.Id];
-        study.Shafts.Add(goods);
+        // The street lift's core: three sides, south open (D-246).
+        Region streetCore = Add(study, concourse, "Street lift core walls", RegionKind.Wall, ZoneKind.None,
+            [new(21.8, 11), new(21.8, 13.6), new(24.6, 13.6), new(24.6, 11)], height: 3.0, thickness: 0.2);
+        streetCore.HeightMode = RegionHeightMode.FullStorey;
+        streetCore.TopLevelId = street.Id;
 
         Place(study, "connector.stair-switchback-1500", platform, street, new Point2(4, 18), "Back-of-house stair");
 
@@ -240,6 +267,7 @@ public static class DemoStudyBuilder
         Guid throughGates = TemplateIds.FromKey("journey.through-gates");
         Guid ticketGates = TemplateIds.FromKey("journey.ticket-gates");
         Guid browseGates = TemplateIds.FromKey("journey.browse-gates");
+        Guid wheelchair = TemplateIds.FromKey(BuiltInLibrary.MobilityProfileKey);
         List<Region> doors = [.. study.Regions.Where(r => r.Name.Contains(" door ", StringComparison.Ordinal) && r.IsSink)];
         Region? west = study.Regions.FirstOrDefault(r => r.Name == "West entrance");
         Region? east = study.Regions.FirstOrDefault(r => r.Name == "East entrance");
@@ -253,8 +281,11 @@ public static class DemoStudyBuilder
         List<MixLine> inbound =
         [
             MixLine.Of(commuter, ticketGates, 70, SpawnTag.Of(TicketTag)),
-            MixLine.Of(infrequent, ticketGates, 20, SpawnTag.Of(TicketTag, 50)),
+            MixLine.Of(infrequent, ticketGates, 18, SpawnTag.Of(TicketTag, 50)),
             MixLine.Of(infrequent, browseGates, 10, SpawnTag.Of(TicketTag, 50)),
+
+            // Round 013b (D-246, D-247): wheelchair users take the lifts and the accessible gate.
+            MixLine.Of(wheelchair, ticketGates, 2, SpawnTag.Of(TicketTag)),
         ];
         foreach (Region entrance in new[] { west, east, bus })
         {
@@ -267,7 +298,11 @@ public static class DemoStudyBuilder
             new() { SinkId = east.Id, Weight = 40 },
             new() { SinkId = bus.Id, Weight = 20 },
         ];
-        List<MixLine> outbound = [MixLine.Of(commuter, throughGates, 1, SpawnTag.Of(TicketTag))];
+        List<MixLine> outbound =
+        [
+            MixLine.Of(commuter, throughGates, 98, SpawnTag.Of(TicketTag)),
+            MixLine.Of(wheelchair, throughGates, 2, SpawnTag.Of(TicketTag)),
+        ];
         foreach (Region door in doors)
         {
             door.EmissionRules.Add(Rule(outbound, 3, toStreet));
@@ -281,7 +316,13 @@ public static class DemoStudyBuilder
     /// </summary>
     private static void BuildTrains(Study study)
     {
-        foreach ((string name, double offset) in new[] { ("Southbound", 30.0), ("Northbound", 210.0) })
+        // Drawn train shapes (D-249) beside the platform edges: the southbound train south of the platform, the
+        // northbound north of it, so neither lands on the platform.
+        foreach ((string name, double offset, List<Point2> shape) in new[]
+        {
+            ("Southbound", 30.0, Rect(2, 4.2, 58, 7)),
+            ("Northbound", 210.0, Rect(2, 23, 58, 25.8)),
+        })
         {
             List<Guid> doors = [.. study.Regions.Where(r => r.Name.StartsWith(name + " door ", StringComparison.Ordinal) && r.IsSink).Select(r => r.Id)];
             if (doors.Count == 0)
@@ -300,6 +341,7 @@ public static class DemoStudyBuilder
                 AlightPerTrain = 100,
                 AlightOverS = 30,
                 Capacity = 300,
+                Shape = shape,
             });
         }
     }

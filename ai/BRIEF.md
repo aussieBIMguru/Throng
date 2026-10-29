@@ -1,8 +1,15 @@
-# Throng — Project Brief (v0.24)
+# Throng — Project Brief (v0.31)
 
 > Conceptual pedestrian simulation for architects. Sketch a space, drop in devices, press play, read the pressure.
 > Status: **all decisions locked** (see §18). Ready for M0. Items marked ⏳ are deliberately deferred to later rounds.
 >
+> **v0.31:** 013b built (unbuilt in sandbox), round 013 complete: 3D lift cars (translucent boxes at car height with riders inside, doors lit while open), people who need accessible devices board first at every lift and others see a lift 60 s slower while one waits (D-247, D-248), drawn train shapes per service (DRAW TRAIN, D-249, additive in v9), demo lifts street ↔ concourse and concourse ↔ platform with 2 % wheelchair users, goods shaft removed (D-246), and a second demo, New from Demo ▸ Office tower (D-250). r013a fixes: format test v9, LIFTS library click fills the selected shaft.
+> **v0.30:** 013a built (unbuilt in sandbox): lifts in shafts (D-236–D-244). SELECTION ▸ shaft ▸ LIFT from a preset: 1–4 cars along the front edge (picked per lift; rear = the opposite edge), front/rear doors per level (in/out/both/closed) with automatic 2.5 m landings, lobby, Collective / Shuttle / Up-peak and a time-of-day schedule. Sim: lifts in route choice (timed rides, live wait, lift preference), cars with doors and collective stopping, calls assigned to the soonest car, off before on, arrival order with wheelchair priority, car space by body size. Plan symbols and running cars; format v9. Next: 013b 3D cars.
+> **v0.29:** round 012 built (unbuilt in sandbox): measurement zone stats (occupancy, peak, mean, entries per minute and per metre of the narrower side; D-228), journey stats per profile × journey with ALL rows (mean / 95th, % within acceptable, % with a single wait over Long wait, gave up, stuck, in progress; people spawned after the warm-up; D-229–D-231), RESULTS table chips DEVICES / ZONES / JOURNEYS and a ZONES graph (D-232), zones.csv + journeys.csv + zone columns in timeseries.csv (D-233), EXPORT PNG at 2× with legend and title block (D-234). Long wait in STUDY ▸ RUN, additive in v8.
+> **v0.28:** round 012 queries answered (D-227–D-235): measurement zone stats, per-journey stats (profile × journey) and PNG export with a title block, in one build; Long wait setting additive in v8. Lifts decided for round 013 (D-236–D-240): in shafts, banks of 1–4 cars with front/rear doors, Collective / Shuttle / Up-peak / time-switched dispatch, crowd landings; 013a sim, 013b 3D.
+> **v0.27:** 011c (unbuilt in sandbox), round 011 complete: RESULTS tab on the right (D-219) with a sortable device table (served, mean / 95th / max wait, max queue, utilisation, balked, gave up; after the warm-up, D-218), a hand-drawn graph (D-220) of people in model, queues (ticked rows, else the five longest, D-226), peak density over the walkway Fruin bands and flow in / out per minute (D-221), the warm-up shaded, sampled every 5 s; EXPORT CSV writes devices.csv and timeseries.csv (D-222). Clicking a device while running selects it and lights its row. Format stays v8.
+> **v0.26:** 011b (unbuilt in sandbox): cumulative run maps (max density on the LoS bands, time at LoS E or worse, mean density, footfall trail; D-216) gathered after the warm-up (D-218) and kept until RESET, picked from a RUN chip group beside the live MAP chips (D-217). Hard accessible-device rule (D-213): presets and placed devices carry "Accessible" (preset default, per-device override, D-223), the wheelchair profile needs accessible devices, others soft-avoid them (+15 s unless they favour them, D-224), CHECK warns where a level has none (D-225). Format v8 (accessible flags only; results aren't saved, D-215). Round 011 is split once: 011c = RESULTS tab, device stats, graph, CSV (D-214, D-219–D-222, D-226).
+> **v0.25:** r011a-2: lane centreline steering and sideways-only wall push at gate lanes (D-211), demo gates 5 m further south (D-210), cumulative maps confirmed for 011b (D-212). 011a (unbuilt in sandbox): M5 starts. Live heatmap while running, MAP ▸ NO MAP / DENSITY / LOS (D-201), drawn by the renderer on floors and stair/ramp flights in plan and 3D (D-202); 0.5 m cells, 1 m kernel, ~5 s smoothing (D-203); Fruin table per place: stair on flights, queuing in queue lines/snakes/dwell zones, walkway elsewhere, belts unmapped (D-205); §11.3 values as-is (unverified), legend and peak-LoS ticker (D-204); classic or colour-blind-safe ramp as a STUDY setting (D-206); people drawn smaller and dimmed over a map (D-207); live only, format stays v7 (D-208). Wheelchair gate fixed: people wait to start through a lane until whoever went before is past the gate's middle; walk-through timeout only without progress (D-209). Next: 011b cumulative maps, device stats, time series, CSV.
 > **v0.24:** 010b (unbuilt in sandbox): train services over door zones (headway, first arrival, doors-open time, people getting off, places; D-184, D-185), the doors' own emission rules say who gets off, doors take boarders only while a train is in, alight first then board, LEFT BEHIND (D-186, D-187); Board train journey step; format v7 (D-188); demo with southbound and northbound services every 6 min, 3 min apart (D-189); plain train box and lit doors in the plan while running (D-190). Stair landings: deep carry on the outside of the turn, early turn on the inside (D-192). Stress from the first second held up (D-193) and from density above tolerance (D-194).
 > **v0.23:** 010a (unbuilt in sandbox): crowd-aware choice. Stairs and ramps measured like belts (D-181); live waits only for connectors and exits within each profile's sight radius (default 30 m, D-179); re-choosing every 3 s while the chosen option is in sight (D-180); nearest-sink rules weigh exit crowding (D-182); hover shows crowd waits while running (D-183). Stress counts walkers as held up by progress along their route, not instantaneous speed, and queuers always (D-191). Trains next (010b, D-184–D-190).
 > **v0.22:** 009c (unbuilt in sandbox): stair effort in route choice, per profile (stairs up feel ×2.0, down ×1.4 by default; commuters milder, luggage/elderly/family stronger), so escalators win unless queued (D-174). 009b fixes: device fields close other gates' lanes (D-172), balk counts the current device's preference (D-173).
@@ -253,6 +260,7 @@ Multiple queues to one node and one queue to multiple nodes are both supported v
 - Agents treat lift vs stairs as a route choice using the §4.2 cost model, with a per-profile "lift preference" bias (mobility-impaired = lift only).
 - **3D representation:** shaft as a vertical volume spanning served levels; each car is a moving box whose world Z is driven by the lift's motion model (accelerate / cruise / decelerate). Agents inside a car are held at slot positions in car-local space, so they visibly ride up and down in 3D and cutaway views.
 - In the portal graph a lift bank is an edge between every pair of served landings, with cost = expected wait (from current calls and car positions) + travel time.
+- **Built in 013a (D-236–D-244):** a bank lives in a shaft (`Shaft.Lift`), 1–4 cars side by side along a front edge picked per lift, rear doors on the opposite edge, automatic landings (edge × 2.5 m), lobby per lift, Collective / Shuttle / Up-peak with a time-of-day schedule, car space by body size, wheelchair priority at accessible-priority lifts. Route cost = timed ride + half the car interval, plus the live wait (people waiting ÷ places per round trip) in sight. 3D car boxes in 013b.
 
 ---
 
@@ -355,6 +363,9 @@ The static throughput check is valuable on its own: "your 2 gates can process 40
 - **Max density** and **mean density** per cell
 - **Time at LoS E or worse** per cell (the most useful "pressure" map)
 - **Trail map** (cumulative footfall / usage)
+- Built in 011b (D-216–D-218): gathered from the 5 s smoothed live map at every 0.5 s sample once `WarmUpS` has
+  passed, kept until RESET, not saved in the file (D-215). MAP ▸ RUN ▸ MAX / E+ TIME / MEAN / TRAIL; max uses the
+  LoS bands, mean the density ramp, E+ time and trail a ramp scaled to the map's top value (shared over levels).
 
 ### 11.3 Level of Service (Fruin) bands
 Area per pedestrian (m²/ped). Values to be verified against source before shipping.
@@ -371,14 +382,18 @@ Area per pedestrian (m²/ped). Values to be verified against source before shipp
 Each cell uses the table appropriate to what it is (walkable / queue zone / connector). Fruin letters are the default; an abstract Low/Medium/High/Critical toggle serves non-specialist audiences (D-012).
 
 ### 11.4 Statistics
-- **Per node:** agents served, mean/95th/max wait, max queue length, utilisation %, balk/renege count.
+- **Per node:** agents served, mean/95th/max wait, max queue length, utilisation %, balk/renege count. Built in
+  011c (RESULTS tab, after the warm-up).
 - **Per journey:** journey time distribution by profile, % within acceptable time, % with any wait over threshold, stuck events.
-- **Per measurement zone:** occupancy over time, peak occupancy, flow through gate lines (p/min/m).
+  Built in 012: profile × journey rows plus ALL per profile, people spawned after the warm-up (D-229–D-231).
+- **Per measurement zone:** occupancy over time, peak occupancy, flow through gate lines (p/min/m). Built in 012: entries
+  per minute and per metre of the zone's narrower side (D-228).
 - **Time-series graph:** agents in system, throughput, mean frustration, queue lengths — scrub-linked to the replay timeline.
+  Built in 011c without replay: people in model, queues, peak density over Fruin bands, flow in / out, every 5 s.
 
 ### 11.5 Export
-- CSV of all statistics and time series
-- PNG of current view / heatmaps (with legend and study title block)
+- CSV of all statistics and time series (011c: devices.csv + timeseries.csv; 012: + zones.csv, journeys.csv, zone columns)
+- PNG of current view / heatmaps (with legend and study title block). Built in 012 at 2× the viewport (D-234)
 - ⏳ One-page PDF summary report — later round
 
 ### 11.6 Replay
@@ -622,7 +637,7 @@ Everything an architect places or configures can start from a **template**: pick
 | Ticket machine | 1 server, service ~20–60 s, auto-crowd queue, turn-around |
 | Staffed ticket counter | 1 server per window, service ~45–120 s, shared linear queue |
 | Ticket gate line | 4 lanes, ~2 s pass-through, auto-crowd |
-| Accessible wide gate | 1 lane, ~4 s, preferred by mobility-impaired profile |
+| Accessible wide gate | 1 lane, ~4 s, accessible (D-213): wheelchair users use it, luggage prefers it, others avoid it |
 | Security lane | 1 lane, ~20–40 s, linear queue, pass-through |
 | Information desk | 1 server, ~30–90 s, auto-crowd |
 | Retail / dwell zone | Zone, dwell 0–180 s, optional visit probability |
@@ -650,7 +665,7 @@ Everything an architect places or configures can start from a **template**: pick
 | Commuter | Fast, decisive, low patience, walks on escalators, avoids lifts |
 | Infrequent traveller / tourist | Slower, less decisive, often needs ticket + info desk |
 | Luggage traveller | Larger radius, slower, prefers escalator/lift over stair |
-| Mobility-impaired (wheelchair) | Large radius, lift and ramps only, accessible gate |
+| Mobility-impaired (wheelchair) | Large radius, lift and ramps only; needs accessible devices (only accessible ones where a level has one, D-213) |
 | Elderly | Slower, higher stair penalty, more patient |
 | Family / group | Slower, larger radius (true group movement ⏳ later) |
 | Staff | Pinned routes, bypasses public queues |

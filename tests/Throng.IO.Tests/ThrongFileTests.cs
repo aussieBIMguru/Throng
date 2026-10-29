@@ -91,11 +91,11 @@ public sealed class ThrongFileTests
     }
 
     [TestMethod]
-    public void Save_WritesFormatV7()
+    public void Save_WritesFormatV9()
     {
-        string path = Path.Combine(_folder, "v7" + ThrongFile.Extension);
+        string path = Path.Combine(_folder, "v9" + ThrongFile.Extension);
         Assert.IsTrue(ThrongFile.Save(DemoStudyBuilder.Build(), path).IsSuccess);
-        Assert.AreEqual(7, ThrongFile.ReadManifest(path).Value!.FormatVersion);
+        Assert.AreEqual(9, ThrongFile.ReadManifest(path).Value!.FormatVersion);
     }
 
     [TestMethod]
@@ -258,7 +258,7 @@ public sealed class DemoStudyTests
         Assert.AreEqual(2, demo.Connectors.Count(c => c.Shape == ConnectorShape.Switchback));
         Assert.AreEqual(2, demo.Shafts.Count);
         Assert.IsTrue(demo.Connectors.Any(c => ConnectorLayout.Compute(c, demo).Value!.Circuits.Count == 2), "The back-of-house core has one circuit per storey (three levels, two storeys).");
-        Assert.IsTrue(demo.Shafts.Any(s => s.NoStopLevelIds.Count == 1), "The goods lift skips the concourse.");
+        Assert.IsTrue(demo.Shafts.All(s => s.Lift is not null && s.NoStopLevelIds.Count == 0), "Two accessible lifts, one per level change; the goods shaft is gone (D-246).");
         Assert.IsTrue(demo.Regions.Any(r => r.TopLevelId is not null && r.Kind == RegionKind.Wall), "Lift core walls span two levels.");
         Assert.AreEqual(13, demo.Devices.Count, "Eight ticket machines (D-155), two counters, two gates, the info desk.");
         Assert.IsFalse(demo.Regions.Any(r => string.Equals(r.Tag, "Void", StringComparison.OrdinalIgnoreCase)), "Auto openings replace the voids (D-061).");

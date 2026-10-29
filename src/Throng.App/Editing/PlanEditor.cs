@@ -119,6 +119,7 @@ public sealed partial class PlanEditor
 
             CancelGesture();
             _points.Clear();
+            _trainShapeServiceId = null;
             ClearConnectPreview();
             ClearPlacePreview();
             _tool = value;
@@ -359,6 +360,15 @@ public sealed partial class PlanEditor
     public void PointerDown(Point2 raw, double metresPerDip, ModifierKeys modifiers, int clickCount)
     {
         _metresPerDip = metresPerDip;
+        if (IsLocked && _tool == EditorTool.Select)
+        {
+            // Picking isn't editing: while running a click selects what's under it, so RESULTS can light up that
+            // device's row (D-219). Nothing moves.
+            Guid? picked = PickAt(raw);
+            SetSelection(picked is { } id ? new[] { id } : Array.Empty<Guid>());
+            return;
+        }
+
         if (!CheckEditable())
         {
             return;
@@ -1373,6 +1383,10 @@ public sealed partial class PlanEditor
         {
             CommitShape([.. _points], closed: false, RegionKind.Wall);
         }
+        else if (_tool == EditorTool.Polygon && _trainShapeServiceId is { } service)
+        {
+            CommitTrainShape(service);
+        }
         else if (_tool == EditorTool.Polygon)
         {
             CommitShape([.. _points], closed: true, _drawKind);
@@ -1532,8 +1546,60 @@ public sealed partial class PlanEditor
     }
 
     /// <summary>Trains in on the active level while running (D-190).</summary>
+    /// <summary>Lift banks on the active level (round 013): cars, doors in use here and their landings.</summary>
+    public IReadOnlyList<LiftSymbolView> LiftSymbols => _host.ActiveLevelModel is { } level ? LiftSymbolsOn(_host.Study, level.Id) : [];
+
+    /// <summary>Lift cars while running, as seen on the active level (round 013).</summary>
+    public IReadOnlyList<RunLiftCarView> RunLiftCars =>
+        IsLocked && _host.ActiveLevelModel is { } level ? _host.RunLiftCars(level.Id) : [];
+
+    /// <summary>The plan symbols of every lift whose shaft passes through a level (D-240, D-241).</summary>
+    public static IReadOnlyList<LiftSymbolView> LiftSymbolsOn(Study study, Guid levelId)
+    {
+        var views = new List<LiftSymbolView>();
+        foreach (Shaft shaft in study.Shafts)
+        {
+            if (shaft.Lift is not { } lift || !study.ShaftSpans(shaft, levelId)
+                || LiftLayout.Compute(shaft.Outline, lift.FrontEdge, lift.Cars, lift.LandingDepthM) is not { IsSuccess: true, Value: { } layout })
+            {
+                continue;
+            }
+
+            var doors = new List<(Point2 A, Point2 B)>();
+            var landings = new List<IReadOnlyList<Point2>>();
+            if (study.LiftStops(shaft).Any(l => l.Id == levelId))
+            {
+                LiftLevelDoors at = lift.DoorsAt(levelId);
+                for (int side = 0; side < 2; side++)
+                {
+                    if ((side == 0 ? at.Front : at.Rear) == LiftDoorUse.Closed || layout.Side(side) is not { } edge)
+                    {
+                        continue;
+                    }
+
+                    landings.Add(edge.Landing);
+                    foreach (LiftCarLayout car in layout.Cars)
+                    {
+                        if (car.Door(side) is { } door)
+                        {
+                            doors.Add(door);
+                        }
+                    }
+                }
+            }
+
+            views.Add(new LiftSymbolView([.. layout.Cars.Select(c => c.Footprint)], doors, landings, lift.Name, PolygonMath.Centroid(shaft.Outline)));
+        }
+
+        return views;
+    }
+
     public IReadOnlyList<RunTrainView> RunTrains =>
         IsLocked && _host.ActiveLevelModel is { } level ? _host.RunTrains(level.Id) : [];
+
+    /// <summary>Drawn train shapes on the active level while not running (D-249), drawn dashed.</summary>
+    public IReadOnlyList<IReadOnlyList<Point2>> TrainShapes =>
+        !IsLocked && _host.ActiveLevelModel is { } level ? _host.TrainShapes(level.Id) : [];
 
     /// <summary>
     /// Redraws the overlay while running so the hover label's crowd wait (D-183) and the trains (D-190) stay current.

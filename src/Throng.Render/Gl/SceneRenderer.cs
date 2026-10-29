@@ -48,6 +48,14 @@ public sealed class SceneRenderer : IDisposable
     private GpuMesh? _verticalSolids;
     private GpuMesh? _verticalLines;
     private GpuMesh? _shaftBoxes;
+    private readonly Dictionary<int, GpuHeatLayer> _heatCache = new();
+    private readonly List<GpuHeatLayer> _heat = [];
+    private IReadOnlyList<HeatLayerDraw>? _pendingHeat;
+    private long _heatVersion = long.MinValue;
+    private bool _heatDirty;
+    private IReadOnlyList<LiftCarDraw>? _pendingCars;
+    private bool _carsDirty;
+    private GpuMesh? _carSolid, _carGlass, _carLines;
     private SceneData? _pendingScene;
     private SceneData _scene = SceneData.Empty;
 
@@ -115,6 +123,38 @@ public sealed class SceneRenderer : IDisposable
         _agentsDirty = true;
     }
 
+    /// <summary>
+    /// Lift cars to draw in 3D from the next render (round 013b); null or empty for none. The meshes are rebuilt only
+    /// when a different list is passed, so the caller passes the same instance while nothing moved.
+    /// </summary>
+    public void SetLiftCars(IReadOnlyList<LiftCarDraw>? cars)
+    {
+        if (ReferenceEquals(cars, _pendingCars))
+        {
+            return;
+        }
+
+        _pendingCars = cars;
+        _carsDirty = true;
+    }
+
+    /// <summary>
+    /// Live heatmap layers to drape over floors and flights from the next render (D-202); null or empty for none.
+    /// Textures are re-uploaded only when <paramref name="version"/> changes. While any layer shows, agents are drawn
+    /// smaller and dimmed (D-207).
+    /// </summary>
+    public void SetHeatmap(IReadOnlyList<HeatLayerDraw>? layers, long version)
+    {
+        if (version == _heatVersion && ReferenceEquals(layers, _pendingHeat))
+        {
+            return;
+        }
+
+        _pendingHeat = layers;
+        _heatVersion = version;
+        _heatDirty = true;
+    }
+
     /// <summary>Draws one frame into the currently bound framebuffer.</summary>
     /// <param name="pixelWidth">Framebuffer width in pixels.</param>
     /// <param name="pixelHeight">Framebuffer height in pixels.</param>
@@ -156,10 +196,23 @@ public sealed class SceneRenderer : IDisposable
         _agentProgram.SetViewProjection(viewProjection);
         _agentProgram.SetTime((float)_clock.Elapsed.TotalSeconds);
         _agentProgram.SetColorMode(AgentColoring == AgentColoring.Stress ? 1 : 0);
+        if (_heatDirty)
+        {
+            UploadHeat(_pendingHeat);
+            _heatDirty = false;
+        }
+
+        _agentProgram.SetDim(_heat.Count > 0 ? 1f : 0f);
         if (_agentsDirty && _agents is not null)
         {
             _agents.Update(_pendingAgents ?? [], _pendingAgents is null ? 0 : _pendingAgentCount);
             _agentsDirty = false;
+        }
+
+        if (_carsDirty)
+        {
+            UploadCars(_pendingCars);
+            _carsDirty = false;
         }
 
         if (mode == ViewMode.Plan)
@@ -203,6 +256,7 @@ public sealed class SceneRenderer : IDisposable
             }
         }
 
+        DrawHeat();
         DrawLines(_grid, 1f, GridWidthDip);
 
         if (ghost is not null)
@@ -252,6 +306,8 @@ public sealed class SceneRenderer : IDisposable
             DrawTriangles(level.Overlays, 1f);
         }
 
+        DrawHeat();
+
         // Faint shaft boxes after the floors, still without depth writes, so everything reads through them (D-067).
         DrawTriangles(_shaftBoxes, 1f);
 
@@ -272,7 +328,87 @@ public sealed class SceneRenderer : IDisposable
         }
 
         GL.ColorMask(true, true, true, true);
+
+        // Lift car floors write depth with the agents, then the translucent walls go over the riders without depth
+        // writes so the people inside stay visible, then the car outlines (round 013b).
+        DrawTriangles(_carSolid, 1f);
         DrawAgents();
+        GL.DepthMask(false);
+        DrawTriangles(_carGlass, 1f);
+        DrawLines(_carLines, 1f, LineWidthDip);
+        GL.DepthMask(true);
+    }
+
+    /// <summary>Rebuilds the lift car meshes (a few boxes, so cheap enough on every car move).</summary>
+    private void UploadCars(IReadOnlyList<LiftCarDraw>? cars)
+    {
+        ReleaseCars();
+        if (cars is null || cars.Count == 0)
+        {
+            return;
+        }
+
+        (MeshData solid, MeshData glass, MeshData lines) = LiftCarMeshes.Build(cars);
+        _carSolid = GpuMesh.Create(solid);
+        _carGlass = GpuMesh.Create(glass);
+        _carLines = GpuMesh.Create(lines);
+    }
+
+    private void ReleaseCars()
+    {
+        _carSolid?.Dispose();
+        _carSolid = null;
+        _carGlass?.Dispose();
+        _carGlass = null;
+        _carLines?.Dispose();
+        _carLines = null;
+    }
+
+    /// <summary>Draws the heatmap layers with the textured program at full opacity (the texels carry their alpha).</summary>
+    private void DrawHeat()
+    {
+        if (_heat.Count == 0)
+        {
+            return;
+        }
+
+        _textured.Use();
+        _textured.SetAlpha(1f);
+        foreach (GpuHeatLayer layer in _heat)
+        {
+            layer.Draw();
+        }
+    }
+
+    /// <summary>Uploads heat layers, reusing textures by key while the size is unchanged; frees the rest.</summary>
+    private void UploadHeat(IReadOnlyList<HeatLayerDraw>? layers)
+    {
+        _heat.Clear();
+        var keep = new HashSet<int>();
+        foreach (HeatLayerDraw draw in layers ?? [])
+        {
+            if (draw.Width <= 0 || draw.Height <= 0 || draw.Bgra.Length < draw.Width * draw.Height * 4 || draw.Corners.Count < 4)
+            {
+                continue;
+            }
+
+            if (!_heatCache.TryGetValue(draw.Key, out GpuHeatLayer? gpu) || gpu.Width != draw.Width || gpu.Height != draw.Height)
+            {
+                gpu?.Dispose();
+                gpu = GpuHeatLayer.Create(draw.Width, draw.Height);
+                _heatCache[draw.Key] = gpu;
+            }
+
+            gpu.Update(draw);
+            _heat.Add(gpu);
+            keep.Add(draw.Key);
+        }
+
+        foreach (int key in _heatCache.Keys.Where(k => !keep.Contains(k)).ToList())
+        {
+            _heatCache[key].Dispose();
+            _heatCache.Remove(key);
+        }
     }
 
     /// <summary>Draws the agent instances with the agent program.</summary>
@@ -392,6 +528,7 @@ public sealed class SceneRenderer : IDisposable
         if (IsInitialised)
         {
             ReleaseScene();
+            ReleaseCars();
             foreach (GpuUnderlay underlay in _underlayCache.Values)
             {
                 underlay.Dispose();
@@ -399,6 +536,13 @@ public sealed class SceneRenderer : IDisposable
 
             _underlayCache.Clear();
             _underlays.Clear();
+            foreach (GpuHeatLayer layer in _heatCache.Values)
+            {
+                layer.Dispose();
+            }
+
+            _heatCache.Clear();
+            _heat.Clear();
             _flat.Dispose();
             _lines.Dispose();
             _textured.Dispose();

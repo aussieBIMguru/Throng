@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.Input;
+using Throng.Core.Geometry;
 using Throng.Core.Model;
 
 namespace Throng.App.ViewModels;
@@ -48,6 +49,74 @@ public sealed partial class MainViewModel
         string name = next[index].Name;
         next.RemoveAt(index);
         Apply($"Delete train service '{name}'", () => _study.TrainServices, v => _study.TrainServices = v, next);
+    }
+
+    /// <summary>Drawn train shapes on a level (D-249): services whose first door zone is on it.</summary>
+    public IReadOnlyList<IReadOnlyList<Point2>> TrainShapes(Guid levelId)
+    {
+        List<IReadOnlyList<Point2>> shapes = [];
+        foreach (TrainService service in _study.TrainServices)
+        {
+            if (service.Shape is { Count: >= 3 } shape && TrainLevelId(service) == levelId)
+            {
+                shapes.Add(shape);
+            }
+        }
+
+        return shapes;
+    }
+
+    /// <summary>The level of a service's doors (its first door zone), or null with no doors.</summary>
+    internal Guid? TrainLevelId(TrainService service) =>
+        service.DoorZoneIds.Select(id => _study.FindRegion(id)).FirstOrDefault(r => r is not null)?.LevelId;
+
+    /// <summary>Starts DRAW TRAIN for service <paramref name="index"/> on its doors' level (D-249).</summary>
+    internal void StartTrainShape(int index)
+    {
+        if (!CanEditTrains() || index < 0 || index >= _study.TrainServices.Count)
+        {
+            return;
+        }
+
+        TrainService service = _study.TrainServices[index];
+        if (TrainLevelId(service) is not { } levelId)
+        {
+            Ticker = "Set the service's doors first: the train is drawn on their level.";
+            return;
+        }
+
+        Editor.StartTrainShape(service.Id, levelId, service.Name);
+    }
+
+    /// <summary>Stores a finished DRAW TRAIN polygon (D-249).</summary>
+    public void SetTrainShape(Guid serviceId, IReadOnlyList<Point2> outline)
+    {
+        int index = _study.TrainServices.FindIndex(t => t.Id == serviceId);
+        if (index < 0)
+        {
+            return;
+        }
+
+        TrainService service = _study.TrainServices[index];
+        ReplaceTrainService(index, service with { Shape = [.. outline] }, $"Draw train shape for '{service.Name}'");
+    }
+
+    /// <summary>Removes service <paramref name="index"/>'s drawn shape, back to the automatic box (undoable).</summary>
+    internal void ClearTrainShape(int index)
+    {
+        if (index < 0 || index >= _study.TrainServices.Count)
+        {
+            return;
+        }
+
+        TrainService service = _study.TrainServices[index];
+        if (service.Shape.Count == 0)
+        {
+            Ticker = $"'{service.Name}' already uses the automatic train box.";
+            return;
+        }
+
+        ReplaceTrainService(index, service with { Shape = [] }, $"Clear train shape for '{service.Name}'");
     }
 
     /// <summary>Rejects an edit with a ticker message.</summary>

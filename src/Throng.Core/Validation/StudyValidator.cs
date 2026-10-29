@@ -123,7 +123,9 @@ public static class StudyValidator
         ValidateVertical(study, polygons, levelIds, messages);
         ValidateDevicesAndUnderlays(study, polygons, levelIds, messages);
         ValidateDemand(study, messages);
+        ValidateAccessibleDevices(study, messages);
         ValidateTrains(study, messages);
+        ValidateLifts(study, messages);
         return messages;
     }
 
@@ -131,6 +133,43 @@ public static class StudyValidator
     /// Train services (D-184–D-187): doors exist, are sink zones on one level and belong to one service; the timetable
     /// leaves time between trains; counts aren't negative; doors that people get off at have rules saying who.
     /// </summary>
+    /// <summary>
+    /// Lifts (round 013): a lift needs two served levels with a door, a known preset (else defaults), a front edge on
+    /// the outline; a Shuttle with more than two stops only serves its lowest and highest (D-244).
+    /// </summary>
+    private static void ValidateLifts(Study study, List<ValidationMessage> messages)
+    {
+        foreach (Shaft shaft in study.Shafts)
+        {
+            if (shaft.Lift is not { } lift)
+            {
+                continue;
+            }
+
+            IReadOnlyList<Level> stops = study.LiftStops(shaft);
+            int withDoors = stops.Count(l => lift.DoorsAt(l.Id) is { } d && (d.Front != LiftDoorUse.Closed || d.Rear != LiftDoorUse.Closed));
+            if (withDoors < 2)
+            {
+                messages.Add(new ValidationMessage(ValidationSeverity.Warning, $"Lift '{lift.Name}' has doors on fewer than two levels, so no one can ride it. Check the shaft's base and top, its stops and the lift's doors.", shaft.Id));
+            }
+
+            if (StudyTemplates.FindLiftTemplate(study, lift) is null)
+            {
+                messages.Add(new ValidationMessage(ValidationSeverity.Warning, $"Lift '{lift.Name}': preset '{lift.PresetKey}' wasn't found, so it runs with standard 13-person car values.", shaft.Id));
+            }
+
+            if (shaft.Outline.Count >= 3 && (lift.FrontEdge < 0 || lift.FrontEdge >= shaft.Outline.Count))
+            {
+                messages.Add(new ValidationMessage(ValidationSeverity.Warning, $"Lift '{lift.Name}': its front edge isn't on the shaft outline any more; the first edge is used.", shaft.Id));
+            }
+
+            if (lift.Dispatch == LiftDispatch.Shuttle && stops.Count > 2)
+            {
+                messages.Add(new ValidationMessage(ValidationSeverity.Info, $"Lift '{lift.Name}' is a shuttle, so it only stops at {stops[0].Name} and {stops[^1].Name}.", shaft.Id));
+            }
+        }
+    }
+
     private static void ValidateTrains(Study study, List<ValidationMessage> messages)
     {
         CultureInfo c = CultureInfo.InvariantCulture;
@@ -331,9 +370,11 @@ public static class StudyValidator
             foreach (Level level in study.Levels)
             {
                 bool hasFloor = study.RegionsOn(level.Id).Any(r => r.Kind == RegionKind.Walkable);
-                if (hasFloor && !study.Connectors.Any(c => study.ConnectorServes(c, level.Id)))
+                // Lifts are vertical links too (round 013b): a level a lift stops at isn't cut off.
+                bool liftStop = study.Shafts.Any(s => s.Lift is not null && study.LiftStops(s).Any(l => l.Id == level.Id));
+                if (hasFloor && !liftStop && !study.Connectors.Any(c => study.ConnectorServes(c, level.Id)))
                 {
-                    messages.Add(new ValidationMessage(ValidationSeverity.Warning, $"Level '{level.Name}' has walkable area but no stair, escalator or ramp to another level.", level.Id));
+                    messages.Add(new ValidationMessage(ValidationSeverity.Warning, $"Level '{level.Name}' has walkable area but no stair, escalator, ramp or lift to another level.", level.Id));
                 }
             }
         }
@@ -490,6 +531,67 @@ public static class StudyValidator
     /// to Commuter and unknown journeys to walking straight to a sink; every device type and zone a journey step asks
     /// for must exist. Tags are free text, so unknown tags are fine.
     /// </summary>
+    /// <summary>
+    /// D-213, D-225: people who need accessible devices, on a journey step whose device type has devices on a level
+    /// but none of them accessible, use what's there; warn once per profile, type and level. Only types that have an
+    /// accessible version at all (a preset in either library, or a placed device) are checked, so ticket machines
+    /// and the like don't warn on every study.
+    /// </summary>
+    private static void ValidateAccessibleDevices(Study study, List<ValidationMessage> messages)
+    {
+        var accessibleTags = study.Library.Devices
+            .Concat(BuiltInLibrary.Instance.Devices)
+            .Where(t => t is { Accessible: true } && !string.IsNullOrWhiteSpace(t.TypeTag))
+            .Select(t => t.TypeTag.Trim())
+            .Concat(study.Devices.Where(d => !string.IsNullOrWhiteSpace(d.TypeTag) && StudyTemplates.IsAccessible(study, d)).Select(d => d.TypeTag.Trim()))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var reported = new HashSet<(Guid Profile, string Tag, Guid Level)>();
+        foreach (Region region in study.Regions)
+        {
+            if (!region.IsSpawn)
+            {
+                continue;
+            }
+
+            foreach (EmissionRule rule in region.EmissionRules)
+            {
+                foreach (MixLine line in rule.Mix ?? [])
+                {
+                    if (line is null || !(line.Share > 0) || line.JourneyId is not { } journeyId
+                        || StudyTemplates.FindProfile(study, line.ProfileId) is not { NeedsAccessibleDevices: true } profile
+                        || StudyTemplates.FindJourney(study, journeyId) is not { } journey)
+                    {
+                        continue;
+                    }
+
+                    foreach (JourneyStep step in journey.Steps)
+                    {
+                        if (step is not { Kind: JourneyStepKind.GoToDevice } || string.IsNullOrWhiteSpace(step.TargetTag)
+                            || !accessibleTags.Contains(step.TargetTag.Trim()))
+                        {
+                            continue;
+                        }
+
+                        string tag = step.TargetTag.Trim();
+                        foreach (IGrouping<Guid, Device> onLevel in study.Devices
+                            .Where(d => string.Equals(d.TypeTag, tag, StringComparison.OrdinalIgnoreCase))
+                            .GroupBy(d => d.LevelId))
+                        {
+                            if (onLevel.Any(d => StudyTemplates.IsAccessible(study, d)) || !reported.Add((profile.Id, tag.ToUpperInvariant(), onLevel.Key)))
+                            {
+                                continue;
+                            }
+
+                            string level = study.FindLevel(onLevel.Key)?.Name ?? "a level";
+                            messages.Add(new ValidationMessage(ValidationSeverity.Warning,
+                                $"{profile.Name} people have no accessible {tag} on {level}; they'll use the others there.", onLevel.First().Id));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     private static void ValidateMix(Study study, Region region, string label, EmissionRule rule, List<ValidationMessage> messages)
     {
         CultureInfo c = CultureInfo.InvariantCulture;

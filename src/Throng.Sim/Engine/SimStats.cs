@@ -13,6 +13,7 @@ namespace Throng.Sim.Engine;
 /// <param name="Queuing">People in device queues, being served or waiting for a lane (D-153).</param>
 /// <param name="GaveUp">People who left because their patience ran out in a queue (D-165, D-168).</param>
 /// <param name="LeftBehind">People still waiting on the platform when their train left (D-187).</param>
+/// <param name="AtLifts">People waiting on a lift landing or riding a car (round 013).</param>
 public readonly record struct SimStats(
     double TimeS, int InSystem, long Spawned, long Arrived, double MeanJourneyS, int StuckNow, long StuckRemoved, int Waiting,
-    int Stressed = 0, int Queuing = 0, long GaveUp = 0, long LeftBehind = 0);
+    int Stressed = 0, int Queuing = 0, long GaveUp = 0, long LeftBehind = 0, int AtLifts = 0);

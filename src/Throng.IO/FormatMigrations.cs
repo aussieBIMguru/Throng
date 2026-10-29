@@ -1,3 +1,4 @@
+using Throng.Core.Library;
 using Throng.Core.Model;
 
 namespace Throng.IO;
@@ -17,6 +18,10 @@ namespace Throng.IO;
 /// <item>4 → 5 (round 007, D-129): adds rate curves on emission rules. Older rules have none (a flat rate).</item>
 /// <item>5 → 6 (round 009, D-157): each rule's single profile becomes one mix line with no journey (people walk
 /// straight to a sink, as before); devices gain a max queue (default 20) and an empty queue path.</item>
+/// <item>6 → 7 (round 010b, D-188): adds train services; older studies have none.</item>
+/// <item>7 → 8 (round 011b, D-213, D-223): accessible devices. Embedded copies of the built-in accessible gate
+/// become accessible and the built-in wheelchair profile needs accessible devices; every other preset and profile
+/// keeps the old behaviour (not accessible, no need), and placed devices take their preset's flag.</item>
 /// </list>
 /// </remarks>
 internal static class FormatMigrations
@@ -30,6 +35,8 @@ internal static class FormatMigrations
         (4, UpgradeV4ToV5),
         (5, UpgradeV5ToV6),
         (6, UpgradeV6ToV7),
+        (7, UpgradeV7ToV8),
+        (8, UpgradeV8ToV9),
     ];
 
     /// <summary>Applies every step needed to bring a study from <paramref name="fileVersion"/> to current.</summary>
@@ -160,5 +167,31 @@ internal static class FormatMigrations
     {
         study.TrainServices ??= [];
         study.TrainServices.RemoveAll(t => t is null);
+    }
+
+    /// <summary>v8 → v9: lifts arrive in shafts (round 013, D-236). Older shafts have no lift, so nothing changes.</summary>
+    private static void UpgradeV8ToV9(Study study) => _ = study;
+
+    /// <summary>
+    /// v7 → v8: accessible devices arrive (D-213). The built-in accessible gate and wheelchair profile gained their
+    /// flags in round 011b, so embedded copies of them (same key) get them too; placed devices keep no override.
+    /// </summary>
+    private static void UpgradeV7ToV8(Study study)
+    {
+        foreach (DeviceTemplate preset in study.Library.Devices)
+        {
+            if (preset is not null && string.Equals(preset.Key, BuiltInLibrary.AccessibleGateKey, StringComparison.Ordinal))
+            {
+                preset.Accessible = true;
+            }
+        }
+
+        foreach (AgentProfileTemplate profile in study.Library.AgentProfiles)
+        {
+            if (profile is not null && string.Equals(profile.Key, BuiltInLibrary.MobilityProfileKey, StringComparison.Ordinal))
+            {
+                profile.NeedsAccessibleDevices = true;
+            }
+        }
     }
 }

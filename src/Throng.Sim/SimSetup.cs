@@ -279,6 +279,8 @@ public static class SimSetup
         List<SimTrain> trains = BuildTrains(study, nav, emitters, exitByRegion);
 
         StudySettings settings = study.Settings;
+        (List<SimZone> zones, ulong[]?[] zoneCellBits) = BuildZones(study, nav, findings);
+        List<SimLift> lifts = BuildLifts(study, nav);
         var model = new SimModel
         {
             Routes = routes,
@@ -287,15 +289,137 @@ public static class SimSetup
             Journeys = journeys,
             Devices = devices,
             Trains = trains,
+            Lifts = lifts,
             TagNames = tags.Names,
             Seed = settings.Seed,
             StartTimeOfDay = settings.StartTimeOfDay,
             DurationS = settings.EndCondition == StudyEndCondition.FixedDuration ? Math.Max(1, settings.DurationS) : null,
             TimeStepS = Math.Clamp(settings.TimeStepS, 0.02, 0.2),
             KeepSide = settings.KeepSide,
+            WarmUpS = Math.Max(0, settings.WarmUpS),
+            LongWaitS = settings.LongWaitS > 0 ? settings.LongWaitS : 120,
+            Zones = zones,
+            ZoneCellBits = zoneCellBits,
             Findings = findings,
         };
         return new SimSetupResult(model, findings);
+    }
+
+    /// <summary>
+    /// Lift banks (round 013) from the lift connectors in the navigation world: preset values, stops with their
+    /// landing portals, car layout, lobby (D-244) and schedule (D-238).
+    /// </summary>
+    private static List<SimLift> BuildLifts(Study study, NavWorld nav)
+    {
+        var lifts = new List<SimLift>();
+        int firstCar = 0;
+        foreach (NavConnector connector in nav.Connectors)
+        {
+            Shaft? shaft = connector.IsLift ? study.Shafts.FirstOrDefault(s => s.Id == connector.ShaftId) : null;
+            if (shaft?.Lift is not { } lift)
+            {
+                continue;
+            }
+
+            Result<LiftLayout> layout = LiftLayout.Compute(shaft.Outline, lift.FrontEdge, lift.Cars, lift.LandingDepthM);
+            if (!layout.IsSuccess || layout.Value is not { } l)
+            {
+                continue;
+            }
+
+            LiftTemplate preset = StudyTemplates.FindLiftTemplate(study, lift) ?? new LiftTemplate();
+            IReadOnlyList<Level> stops = study.LiftStops(shaft);
+            var portals = new int[stops.Count * 2];
+            Array.Fill(portals, -1);
+            foreach (int p in connector.Portals)
+            {
+                NavPortal portal = nav.Portals[p];
+                portals[(portal.LiftStop * 2) + portal.LiftSide] = p;
+            }
+
+            int lobby = lift.LobbyLevelId is { } lobbyId ? Math.Max(0, stops.ToList().FindIndex(s => s.Id == lobbyId)) : 0;
+            double speed = connector.LiftSpeedMps, accel = connector.LiftAccelMps2;
+            double stopS = Math.Max(0, preset.DoorOpenS) + Math.Max(0, preset.DwellS) + Math.Max(0, preset.DoorCloseS);
+            double rise = stops.Count > 0 ? stops[^1].ElevationM - stops[0].ElevationM : 0;
+            lifts.Add(new SimLift
+            {
+                Index = lifts.Count,
+                ShaftId = shaft.Id,
+                Name = lift.Name,
+                Connector = connector.Index,
+                FirstCar = firstCar,
+                CarLayouts = l.Cars,
+                Sides = [l.Front, l.Rear],
+                Capacity = Math.Max(1, preset.CapacityPersons),
+                SpeedMps = speed,
+                AccelMps2 = accel,
+                DoorOpenS = Math.Max(0, preset.DoorOpenS),
+                DoorCloseS = Math.Max(0, preset.DoorCloseS),
+                DwellS = Math.Max(0.5, preset.DwellS),
+                AccessiblePriority = preset.AccessiblePriority,
+                StopZ = [.. stops.Select(s => s.ElevationM)],
+                StopLevels = [.. stops.Select(s => s.Id)],
+                StopFloor = [.. stops.Select(s => nav.FloorByLevel.TryGetValue(s.Id, out int f) ? f : -1)],
+                Portals = portals,
+                LobbyStop = lobby,
+                Dispatch = lift.Dispatch,
+                Schedule = [.. (lift.Schedule ?? []).Where(e => e is not null).OrderBy(e => e.From).Select(e => (e.From, e.Dispatch))],
+                RoundTripS = (2 * LiftTiming.TravelS(rise, speed, accel)) + (2 * stopS),
+            });
+            firstCar += l.Cars.Count;
+        }
+
+        return lifts;
+    }
+
+    /// <summary>
+    /// Measurement zones (D-228): each one's walkable floor cells get its bit, so the engine can count occupancy and
+    /// entries from agent cells. At most <see cref="SimZone.MaxZones"/>; extra zones are left out with a warning.
+    /// </summary>
+    private static (List<SimZone> Zones, ulong[]?[] CellBits) BuildZones(Study study, NavWorld nav, List<ValidationMessage> findings)
+    {
+        var zones = new List<SimZone>();
+        var bits = new ulong[]?[nav.Surfaces.Count];
+        foreach (Region region in study.Regions.Where(r => r.Kind == RegionKind.Zone && r.ZoneKind == ZoneKind.Measurement))
+        {
+            if (!nav.FloorByLevel.TryGetValue(region.LevelId, out int floor))
+            {
+                continue;
+            }
+
+            if (zones.Count >= SimZone.MaxZones)
+            {
+                findings.Add(new ValidationMessage(ValidationSeverity.Warning, $"More than {SimZone.MaxZones} measurement zones; '{region.Name}' and any after it aren't counted.", region.Id));
+                break;
+            }
+
+            NavSurface surface = nav.Surfaces[floor];
+            List<int> cells = NavWorldBuilder.CellsInside(surface, [region.Outline], walkableOnly: true);
+            if (cells.Count == 0)
+            {
+                findings.Add(new ValidationMessage(ValidationSeverity.Warning, $"Measurement zone '{region.Name}' has no walkable floor inside it, so it counts no one.", region.Id));
+                continue;
+            }
+
+            var zone = new SimZone
+            {
+                Index = zones.Count,
+                RegionId = region.Id,
+                Name = region.Name,
+                Floor = floor,
+                AreaM2 = PolygonMath.Area(region.Outline),
+                WidthM = Math.Max(0.1, OrientedBounds.Of(region.Outline).ShortSideM),
+            };
+            ulong[] mask = bits[floor] ??= new ulong[surface.CellCount];
+            foreach (int cell in cells)
+            {
+                mask[cell] |= zone.Bit;
+            }
+
+            zones.Add(zone);
+        }
+
+        return (zones, bits);
     }
 
     /// <summary>A mix line before its emitter is built.</summary>
@@ -421,6 +545,7 @@ public static class SimSetup
                 ServiceTime = service,
                 MeanServiceS = Math.Max(0.1, service.ExpectedValue),
                 ChoicePenaltyS = -(template?.ChoiceWeight ?? 0),
+                Accessible = device.AccessibleOverride ?? template?.Accessible ?? false,
                 LaneBase = laneBase,
                 LineBase = lineBase,
                 Slots = slots,
@@ -658,7 +783,8 @@ public static class SimSetup
                 DoorEmitters = doorEmitters,
                 Inward = inward,
                 Along = along,
-                Box = [At(a0, edge), At(a1, edge), At(a1, outer), At(a0, outer)],
+                // A drawn train shape (D-249) replaces the automatic box; it's only drawn, the doors stay the doors.
+                Box = service.Shape is { Count: >= 3 } shape ? [.. shape] : [At(a0, edge), At(a1, edge), At(a1, outer), At(a0, outer)],
                 HeadwayS = Math.Max(20, service.HeadwayS),
                 OffsetS = Math.Max(0, service.OffsetS),
                 DwellS = Math.Max(10, service.DwellS),

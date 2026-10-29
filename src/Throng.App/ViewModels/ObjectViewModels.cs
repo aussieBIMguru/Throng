@@ -185,6 +185,29 @@ public sealed class DeviceViewModel : ObservableObject
     public bool IsPassThrough => Model.PassThrough;
 
     /// <summary>
+    /// Accessible (D-213, D-223): the preset's flag unless this device overrides it. Setting it back to the preset's
+    /// value clears the override, so the device follows its preset again. Undoable.
+    /// </summary>
+    public bool Accessible
+    {
+        get => StudyTemplates.IsAccessible(_owner.Study, Model);
+        set
+        {
+            bool preset = PresetAccessible;
+            bool? wanted = value == preset ? null : value;
+            _owner.Apply(value ? "Make device accessible" : "Make device not accessible", () => Model.AccessibleOverride, v => Model.AccessibleOverride = v, wanted);
+            OnPropertyChanged(nameof(AccessibleText));
+        }
+    }
+
+    /// <summary>Where the accessible flag comes from: the preset, or this device.</summary>
+    public string AccessibleText => Model.AccessibleOverride is null
+        ? $"From the preset ({(PresetAccessible ? "accessible" : "not accessible")})."
+        : $"Set on this device; the preset says {(PresetAccessible ? "accessible" : "not accessible")}.";
+
+    private bool PresetAccessible => StudyTemplates.FindDeviceTemplate(_owner.Study, Model)?.Accessible ?? false;
+
+    /// <summary>
     /// Lane directions as text, one word per lane (D-196): "both", "front" (entered from the side it faces) or "back",
     /// e.g. "back, back, front, front". Undoable; bad words are rejected.
     /// </summary>

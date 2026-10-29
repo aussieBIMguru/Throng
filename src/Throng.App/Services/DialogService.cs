@@ -27,6 +27,14 @@ public interface IDialogService
     /// <summary>Asks for a PNG or JPEG to use as an underlay (D-083); null when cancelled.</summary>
     string? PickImagePath();
 
+    /// <summary>Asks for a folder (results export, D-222); null when cancelled.</summary>
+    /// <param name="title">Dialog title.</param>
+    string? PickFolder(string title);
+
+    /// <summary>Asks where to save an exported PNG (D-234); null when cancelled.</summary>
+    /// <param name="suggestedFileName">File name to start with.</param>
+    string? PickPngSavePath(string suggestedFileName);
+
     /// <summary>Asks which levels to use (Copy to Levels, D-060); null when cancelled.</summary>
     /// <param name="title">Dialog title.</param>
     /// <param name="message">Explanation above the checklist.</param>
@@ -82,6 +90,28 @@ public sealed class DialogService : IDialogService
             Filter = "Plan images (*.png;*.jpg;*.jpeg)|*.png;*.jpg;*.jpeg|All files (*.*)|*.*",
             Title = "Add underlay image",
             CheckFileExists = true,
+        };
+        return dialog.ShowDialog(_owner) == true ? dialog.FileName : null;
+    }
+
+    /// <inheritdoc />
+    public string? PickFolder(string title)
+    {
+        var dialog = new OpenFolderDialog { Title = title, Multiselect = false };
+        return dialog.ShowDialog(_owner) == true ? dialog.FolderName : null;
+    }
+
+    /// <inheritdoc />
+    public string? PickPngSavePath(string suggestedFileName)
+    {
+        var dialog = new SaveFileDialog
+        {
+            Filter = "PNG image (*.png)|*.png|All files (*.*)|*.*",
+            Title = "Export PNG",
+            FileName = suggestedFileName,
+            DefaultExt = ".png",
+            AddExtension = true,
+            OverwritePrompt = true,
         };
         return dialog.ShowDialog(_owner) == true ? dialog.FileName : null;
     }

@@ -221,7 +221,7 @@ public sealed partial class SimEngine
         SimProfile profile = _model.Profiles[a.Profile[i]];
         double cost = RoutePlanner.Choose(
             _routes, a.Surface[i], a.X[i], a.Y[i], a.Sink[i], profile.Mobility, profile.Template, null, out bool direct, out RouteOption option, _wait,
-            BeltWalkSpeed(i), portal.Connector, StayBonusS, _tuning.StairEffort, _tuning.StandingRest, sight);
+            BeltWalkSpeed(i), portal.Connector, StayBonusS, _tuning.StairEffort, _tuning.StandingRest, sight, priorityPenaltyS: _liftPriorityS);
         if (!double.IsFinite(cost))
         {
             return;
@@ -271,7 +271,7 @@ public sealed partial class SimEngine
         {
             double c = RoutePlanner.Choose(
                 _routes, a.Surface[i], a.X[i], a.Y[i], sink, profile.Mobility, profile.Template, null, out _, out _, _wait,
-                BeltWalkSpeed(i), stairEffort: _tuning.StairEffort, standingRest: _tuning.StandingRest, sightRadius: sight);
+                BeltWalkSpeed(i), stairEffort: _tuning.StairEffort, standingRest: _tuning.StandingRest, sightRadius: sight, priorityPenaltyS: _liftPriorityS);
             c += ExitCrowdFor(i, sink) - (sink == current ? StayBonusS : 0);
             if (c < bestCost)
             {

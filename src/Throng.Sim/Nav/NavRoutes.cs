@@ -8,7 +8,7 @@ public enum MobilityClass
     /// <summary>Everything public: stairs, escalators, ramps, travelators.</summary>
     Normal = 0,
 
-    /// <summary>Lift-only profiles: ramps and travelators (lifts arrive in M4).</summary>
+    /// <summary>Lift-only profiles: ramps, travelators and lifts (round 013).</summary>
     StepFree = 1,
 }
 
@@ -71,10 +71,14 @@ public sealed class NavRoutes
             cancel.ThrowIfCancellationRequested();
             if (portal.AllowsEntry)
             {
-                floorSide[portal.Index] = builder.Build([portal.Floor], portal.Floor, portal.FloorCells, portal.Outward * -1, (portal.A, portal.B));
+                // A lift landing is a zone to stand in (round 013), not an edge to step through.
+                floorSide[portal.Index] = portal.IsLiftLanding
+                    ? builder.Build([portal.Floor], portal.Floor, portal.FloorCells, default)
+                    : builder.Build([portal.Floor], portal.Floor, portal.FloorCells, portal.Outward * -1, (portal.A, portal.B));
             }
 
-            if (portal.AllowsExit)
+            // Lift landings have no piece: the ride is timed, so there's no field over the connector (round 013).
+            if (portal.AllowsExit && !portal.IsLiftLanding)
             {
                 NavConnector connector = world.Connectors[portal.Connector];
                 var scope = new List<int>(connector.Pieces);
@@ -104,9 +108,22 @@ public sealed class NavRoutes
                 continue;
             }
 
-            foreach (int exitIndex in world.Connectors[entry.Connector].Portals)
+            NavConnector owner = world.Connectors[entry.Connector];
+            foreach (int exitIndex in owner.Portals)
             {
                 NavPortal exit = world.Portals[exitIndex];
+                if (owner.IsLift)
+                {
+                    // A lift ride (round 013): any landing with an exit door on another level, timed from the car's
+                    // speed and the fixed part (doors, getting on and off, the uncrowded wait).
+                    if (exitIndex != entry.Index && exit.AllowsExit && exit.LiftStop != entry.LiftStop)
+                    {
+                        options[entry.Floor].Add(new RouteOption(entry.Index, exitIndex, entry.Connector, owner.LiftViaSeconds(entry.ElevationM, exit.ElevationM), exit.ElevationM - entry.ElevationM));
+                    }
+
+                    continue;
+                }
+
                 if (exitIndex == entry.Index || !exit.AllowsExit || connSide[exitIndex] is not { } field)
                 {
                     continue;
@@ -198,6 +215,10 @@ public sealed class NavRoutes
         return table;
     }
 
-    /// <summary>The mobility class of a profile.</summary>
-    public static MobilityClass ClassOf(AgentProfileTemplate profile) => profile.LiftOnly ? MobilityClass.StepFree : MobilityClass.Normal;
+    /// <summary>
+    /// The mobility class of a profile: lift/ramp-only profiles, and people who need accessible devices (D-247: they
+    /// keep to lifts and accessible devices), are step-free.
+    /// </summary>
+    public static MobilityClass ClassOf(AgentProfileTemplate profile) =>
+        profile.LiftOnly || profile.NeedsAccessibleDevices ? MobilityClass.StepFree : MobilityClass.Normal;
 }

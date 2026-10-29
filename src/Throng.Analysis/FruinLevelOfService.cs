@@ -61,6 +61,28 @@ public static class FruinLevelOfService
     public static LevelOfService FromDensity(double personsPerM2, LosAreaType type) =>
         personsPerM2 <= 0 ? LevelOfService.A : FromAreaPerPedestrian(1.0 / personsPerM2, type);
 
+    /// <summary>
+    /// Densities (persons per m²) at which grades B, C, D, E and F begin for a table, ascending (round 011c: the graph's
+    /// LoS bands). Below the first one is grade A.
+    /// </summary>
+    public static double[] GradeStartDensities(LosAreaType type)
+    {
+        double[] bounds = type switch
+        {
+            LosAreaType.Queue => QueueBounds,
+            LosAreaType.Stair => StairBounds,
+            _ => WalkwayBounds,
+        };
+
+        var starts = new double[bounds.Length];
+        for (int i = 0; i < bounds.Length; i++)
+        {
+            starts[i] = 1.0 / bounds[i];
+        }
+
+        return starts;
+    }
+
     /// <summary>Plain-language label for non-specialist audiences (D-012 toggle).</summary>
     public static string AbstractLabel(LevelOfService los) => los switch
     {

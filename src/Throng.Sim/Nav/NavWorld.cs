@@ -47,6 +47,27 @@ public sealed class NavConnector
 
     /// <summary>Floor surfaces of excluded intermediate levels it passes over (D-093).</summary>
     public List<int> PassOverFloors { get; } = [];
+
+    /// <summary>True for a lift bank (round 013): no pieces; its portals are landings and the ride is timed, not walked.</summary>
+    public bool IsLift => Kind == ConnectorKind.Lift;
+
+    /// <summary>Lift banks: the shaft they're in.</summary>
+    public Guid ShaftId { get; init; }
+
+    /// <summary>Lift banks: rated speed, m/s.</summary>
+    public double LiftSpeedMps { get; init; } = 1.6;
+
+    /// <summary>Lift banks: acceleration, m/s².</summary>
+    public double LiftAccelMps2 { get; init; } = 1.0;
+
+    /// <summary>
+    /// Lift banks: nominal seconds per ride besides the travel itself: half the usual interval between cars (the
+    /// uncrowded wait), doors closing at the start, opening at the end, and getting on and off.
+    /// </summary>
+    public double LiftFixedS { get; init; }
+
+    /// <summary>Nominal seconds to ride a lift between two heights (fixed part plus travel).</summary>
+    public float LiftViaSeconds(double fromZ, double toZ) => (float)(LiftFixedS + LiftTiming.TravelS(Math.Abs(toZ - fromZ), LiftSpeedMps, LiftAccelMps2));
 }
 
 /// <summary>
@@ -97,8 +118,17 @@ public sealed class NavPortal
     /// <summary>Representative floor cell (middle of the edge).</summary>
     public int FloorCell => FloorCells[FloorCells.Length / 2];
 
-    /// <summary>Representative piece cell.</summary>
-    public int PieceCell => PieceCells[PieceCells.Length / 2];
+    /// <summary>Representative piece cell (−1 for a lift landing, which has none).</summary>
+    public int PieceCell => PieceCells.Length > 0 ? PieceCells[PieceCells.Length / 2] : -1;
+
+    /// <summary>Lift landings (round 013): index of the stop in the lift's stop list, else −1.</summary>
+    public int LiftStop { get; init; } = -1;
+
+    /// <summary>Lift landings: door side, 0 front or 1 rear, else −1.</summary>
+    public int LiftSide { get; init; } = -1;
+
+    /// <summary>True for a lift landing (no piece).</summary>
+    public bool IsLiftLanding => LiftStop >= 0;
 
     /// <summary>Distance from a plan point to the edge.</summary>
     public double DistanceTo(Point2 p) => SegmentDistance(p, A, B);
