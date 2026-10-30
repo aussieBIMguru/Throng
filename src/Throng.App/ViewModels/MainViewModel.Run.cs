@@ -250,11 +250,22 @@ public sealed partial class MainViewModel
             return;
         }
 
-        // A lift dropped onto a shaft goes into that shaft (round 013b, D-245).
-        if (item.Template is Throng.Core.Library.LiftTemplate && planPoint is { } at && ActiveLevelModel is { } level
-            && _study.Shafts.FirstOrDefault(s => _study.ShaftSpans(s, level.Id) && PolygonMath.Contains(s.Outline, at)) is { } target)
+        // A lift dropped onto a shaft goes into that shaft (round 013b, D-245). Dropped anywhere else it goes nowhere,
+        // not into whichever shaft happened to be selected before (round 014, D-252).
+        if (item.Template is Throng.Core.Library.LiftTemplate lift)
         {
-            Editor.Select(target.Id);
+            if (planPoint is { } at && ActiveLevelModel is { } level
+                && _study.Shafts.FirstOrDefault(s => _study.ShaftSpans(s, level.Id) && PolygonMath.Contains(s.Outline, at)) is { } target)
+            {
+                Editor.Select(target.Id);
+                UseTemplate(item);
+            }
+            else
+            {
+                Ticker = $"{lift.Name}: drop it onto a shaft in the plan (or select a shaft and click the preset).";
+            }
+
+            return;
         }
 
         UseTemplate(item);
@@ -377,7 +388,8 @@ public sealed partial class MainViewModel
             ResetRunCommand.NotifyCanExecuteChanged();
             if (result is not null)
             {
-                ShowFindings(result.Findings, "CHECK FAILED ▸ fix the errors and press PLAY again.");
+                // Blocking errors open the CHECK tab (D-271).
+                ShowCheck(Throng.Analysis.Checks.StudyCheck.Normalise(result.Findings), "CHECK FAILED ▸ fix the errors (CHECK tab) and press PLAY again.");
             }
 
             return;
@@ -545,15 +557,6 @@ public sealed partial class MainViewModel
         OnPropertyChanged(nameof(IsPlaying));
         OnPropertyChanged(nameof(PlayText));
         OnPropertyChanged(nameof(PlayGlyph));
-    }
-
-    /// <summary>Lists findings in a dialog (errors first) and puts a summary in the ticker.</summary>
-    private void ShowFindings(IReadOnlyList<ValidationMessage> findings, string ticker)
-    {
-        string lines = string.Join(Environment.NewLine,
-            findings.OrderByDescending(f => f.Severity).Select(f => $"[{f.Severity}] {f.Message}"));
-        _dialogs.ShowInfo("Check", lines.Length == 0 ? "No problems found." : lines);
-        Ticker = ticker;
     }
 
     /// <summary>Study clock: the run's time of day while a run is active, otherwise the start time.</summary>

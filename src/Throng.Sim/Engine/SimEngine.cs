@@ -781,7 +781,7 @@ public sealed partial class SimEngine
             double sight = Sight(i);
             foreach ((int sink, double _) in options)
             {
-                double c = RoutePlanner.Choose(_routes, _agents.Surface[i], x, y, sink, profile.Mobility, profile.Template, random, out _, out _, _wait, BeltWalkSpeed(i), stairEffort: _tuning.StairEffort, standingRest: _tuning.StandingRest, sightRadius: sight, priorityPenaltyS: _liftPriorityS)
+                double c = RoutePlanner.Choose(_routes, _agents.Surface[i], x, y, sink, profile.Mobility, profile.Template, random, out _, out _, _wait, BeltWalkSpeed(i), stairEffort: _tuning.StairEffort, standingRest: _tuning.StandingRest, sightRadius: sight, priorityPenaltyS: _liftPriorityS, barredConnector: Barred(i))
                     + ExitCrowdFor(i, sink);
                 if (c < bestCost)
                 {
@@ -867,7 +867,16 @@ public sealed partial class SimEngine
         SimProfile profile = _model.Profiles[_agents.Profile[i]];
         double cost = RoutePlanner.Choose(
             _routes, s, _agents.X[i], _agents.Y[i], _agents.Sink[i], profile.Mobility, profile.Template, random, out bool direct, out RouteOption option, _wait,
-            BeltWalkSpeed(i), stairEffort: _tuning.StairEffort, standingRest: _tuning.StandingRest, sightRadius: Sight(i), priorityPenaltyS: _liftPriorityS);
+            BeltWalkSpeed(i), stairEffort: _tuning.StairEffort, standingRest: _tuning.StandingRest, sightRadius: Sight(i), priorityPenaltyS: _liftPriorityS, barredConnector: Barred(i));
+        if (!double.IsFinite(cost) && _agents.LiftBar[i] >= 0)
+        {
+            // The lift it gave up on is its only way after all (D-254): lift the bar and go back to it.
+            _agents.LiftBar[i] = -1;
+            cost = RoutePlanner.Choose(
+                _routes, s, _agents.X[i], _agents.Y[i], _agents.Sink[i], profile.Mobility, profile.Template, random, out direct, out option, _wait,
+                BeltWalkSpeed(i), stairEffort: _tuning.StairEffort, standingRest: _tuning.StandingRest, sightRadius: Sight(i), priorityPenaltyS: _liftPriorityS);
+        }
+
         if (direct || !double.IsFinite(cost))
         {
             SetMode(i, AgentMode.Direct, -1);
@@ -930,7 +939,7 @@ public sealed partial class SimEngine
         SimProfile profile = _model.Profiles[a.Profile[i]];
         double cost = RoutePlanner.Choose(
             _routes, a.Surface[i], a.X[i], a.Y[i], a.Sink[i], profile.Mobility, profile.Template, null, out bool direct, out RouteOption option, _wait,
-            BeltWalkSpeed(i), k, StayBonusS, _tuning.StairEffort, _tuning.StandingRest, Sight(i), priorityPenaltyS: _liftPriorityS);
+            BeltWalkSpeed(i), k, StayBonusS, _tuning.StairEffort, _tuning.StandingRest, Sight(i), priorityPenaltyS: _liftPriorityS, barredConnector: Barred(i));
         if (!double.IsFinite(cost))
         {
             return;

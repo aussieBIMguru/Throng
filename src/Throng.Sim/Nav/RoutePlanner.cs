@@ -50,11 +50,12 @@ public static class RoutePlanner
     /// accessible devices waiting at it), counted only when its entry is in sight; ignored for profiles that have
     /// priority themselves (<see cref="HasLiftPriority"/>). Null for none.
     /// </param>
+    /// <param name="barredConnector">A connector this agent won't use (a lift it gave up on, D-253), or −1.</param>
     public static double Choose(
         NavRoutes routes, int floor, double x, double y, int sink, MobilityClass mobility, AgentProfileTemplate? profile,
         DeterministicRandom? random, out bool direct, out RouteOption choice, double[]? waitSeconds = null,
         double beltWalkSpeed = -1, int stayConnector = -1, double staySeconds = 0, bool stairEffort = true, bool standingRest = true,
-        double sightRadius = double.PositiveInfinity, double[]? priorityPenaltyS = null)
+        double sightRadius = double.PositiveInfinity, double[]? priorityPenaltyS = null, int barredConnector = -1)
     {
         NavWorld world = routes.World;
         NavSurface surface = world.Surfaces[floor];
@@ -76,7 +77,7 @@ public static class RoutePlanner
 
         foreach (RouteOption option in routes.OptionsByFloor[floor])
         {
-            if (!routes.Usable(option.Connector, mobility) || routes.FloorSide[option.Entry] is not { } toEntry)
+            if (option.Connector == barredConnector || !routes.Usable(option.Connector, mobility) || routes.FloorSide[option.Entry] is not { } toEntry)
             {
                 continue;
             }
@@ -97,6 +98,7 @@ public static class RoutePlanner
                 // Not part of the felt ride, so not scaled by the lift preference: it's other people's turn.
                 wait += penalty[option.Connector] / MechanisedFactor(connector.Kind, profile);
             }
+
             double ride = (rideTime + wait) * MechanisedFactor(connector.Kind, profile);
             double c = toEntry.Sample(surface, x, y) + ride + routes.Remaining(mobility, sink, option.Exit)
                 + StairCorrection(connector, option.DeltaZ, profile, stairEffort)

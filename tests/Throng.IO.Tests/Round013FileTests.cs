@@ -48,7 +48,7 @@ public sealed class Round013FileTests
 
         string path = Path.Combine(_folder, "lift.throng");
         Assert.IsTrue(ThrongFile.Save(demo, path).IsSuccess);
-        Assert.AreEqual(9, ThrongFile.ReadManifest(path).Value!.FormatVersion);
+        Assert.AreEqual(ThrongFile.CurrentFormatVersion, ThrongFile.ReadManifest(path).Value!.FormatVersion);
         Lift loaded = ThrongFile.Load(path).Value!.Shafts.Single(s => s.Id == shaft.Id).Lift!;
         Assert.AreEqual("lift.accessible", loaded.PresetKey);
         Assert.AreEqual(2, loaded.Cars);

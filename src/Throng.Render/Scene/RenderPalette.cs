@@ -36,6 +36,12 @@ public static class RenderPalette
     /// <summary>Shafts: hatch in plan and edges in 3D (D-067).</summary>
     public static readonly ColorF Shaft = ColorF.FromHex("#38BDF8");
 
+    /// <summary>Section box outline and handles in 3D (round 016, D-277).</summary>
+    public static readonly ColorF SectionBox = ColorF.FromHex("#22D3EE", 0.85f);
+
+    /// <summary>The section box handle under the pointer (D-277).</summary>
+    public static readonly ColorF SectionBoxHot = ColorF.FromHex("#FACC15");
+
     /// <summary>Shaft fill: dark in plan, faint translucent box in 3D.</summary>
     public static readonly ColorF ShaftPlanFill = ColorF.FromHex("#07111C");
 
@@ -44,6 +50,9 @@ public static class RenderPalette
 
     /// <summary>Alpha of the translucent shaft box faces in 3D (D-067).</summary>
     public const float ShaftBoxAlpha = 0.10f;
+
+    /// <summary>Lift shaft walls in 3D (round 015, D-261): semi-transparent so the cars and riders read through.</summary>
+    public const float LiftShaftWallAlpha = 0.24f;
 
     public static readonly ColorF WallSide = ColorF.FromHex("#4B5568");
     public static readonly ColorF WallTop = ColorF.FromHex("#9AA7C0");

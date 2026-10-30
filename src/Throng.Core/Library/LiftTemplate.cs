@@ -14,7 +14,7 @@ public enum LiftDispatch
     /// <summary>Return to the lobby when empty.</summary>
     UpPeak,
 
-    /// <summary>Destination dispatch (later round).</summary>
+    /// <summary>Destination dispatch: each person is given a car grouped by destination (round 014, D-255).</summary>
     DestinationDispatch,
 }
 

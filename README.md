@@ -6,7 +6,7 @@ Throng is a Windows desktop app (WPF, .NET 10) for testing circulation in early-
 stations, lobbies, stadium edges. It favours fast setup and legible, "roughly right" behaviour over scientific
 fidelity. Results are indicative only and are **not** compliance evidence.
 
-> Status: **Round 013 complete — lifts (013a sim, 013b 3D cars with riders, accessible priority, demo lifts, drawn train shapes, Office tower demo); format v9.** Round 012 (results extras) builds and runs. Next: round 014 (to be queried).
+> Status: **Round 016 built (unbuilt in sandbox) — M7: CHECK tab with every rule (reachability, capacity, escalator direction, unused devices, narrow gaps), per-study ignore; .throngprofile export/import with reconcile; saved named views; section box handles in 3D; format v10.** Round 015 (M6 views) builds and runs. Next: round 017 (to be queried).
 > 009c adds stair effort and standing rest so people prefer escalators unless queued. Builds; one test parked (wheelchair gate, D-176). Next: trains (timetables, door flows).
 > Round notes live in `ai/rounds/`, the product brief and roadmap in `ai/BRIEF.md`.
 > **How rounds work:** queries first (with recommendations), then build only what's decided. See `ai/PROTOCOL.md`.
@@ -62,6 +62,20 @@ level the part above, with treads, a belt line on escalators and an UP / DN arro
 pieces. Each connector cuts its own opening in the upper level (0.3 m clearance, editable).
 
 ---
+
+## Views and CHECK (rounds 015–016)
+
+| Key / control | What it does |
+|---|---|
+| `F2` PLAN · `F3` 3D · `F4` ISO | Plan (where you draw), perspective orbit, or orthographic 2:1 isometric of every visible level |
+| `[` `]` (ISO) | Turn the iso view a quarter: SW, SE, NE, NW |
+| STUDY ▸ VIEW | Clip above a level, a section box (six sliders, or drag its square handles in 3D), explode levels (0–30 m); 3D and ISO only, works while running |
+| STUDY ▸ VIEW ▸ VIEWS | SAVE VIEW stores the mode, level, camera and cutaway in the study; GO restores it |
+| `F7` CHECK | Every rule into the CHECK tab: click a row to go there, IGNORE what you've accepted |
+| LIBRARY ▸ AGENTS | EXPORT… / IMPORT… a profile and its journeys as a `.throngprofile` |
+
+People are drawn as flat discs when they're small on screen. Lift shafts have semi-transparent walls in 3D with the
+landing doors left open.
 
 ## Running (round 006)
 

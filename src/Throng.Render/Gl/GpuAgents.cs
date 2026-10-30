@@ -5,7 +5,9 @@ namespace Throng.Render.Gl;
 /// <summary>
 /// Instanced agent drawing (D-102): one unit capsule mesh and a per-frame instance buffer, drawn in a single
 /// instanced call. Instances use the simulation's snapshot layout directly (11 floats each: x, y, z, heading, r, g,
-/// b, radius, height, stuck, stress), so the app can upload what it copied from the runner without repacking.
+/// b, radius, height, stuck, stress), so the app can upload what it copied from the runner without repacking. Agent
+/// LOD (round 015, D-267): a second, flat low-poly disc mesh shares the instance buffer and is drawn instead of the
+/// capsule when people are small on screen.
 /// </summary>
 internal sealed class GpuAgents : IDisposable
 {
@@ -15,28 +17,50 @@ internal sealed class GpuAgents : IDisposable
     private const int Sides = 12;
     private const int FloatsPerVertex = 5;
 
+    /// <summary>Sides of the LOD disc.</summary>
+    private const int DiscSides = 8;
+
     private readonly int _vao;
     private readonly int _meshVbo;
+    private readonly int _discVao;
+    private readonly int _discVbo;
     private readonly int _instanceVbo;
     private readonly int _vertexCount;
+    private readonly int _discVertexCount;
     private int _instanceCapacity;
     private int _instanceCount;
 
-    private GpuAgents(int vao, int meshVbo, int instanceVbo, int vertexCount)
+    private GpuAgents(int vao, int meshVbo, int vertexCount, int discVao, int discVbo, int discVertexCount, int instanceVbo)
     {
         _vao = vao;
         _meshVbo = meshVbo;
-        _instanceVbo = instanceVbo;
         _vertexCount = vertexCount;
+        _discVao = discVao;
+        _discVbo = discVbo;
+        _discVertexCount = discVertexCount;
+        _instanceVbo = instanceVbo;
     }
 
-    /// <summary>Creates the mesh and buffers (GL context current).</summary>
+    /// <summary>Creates the meshes and buffers (GL context current).</summary>
     public static GpuAgents Create()
     {
+        int instanceVbo = GL.GenBuffer();
+        GL.BindBuffer(BufferTarget.ArrayBuffer, instanceVbo);
+        GL.BufferData(BufferTarget.ArrayBuffer, 64 * FloatsPerInstance * sizeof(float), IntPtr.Zero, BufferUsageHint.StreamDraw);
+
         float[] mesh = BuildMesh();
+        float[] disc = BuildDiscMesh();
+        (int vao, int meshVbo) = CreateVertexArray(mesh, instanceVbo);
+        (int discVao, int discVbo) = CreateVertexArray(disc, instanceVbo);
+        GL.BindBuffer(BufferTarget.ArrayBuffer, 0);
+        return new GpuAgents(vao, meshVbo, mesh.Length / FloatsPerVertex, discVao, discVbo, disc.Length / FloatsPerVertex, instanceVbo) { _instanceCapacity = 64 };
+    }
+
+    /// <summary>A vertex array for one unit mesh, reading its instances from the shared instance buffer.</summary>
+    private static (int Vao, int MeshVbo) CreateVertexArray(float[] mesh, int instanceVbo)
+    {
         int vao = GL.GenVertexArray();
         int meshVbo = GL.GenBuffer();
-        int instanceVbo = GL.GenBuffer();
         GL.BindVertexArray(vao);
 
         GL.BindBuffer(BufferTarget.ArrayBuffer, meshVbo);
@@ -50,7 +74,6 @@ internal sealed class GpuAgents : IDisposable
         GL.VertexAttribPointer(2, 1, VertexAttribPointerType.Float, false, stride, 4 * sizeof(float));
 
         GL.BindBuffer(BufferTarget.ArrayBuffer, instanceVbo);
-        GL.BufferData(BufferTarget.ArrayBuffer, 64 * FloatsPerInstance * sizeof(float), IntPtr.Zero, BufferUsageHint.StreamDraw);
         int istride = FloatsPerInstance * sizeof(float);
         GL.EnableVertexAttribArray(3);
         GL.VertexAttribPointer(3, 4, VertexAttribPointerType.Float, false, istride, 0);
@@ -66,8 +89,7 @@ internal sealed class GpuAgents : IDisposable
         GL.VertexAttribDivisor(6, 1);
 
         GL.BindVertexArray(0);
-        GL.BindBuffer(BufferTarget.ArrayBuffer, 0);
-        return new GpuAgents(vao, meshVbo, instanceVbo, mesh.Length / FloatsPerVertex) { _instanceCapacity = 64 };
+        return (vao, meshVbo);
     }
 
     /// <summary>Replaces the instances with the first <paramref name="count"/> of <paramref name="data"/>.</summary>
@@ -91,24 +113,73 @@ internal sealed class GpuAgents : IDisposable
         GL.BindBuffer(BufferTarget.ArrayBuffer, 0);
     }
 
-    /// <summary>Draws every instance with whatever program is bound.</summary>
-    public void Draw()
+    /// <summary>Draws every instance with whatever program is bound, as capsules or (LOD, D-267) flat discs.</summary>
+    public void Draw(bool discs = false)
     {
         if (_instanceCount == 0)
         {
             return;
         }
 
-        GL.BindVertexArray(_vao);
-        GL.DrawArraysInstanced(PrimitiveType.Triangles, 0, _vertexCount, _instanceCount);
+        GL.BindVertexArray(discs ? _discVao : _vao);
+        GL.DrawArraysInstanced(PrimitiveType.Triangles, 0, discs ? _discVertexCount : _vertexCount, _instanceCount);
     }
 
     /// <inheritdoc />
     public void Dispose()
     {
         GL.DeleteBuffer(_meshVbo);
+        GL.DeleteBuffer(_discVbo);
         GL.DeleteBuffer(_instanceVbo);
         GL.DeleteVertexArray(_vao);
+        GL.DeleteVertexArray(_discVao);
+    }
+
+    /// <summary>
+    /// Unit LOD disc facing +X (D-267): a flat octagon a little wider than the body (part 0) just above the floor, a
+    /// lighter pointer triangle at the front (part 2) so heading still reads, and the stuck ring (part 3). Heights are
+    /// shares of the body height like the capsule's, so 0.04 sits about 7 cm up.
+    /// </summary>
+    private static float[] BuildDiscMesh()
+    {
+        var v = new List<float>(512);
+        void Vertex(double x, double y, double z, double shade, int part)
+        {
+            v.Add((float)x);
+            v.Add((float)y);
+            v.Add((float)z);
+            v.Add((float)shade);
+            v.Add(part);
+        }
+
+        const double r = 1.25, z = 0.04, top = 0.95;
+        for (int k = 0; k < DiscSides; k++)
+        {
+            double a0 = 2 * Math.PI * k / DiscSides, a1 = 2 * Math.PI * (k + 1) / DiscSides;
+            Vertex(0, 0, z, top, 0);
+            Vertex(Math.Cos(a0) * r, Math.Sin(a0) * r, z, top, 0);
+            Vertex(Math.Cos(a1) * r, Math.Sin(a1) * r, z, top, 0);
+        }
+
+        // Pointer, a hair above the disc so it doesn't fight it for depth.
+        const double zp = z + 0.004;
+        Vertex(0.35, -0.55, zp, 1, 2);
+        Vertex(1.25, 0.0, zp, 1, 2);
+        Vertex(0.35, 0.55, zp, 1, 2);
+
+        const double inner = 1.4, outer = 1.75, ringZ = 0.02;
+        for (int k = 0; k < DiscSides * 2; k++)
+        {
+            double a0 = Math.PI * k / DiscSides, a1 = Math.PI * (k + 1) / DiscSides;
+            Vertex(Math.Cos(a0) * inner, Math.Sin(a0) * inner, ringZ, 1, 3);
+            Vertex(Math.Cos(a0) * outer, Math.Sin(a0) * outer, ringZ, 1, 3);
+            Vertex(Math.Cos(a1) * outer, Math.Sin(a1) * outer, ringZ, 1, 3);
+            Vertex(Math.Cos(a0) * inner, Math.Sin(a0) * inner, ringZ, 1, 3);
+            Vertex(Math.Cos(a1) * outer, Math.Sin(a1) * outer, ringZ, 1, 3);
+            Vertex(Math.Cos(a1) * inner, Math.Sin(a1) * inner, ringZ, 1, 3);
+        }
+
+        return [.. v];
     }
 
     /// <summary>

@@ -95,6 +95,8 @@ public sealed class Round007Tests
             ("no lane clear (D-209)", new SimTuning { LaneClear = false }),
             ("no accessible rule (D-213)", new SimTuning { AccessibleRule = false }),
             ("no lift priority (D-247, D-248)", new SimTuning { LiftPriority = false }),
+            ("no lift patience (D-253)", new SimTuning { LiftPatience = false }),
+            ("no destination dispatch (D-255)", new SimTuning { DestinationDispatch = false }),
             ("as r009 (no round 010 rules)", new SimTuning { StairMeasuredWait = false, SightLimited = false, ApproachReview = false, ExitCrowd = false, ProgressStress = false, LandingWaypoints = false, EarlyStress = false, CrowdStress = false }),
         ];
 

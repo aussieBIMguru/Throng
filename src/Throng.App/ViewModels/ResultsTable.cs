@@ -11,4 +11,7 @@ public enum ResultsTable
 
     /// <summary>Profile × journey rows (D-229).</summary>
     Journeys,
+
+    /// <summary>One row per lift bank (round 015, D-260).</summary>
+    Lifts,
 }

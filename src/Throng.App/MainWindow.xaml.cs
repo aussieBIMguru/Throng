@@ -31,9 +31,14 @@ public partial class MainWindow : Window
         Viewport.LiftCars = _viewModel.FetchLiftCars3D;
         _viewModel.CaptureViewport = Viewport.CaptureAsync;
         Viewport.TemplateDropped += OnTemplateDropped;
+        Viewport.IsoRotateRequested += (_, step) => _viewModel.RotateIso(step);
+        Viewport.BoxFaceDragged += (_, drag) => _viewModel.DragBoxFace(drag.Face, drag.Share);
+        _viewModel.WriteCamera = Viewport.WriteCamera;
+        _viewModel.ReadCamera = Viewport.ReadCamera;
 
         _viewModel.SceneInvalidated += (_, _) => RebuildScene();
         _viewModel.ZoomExtentsRequested += (_, _) => Viewport.ZoomExtents();
+        _viewModel.ZoomToRequested += (_, bounds) => Viewport.ZoomTo(bounds);
         _viewModel.PropertyChanged += OnViewModelPropertyChanged;
 
         SourceInitialized += (_, _) => DarkTitleBar.Apply(this);
@@ -44,6 +49,8 @@ public partial class MainWindow : Window
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
         Viewport.Mode = _viewModel.ViewMode;
+        Viewport.IsoPreset = _viewModel.IsoPreset;
+        Viewport.View = _viewModel.ViewSettings;
         RebuildScene();
         Viewport.ZoomExtents();
 
@@ -62,6 +69,14 @@ public partial class MainWindow : Window
                 Viewport.Mode = _viewModel.ViewMode;
                 Viewport.SetLevelLabel(_viewModel.HudLevelText);
                 Viewport.AgentColoring = _viewModel.AgentColoring;
+                Viewport.IsoPreset = _viewModel.IsoPreset;
+                Viewport.View = _viewModel.ViewSettings;
+                break;
+            case nameof(MainViewModel.IsoPreset):
+                Viewport.IsoPreset = _viewModel.IsoPreset;
+                break;
+            case nameof(MainViewModel.ViewSettings):
+                Viewport.View = _viewModel.ViewSettings;
                 break;
             case nameof(MainViewModel.AgentColoring):
                 Viewport.AgentColoring = _viewModel.AgentColoring;
@@ -79,6 +94,9 @@ public partial class MainWindow : Window
         // The polygon library lets floors show their openings and shafts as holes (D-055, D-056).
         Viewport.ShowScene(SceneBuilder.Build(_viewModel.Study, _viewModel.ActiveLevel?.Id, walkable, _viewModel.Editor.HiddenIds, ClipperPolygonOps.Instance, _viewModel.UnderlayPixelsFor));
         Viewport.SetLevelLabel(_viewModel.HudLevelText);
+
+        // The clip height follows level edits (D-266).
+        Viewport.View = _viewModel.ViewSettings;
     }
 
     private void OnClosing(object? sender, CancelEventArgs e)
@@ -109,10 +127,10 @@ public partial class MainWindow : Window
 
         _libraryPress = e.ClickCount == 1 && sender is IInputElement element ? e.GetPosition(element) : null;
 
-        // A single click on a journey opens it in SELECTION (D-162).
-        if (e.ClickCount == 1 && sender is FrameworkElement { DataContext: TemplateItemViewModel { Template: Throng.Core.Library.JourneyTemplate } journey })
+        // A single click on a journey opens it in SELECTION (D-162); on a profile, picks it for EXPORT (D-275).
+        if (e.ClickCount == 1 && sender is FrameworkElement { DataContext: TemplateItemViewModel { Template: Throng.Core.Library.JourneyTemplate or Throng.Core.Library.AgentProfileTemplate } item2 })
         {
-            _viewModel.SelectLibraryItem(journey);
+            _viewModel.SelectLibraryItem(item2);
         }
     }
 

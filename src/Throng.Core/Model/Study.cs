@@ -43,6 +43,12 @@ public sealed class Study
     /// <summary>Train services: door zones driven by a timetable (file format v7, D-184).</summary>
     public List<TrainService> TrainServices { get; set; } = [];
 
+    /// <summary>Saved named views (file format v10, D-276).</summary>
+    public List<SavedView> Views { get; set; } = [];
+
+    /// <summary>CHECK findings ignored for this study, by <c>ValidationMessage.IgnoreKey</c> (file format v10, D-272).</summary>
+    public List<string> IgnoredFindings { get; set; } = [];
+
     /// <summary>
     /// Underlay image bytes by underlay id, stored as separate zip entries (D-083), so excluded from the study JSON.
     /// Entries can outlive their underlay (after a delete that might be undone); only underlays still in the

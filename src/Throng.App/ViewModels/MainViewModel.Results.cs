@@ -53,6 +53,9 @@ public sealed partial class MainViewModel
     /// <summary>Profile × journey rows, updated in place while running (D-229).</summary>
     public ObservableCollection<JourneyResultRow> JourneyResultRows { get; } = new();
 
+    /// <summary>One row per lift bank, updated in place while running (D-260).</summary>
+    public ObservableCollection<LiftResultRow> LiftResultRows { get; } = new();
+
     /// <summary>TABLE ▸ DEVICES chip (D-232).</summary>
     public bool IsTableDevices { get => _resultsTable == ResultsTable.Devices; set => SelectTable(ResultsTable.Devices, nameof(IsTableDevices)); }
 
@@ -61,6 +64,9 @@ public sealed partial class MainViewModel
 
     /// <summary>TABLE ▸ JOURNEYS chip (D-232).</summary>
     public bool IsTableJourneys { get => _resultsTable == ResultsTable.Journeys; set => SelectTable(ResultsTable.Journeys, nameof(IsTableJourneys)); }
+
+    /// <summary>TABLE ▸ LIFTS chip (D-260).</summary>
+    public bool IsTableLifts { get => _resultsTable == ResultsTable.Lifts; set => SelectTable(ResultsTable.Lifts, nameof(IsTableLifts)); }
 
     /// <summary>The row of the device selected in the viewport, highlighted in the table (D-219).</summary>
     public DeviceResultRow? SelectedResultRow
@@ -94,7 +100,7 @@ public sealed partial class MainViewModel
     /// <summary>GRAPH ▸ ZONES chip (D-232).</summary>
     public bool IsGraphZones { get => _graphMetric == GraphMetric.Zones; set => SelectGraph(GraphMetric.Zones, nameof(IsGraphZones)); }
 
-    /// <summary>EXPORT CSV (D-222, D-233): devices, zones, journeys and time series CSVs into a folder you pick.</summary>
+    /// <summary>EXPORT CSV (D-222, D-233, D-260): devices, zones, journeys, lifts and time series CSVs into a folder you pick.</summary>
     public RelayCommand ExportResultsCommand => _exportResultsCommand ??= new RelayCommand(ExportResults, () => _results.SampleCount > 0);
 
     /// <summary>Picks up a new results copy from the runner (run status tick); RESET clears the tab.</summary>
@@ -110,6 +116,7 @@ public sealed partial class MainViewModel
                 ResultRows.Clear();
                 ZoneResultRows.Clear();
                 JourneyResultRows.Clear();
+                LiftResultRows.Clear();
                 SelectedResultRow = null;
                 ResultsSummary = "No run yet. PLAY to gather results; they stay until RESET.";
                 RebuildGraph();
@@ -157,6 +164,15 @@ public sealed partial class MainViewModel
             }
         }
 
+        if (newRunner || LiftResultRows.Count != results.Lifts.Count)
+        {
+            LiftResultRows.Clear();
+            foreach (LiftResult lift in results.Lifts)
+            {
+                LiftResultRows.Add(new LiftResultRow(lift.Lift, lift.Name, lift.Cars));
+            }
+        }
+
         _resultsRunner = runner;
         _results = results;
         _resultsVersion = results.Version;
@@ -179,6 +195,14 @@ public sealed partial class MainViewModel
         for (int j = 0; j < results.Journeys.Count && j < JourneyResultRows.Count; j++)
         {
             JourneyResultRows[j].Update(results.Journeys[j]);
+        }
+
+        foreach (LiftResult lift in results.Lifts)
+        {
+            if (lift.Lift >= 0 && lift.Lift < LiftResultRows.Count)
+            {
+                LiftResultRows[lift.Lift].Update(lift);
+            }
         }
 
         ResultsSummary = Summary(results);
@@ -213,6 +237,7 @@ public sealed partial class MainViewModel
             OnPropertyChanged(nameof(IsTableDevices));
             OnPropertyChanged(nameof(IsTableZones));
             OnPropertyChanged(nameof(IsTableJourneys));
+            OnPropertyChanged(nameof(IsTableLifts));
             ResultsSummary = Summary(_results);
         }
 
@@ -249,6 +274,10 @@ public sealed partial class MainViewModel
             case ResultsTable.Journeys:
                 long finished = results.Journeys.Where(j => !j.IsAll).Sum(j => j.Finished);
                 return string.Create(c, $"People spawned{warm} · {finished:N0} finished. Long wait = one queue wait over {results.LongWaitS:0} s (STUDY ▸ RUN).");
+            case ResultsTable.Lifts:
+                return results.Lifts.Count == 0
+                    ? "No lifts in this study. Add a lift to a shaft from LIBRARY ▸ LIFTS."
+                    : string.Create(c, $"{Clock(results.MeasuredS)} measured{warm} · {results.Lifts.Sum(l => l.Boarded):N0} boarded · {results.Lifts.Sum(l => l.GaveUp):N0} gave up and went another way. Waits are on the landing, rides door to door.");
             default:
                 long served = results.Devices.Sum(d => d.Served);
                 return string.Create(c, $"{Clock(results.MeasuredS)} measured{warm} · {served:N0} served. Click a column to sort; tick ▸ graph a queue.");
@@ -417,6 +446,6 @@ public sealed partial class MainViewModel
         }
 
         AppLog.Info($"Results exported to {folder}");
-        Ticker = $"EXPORTED ▸ {ResultsCsv.DevicesFileName}, {ResultsCsv.ZonesFileName}, {ResultsCsv.JourneysFileName}, {ResultsCsv.TimeSeriesFileName}";
+        Ticker = $"EXPORTED ▸ {ResultsCsv.DevicesFileName}, {ResultsCsv.ZonesFileName}, {ResultsCsv.JourneysFileName}, {ResultsCsv.LiftsFileName}, {ResultsCsv.TimeSeriesFileName}";
     }
 }

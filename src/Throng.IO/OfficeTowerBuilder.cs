@@ -7,9 +7,10 @@ namespace Throng.IO;
 
 /// <summary>
 /// Builds the second built-in demo, "Demo: Office Tower" (round 013b, D-250), to test lifts on their own: a ground
-/// lobby and ten office floors joined only by a bank of four 13-person passenger cars, running up-peak in the morning
-/// and collective later, with people arriving at the street door and heading for desks on every floor. No stairs, so
-/// every journey up is a lift ride.
+/// lobby and ten office floors joined by a bank of four 13-person passenger cars, running up-peak in the morning
+/// and collective later, with people arriving at the street door and heading for desks on every floor. Round 014
+/// (D-257) adds one switchback stair east of the core, every floor, open to everyone, so short trips show the
+/// lift-vs-stair choice.
 /// </summary>
 /// <remarks>
 /// Floor plates are 40 × 24 m. The 8.8 × 2.4 m lift shaft sits in the middle with its doors facing south onto the lift
@@ -23,6 +24,9 @@ public static class OfficeTowerBuilder
 
     /// <summary>Office floors above the ground lobby.</summary>
     public const int OfficeFloors = 10;
+
+    /// <summary>Preset of the tower stair (D-257).</summary>
+    public const string StairPresetKey = "connector.stair-switchback-1500";
 
     /// <summary>Fixed seed so runs are reproducible.</summary>
     public const int DemoSeed = 20261029;
@@ -40,8 +44,8 @@ public static class OfficeTowerBuilder
         {
             Name = DemoName,
             Description =
-                "Ground lobby and ten office floors served only by a four-car lift bank: up-peak from 07:30, collective " +
-                "from 09:30. People arrive at the street door and go to desks on every floor.",
+                "Ground lobby and ten office floors served by a four-car lift bank (up-peak from 07:30, collective from " +
+                "09:30) and one stair east of the core. People arrive at the street door and go to desks on every floor.",
             Settings = new StudySettings
             {
                 Seed = DemoSeed,
@@ -74,6 +78,7 @@ public static class OfficeTowerBuilder
         }
 
         BuildCore(study, ground, floors[^1]);
+        BuildStair(study, ground, floors[^1]);
         EmbedTemplates(study);
 
         // About 1,000 people over the hour, peaking around 08:30 (the AM peak curve on 16 a minute).
@@ -121,6 +126,28 @@ public static class OfficeTowerBuilder
             [new(15.4, 12), new(15.4, 14.6), new(24.6, 14.6), new(24.6, 12)], height: 3.0, thickness: 0.2);
         core.HeightMode = RegionHeightMode.FullStorey;
         core.TopLevelId = top.Id;
+    }
+
+    /// <summary>
+    /// The tower stair (D-257): a 1.5 m switchback from the ground lobby to the top floor (one circuit per storey), east
+    /// of the core and south of the desks, open to everyone.
+    /// </summary>
+    private static void BuildStair(Study study, Level ground, Level top)
+    {
+        if (BuiltInLibrary.Instance.FindByKey(StairPresetKey) is not ConnectorTemplate template)
+        {
+            return;
+        }
+
+        List<Connector> placed = ConnectorFactory.FromTemplate(study, template, ground.Id, top.Id, new Point2(28, 7), angleDeg: 0, TurnSide.Left);
+        TemplateBase embedded = study.Library.AddCopy(template, TemplateSource.Embedded);
+        foreach (Connector stair in placed)
+        {
+            stair.Name = "Tower stair";
+            stair.TemplateId = embedded.Id;
+        }
+
+        study.Connectors.AddRange(placed);
     }
 
     private static void EmbedTemplates(Study study)

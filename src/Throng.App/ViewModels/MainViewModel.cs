@@ -116,7 +116,7 @@ public sealed partial class MainViewModel : ObservableObject
         }
     }
 
-    /// <summary>Plan or orbit.</summary>
+    /// <summary>Plan, 3D orbit or ISO (D-263).</summary>
     public ViewMode ViewMode
     {
         get => _viewMode;
@@ -133,8 +133,21 @@ public sealed partial class MainViewModel : ObservableObject
 
                 OnPropertyChanged(nameof(IsPlanView));
                 OnPropertyChanged(nameof(IsOrbitView));
+                OnPropertyChanged(nameof(IsIsoView));
+                OnPropertyChanged(nameof(IsViewControlsEnabled));
                 OnPropertyChanged(nameof(HudModeText));
-                Ticker = value == ViewMode.Plan ? "Plan view: editing the active level." : "3D view: all visible levels at true elevation.";
+                if (!_restoringView && _activeViewId is not null)
+                {
+                    _activeViewId = null;
+                    MarkActiveView();
+                }
+
+                Ticker = value switch
+                {
+                    ViewMode.Plan => "Plan view: editing the active level.",
+                    ViewMode.Iso => "ISO view: 2:1 isometric of every visible level ▸ [ and ] turn it ▸ STUDY ▸ VIEW cuts and explodes.",
+                    _ => "3D view: all visible levels ▸ STUDY ▸ VIEW cuts and explodes.",
+                };
             }
         }
     }
@@ -146,7 +159,12 @@ public sealed partial class MainViewModel : ObservableObject
     public bool IsOrbitView => _viewMode == ViewMode.Orbit;
 
     /// <summary>Viewport HUD: view mode.</summary>
-    public string HudModeText => _viewMode == ViewMode.Plan ? "PLAN" : "3D ORBIT";
+    public string HudModeText => _viewMode switch
+    {
+        ViewMode.Plan => "PLAN",
+        ViewMode.Iso => "ISO " + Throng.Render.Cameras.OrbitCamera.IsoPresetNames[_isoPreset],
+        _ => "3D ORBIT",
+    };
 
     /// <summary>Viewport HUD: active level.</summary>
     public string HudLevelText => _activeLevel is null ? "No level" : $"{_activeLevel.Name.ToUpperInvariant()}  {_activeLevel.ElevationText}";
@@ -397,20 +415,8 @@ public sealed partial class MainViewModel : ObservableObject
         }
     }
 
-    private void Validate()
-    {
-        // The static rule set; PLAY adds the reachability checks (D-106).
-        IReadOnlyList<ValidationMessage> findings = StudyValidator.Validate(_study);
-        if (findings.Count == 0)
-        {
-            Ticker = "VALIDATION ▸ no problems found.";
-            return;
-        }
-
-        string lines = string.Join(Environment.NewLine, findings.Select(f => $"[{f.Severity}] {f.Message}"));
-        _dialogs.ShowInfo("Validation", lines);
-        Ticker = $"VALIDATION ▸ {findings.Count} findings.";
-    }
+    /// <summary>CHECK (F7): every rule, including reachability and capacity, into the CHECK tab (D-271).</summary>
+    private void Validate() => _ = RunCheckAsync();
 
     private void ShowAbout()
     {
@@ -437,6 +443,13 @@ public sealed partial class MainViewModel : ObservableObject
         Editor.Reset();
         Editor.ResetView(quiet: true);
 
+        // The clip level belonged to the old study (D-265: view settings are session only).
+        _clipLevelId = null;
+        _clipEnabled = false;
+        ClearCheck();
+        _activeViewId = null;
+        RefreshViewRows();
+
         RefreshLevels();
         RefreshEditing();
         TrainServiceRows.Clear();
@@ -454,6 +467,8 @@ public sealed partial class MainViewModel : ObservableObject
         RefreshLevels();
         RefreshEditing();
         RefreshTrains();
+        SyncCheckIgnored();
+        RefreshViewRows();
         OnPropertyChanged(nameof(StudyName));
         OnPropertyChanged(nameof(StartTimeText));
         OnPropertyChanged(nameof(Seed));
@@ -465,6 +480,7 @@ public sealed partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(ClockText));
         OnPropertyChanged(nameof(SummaryText));
         OnPropertyChanged(nameof(HudLevelText));
+        OnPropertyChanged(nameof(ClipLevel));
         SceneInvalidated?.Invoke(this, EventArgs.Empty);
     }
 

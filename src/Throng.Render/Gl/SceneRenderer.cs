@@ -1,6 +1,7 @@
 using System.Numerics;
 using OpenTK.Graphics.OpenGL4;
 using Throng.Core.Common;
+using Throng.Core.Geometry;
 using Throng.Render.Scene;
 
 namespace Throng.Render.Gl;
@@ -13,6 +14,9 @@ public enum ViewMode
 
     /// <summary>Perspective orbit view of all visible levels stacked at true elevation.</summary>
     Orbit,
+
+    /// <summary>Orthographic 2:1 game isometric of all visible levels, in one of four quarter-turn presets (D-263).</summary>
+    Iso,
 }
 
 /// <summary>
@@ -30,6 +34,9 @@ public sealed class SceneRenderer : IDisposable
 
     /// <summary>Grid line weight in DIPs; the grid stays fine so it doesn't compete with geometry.</summary>
     private const float GridWidthDip = 1f;
+
+    /// <summary>People are drawn as flat discs below this many framebuffer pixels per metre (agent LOD, D-267).</summary>
+    public const float DiscBelowPixelsPerMetre = 10f;
 
     private readonly ShaderProgram _flat = new(Shaders.FlatVertex, null, Shaders.FlatFragment);
     private readonly ShaderProgram _lines = new(Shaders.FlatVertex, Shaders.LineGeometry, Shaders.LineFragment);
@@ -53,11 +60,24 @@ public sealed class SceneRenderer : IDisposable
     private IReadOnlyList<HeatLayerDraw>? _pendingHeat;
     private long _heatVersion = long.MinValue;
     private bool _heatDirty;
-    private IReadOnlyList<LiftCarDraw>? _pendingCars;
+    private LiftSceneDraw? _pendingCars;
     private bool _carsDirty;
     private GpuMesh? _carSolid, _carGlass, _carLines;
     private SceneData? _pendingScene;
     private SceneData _scene = SceneData.Empty;
+    private readonly float[] _levelZ = new float[Shaders.MaxLevels];
+    private double[] _elevations = [];
+    private float _gap;
+    private (int Mode, float Shift) _spanWarp;
+    private bool _clips;
+    private Vector3 _clipMin, _clipMax;
+    private bool _boxOn;
+    private Point3 _boxMin, _boxMax;
+    private GpuMesh? _boxLines;
+    private (Point3, Point3, int, bool) _boxSignature;
+
+    /// <summary>Section box handle faces (D-277): west, east, south, north, bottom, top.</summary>
+    public const int BoxFaces = 6;
 
     /// <summary>True after a successful <see cref="Initialise"/>.</summary>
     public bool IsInitialised { get; private set; }
@@ -111,6 +131,49 @@ public sealed class SceneRenderer : IDisposable
     /// <summary>What agent bodies are coloured by (D-146); read at every render.</summary>
     public AgentColoring AgentColoring { get; set; }
 
+    /// <summary>Cutaway and exploded levels for the 3D and ISO views (D-264–D-266); plan ignores it. Read at every render.</summary>
+    public ViewSettings View { get; set; } = ViewSettings.None;
+
+    /// <summary>
+    /// Framebuffer pixels per metre near the middle of the view, set by the host each frame; below
+    /// <see cref="DiscBelowPixelsPerMetre"/> people are drawn as discs (D-267).
+    /// </summary>
+    public float AgentPixelsPerMetre { get; set; } = 100f;
+
+    /// <summary>Section box face whose handle is under the pointer (0–5, see <see cref="BoxFaces"/>), or −1 (D-277).</summary>
+    public int HoveredBoxFace { get; set; } = -1;
+
+    /// <summary>
+    /// Where the six section box handles are drawn (face centres, exploded heights) after the last 3D/ISO frame, and the
+    /// box's true extents; false while the box is off or in plan (D-277).
+    /// </summary>
+    public bool TryGetBoxHandles(out Vector3[] centres, out Point3 boxMin, out Point3 boxMax)
+    {
+        boxMin = _boxMin;
+        boxMax = _boxMax;
+        if (!_boxOn)
+        {
+            centres = [];
+            return false;
+        }
+
+        Point3 c = new((_boxMin.X + _boxMax.X) * 0.5, (_boxMin.Y + _boxMax.Y) * 0.5, (_boxMin.Z + _boxMax.Z) * 0.5);
+        Point3[] faces =
+        [
+            c with { X = _boxMin.X }, c with { X = _boxMax.X },
+            c with { Y = _boxMin.Y }, c with { Y = _boxMax.Y },
+            c with { Z = _boxMin.Z }, c with { Z = _boxMax.Z },
+        ];
+        centres = [.. faces.Select(p => new Vector3((float)p.X, (float)p.Y, (float)WarpZ(p.Z)))];
+        return true;
+    }
+
+    /// <summary>The exploded height of a true height with the last frame's explode (D-264).</summary>
+    public double WarpZ(double z) => ExplodeMap.Warp(z, _elevations, _gap);
+
+    /// <summary>The true height of an exploded height (inverse of <see cref="WarpZ"/>).</summary>
+    public double UnwarpZ(double zw) => ExplodeMap.Unwarp(zw, _elevations, _gap);
+
     /// <summary>
     /// Agents to draw from the next render (D-102): <paramref name="count"/> instances of
     /// <see cref="GpuAgents.FloatsPerInstance"/> floats (the simulation snapshot layout). The caller keeps
@@ -124,10 +187,10 @@ public sealed class SceneRenderer : IDisposable
     }
 
     /// <summary>
-    /// Lift cars to draw in 3D from the next render (round 013b); null or empty for none. The meshes are rebuilt only
-    /// when a different list is passed, so the caller passes the same instance while nothing moved.
+    /// Lift cars and their doors to draw in 3D from the next render (round 013b, doors round 014); null for none. The
+    /// meshes are rebuilt only when a different instance is passed, so the caller passes the same one while nothing moved.
     /// </summary>
-    public void SetLiftCars(IReadOnlyList<LiftCarDraw>? cars)
+    public void SetLiftCars(LiftSceneDraw? cars)
     {
         if (ReferenceEquals(cars, _pendingCars))
         {
@@ -215,6 +278,7 @@ public sealed class SceneRenderer : IDisposable
             _carsDirty = false;
         }
 
+        PrepareView(mode == ViewMode.Plan ? ViewSettings.None : View);
         if (mode == ViewMode.Plan)
         {
             RenderPlan();
@@ -227,6 +291,69 @@ public sealed class SceneRenderer : IDisposable
         GL.BindVertexArray(0);
         GL.DepthMask(true);
     }
+
+    /// <summary>
+    /// Sets the explode and clip uniforms on every program for this frame (D-264, D-266): the distinct elevations of the
+    /// scene's levels and the gap, and the clip box over the scene's extents. With no gap nothing is warped.
+    /// </summary>
+    private void PrepareView(ViewSettings view)
+    {
+        _gap = view.ExplodeGapM > 0 && _elevations.Length >= 2 ? (float)view.ExplodeGapM : 0f;
+        _spanWarp = _gap > 0 ? (1, 0f) : (0, 0f);
+        (Point3 min, Point3 max) = view.ClipBox(_scene.Bounds, _scene.MinElevationM, _scene.MaxElevationM);
+        var boxMin = new Vector3((float)min.X, (float)min.Y, (float)min.Z);
+        var boxMax = new Vector3((float)max.X, (float)max.Y, (float)max.Z);
+        _clips = view.Clips;
+        _clipMin = boxMin;
+        _clipMax = boxMax;
+        ReadOnlySpan<ShaderProgram> programs = [_flat, _lines, _textured, _agentProgram];
+        foreach (ShaderProgram program in programs)
+        {
+            program.Use();
+            program.SetExplode(_levelZ, _elevations.Length, _gap);
+            program.SetWarp(0);
+            program.SetClip(view.Clips, boxMin, boxMax);
+        }
+
+        // The section box itself, without the clip-above cap, for its outline and handles (D-277).
+        _boxOn = view.SectionBox && !_scene.Bounds.IsEmpty;
+        if (_boxOn)
+        {
+            (_boxMin, _boxMax) = (view with { ClipAboveZ = null }).ClipBox(_scene.Bounds, _scene.MinElevationM, _scene.MaxElevationM);
+        }
+    }
+
+    /// <summary>
+    /// Section box outline and the six face handles (D-277), drawn over everything without the clip (it would cut the
+    /// box's own edges). Rebuilt only when the box, the hovered handle or the explode changes.
+    /// </summary>
+    private void DrawSectionBox()
+    {
+        if (!_boxOn)
+        {
+            return;
+        }
+
+        (Point3, Point3, int, bool) signature = (_boxMin, _boxMax, HoveredBoxFace, _gap > 0);
+        if (_boxLines is null || signature != _boxSignature)
+        {
+            _boxLines?.Dispose();
+            _boxLines = GpuMesh.Create(SectionBoxMesh.Build(_boxMin, _boxMax, HoveredBoxFace));
+            _boxSignature = signature;
+        }
+
+        GL.Disable(EnableCap.DepthTest);
+        _lines.Use();
+        _lines.SetClip(false, _clipMin, _clipMax);
+        DrawLines(_boxLines, 1f, LineWidthDip);
+        _lines.Use();
+        _lines.SetClip(_clips, _clipMin, _clipMax);
+        GL.Enable(EnableCap.DepthTest);
+    }
+
+    /// <summary>A level's own meshes move up rigidly when exploded (D-264).</summary>
+    private (int Mode, float Shift) LevelWarp(GpuLevel level) =>
+        _gap > 0 ? (2, (float)ExplodeMap.LevelShift(level.ElevationM, _elevations, _gap)) : (0, 0f);
 
     /// <summary>
     /// Plan: painter's order on the active level only, no depth test. The level below is ghosted over the
@@ -289,7 +416,7 @@ public sealed class SceneRenderer : IDisposable
         GL.DepthMask(true);
         foreach (GpuLevel level in _levels)
         {
-            DrawTriangles(level.Solids, 1f);
+            DrawTriangles(level.Solids, 1f, LevelWarp(level));
         }
 
         // Sloped connector pieces are solid geometry (D-054).
@@ -298,12 +425,12 @@ public sealed class SceneRenderer : IDisposable
         GL.DepthMask(false);
         foreach (GpuLevel level in _levels)
         {
-            DrawTriangles(level.Floor, FloorAlpha3D);
+            DrawTriangles(level.Floor, FloorAlpha3D, LevelWarp(level));
         }
 
         foreach (GpuLevel level in _levels)
         {
-            DrawTriangles(level.Overlays, 1f);
+            DrawTriangles(level.Overlays, 1f, LevelWarp(level));
         }
 
         DrawHeat();
@@ -313,7 +440,7 @@ public sealed class SceneRenderer : IDisposable
 
         foreach (GpuLevel level in _levels)
         {
-            DrawLines(level.Lines, 1f, LineWidthDip);
+            DrawLines(level.Lines, 1f, LineWidthDip, LevelWarp(level));
         }
 
         DrawLines(_verticalLines, 1f, LineWidthDip);
@@ -324,7 +451,7 @@ public sealed class SceneRenderer : IDisposable
         GL.ColorMask(false, false, false, false);
         foreach (GpuLevel level in _levels)
         {
-            DrawTriangles(level.Floor, 1f);
+            DrawTriangles(level.Floor, 1f, LevelWarp(level));
         }
 
         GL.ColorMask(true, true, true, true);
@@ -337,13 +464,14 @@ public sealed class SceneRenderer : IDisposable
         DrawTriangles(_carGlass, 1f);
         DrawLines(_carLines, 1f, LineWidthDip);
         GL.DepthMask(true);
+        DrawSectionBox();
     }
 
     /// <summary>Rebuilds the lift car meshes (a few boxes, so cheap enough on every car move).</summary>
-    private void UploadCars(IReadOnlyList<LiftCarDraw>? cars)
+    private void UploadCars(LiftSceneDraw? cars)
     {
         ReleaseCars();
-        if (cars is null || cars.Count == 0)
+        if (cars is null || (cars.Cars.Count == 0 && cars.Doors.Count == 0))
         {
             return;
         }
@@ -374,6 +502,7 @@ public sealed class SceneRenderer : IDisposable
 
         _textured.Use();
         _textured.SetAlpha(1f);
+        _textured.SetWarp(_spanWarp.Mode, _spanWarp.Shift);
         foreach (GpuHeatLayer layer in _heat)
         {
             layer.Draw();
@@ -411,7 +540,7 @@ public sealed class SceneRenderer : IDisposable
         }
     }
 
-    /// <summary>Draws the agent instances with the agent program.</summary>
+    /// <summary>Draws the agent instances with the agent program: capsules, or discs when small on screen (D-267).</summary>
     private void DrawAgents()
     {
         if (_agents is null)
@@ -420,33 +549,41 @@ public sealed class SceneRenderer : IDisposable
         }
 
         _agentProgram.Use();
-        _agents.Draw();
+        _agentProgram.SetWarp(_spanWarp.Mode, _spanWarp.Shift);
+        _agents.Draw(discs: AgentPixelsPerMetre < DiscBelowPixelsPerMetre);
     }
 
-    /// <summary>Draws a triangle mesh with the flat program.</summary>
-    private void DrawTriangles(GpuMesh? mesh, float alpha)
+    /// <summary>
+    /// Draws a triangle mesh with the flat program; <paramref name="warp"/> is a level's rigid shift, or null for
+    /// spanning geometry (stretched when exploded, D-264).
+    /// </summary>
+    private void DrawTriangles(GpuMesh? mesh, float alpha, (int Mode, float Shift)? warp = null)
     {
         if (mesh is null)
         {
             return;
         }
 
+        (int mode, float shift) = warp ?? _spanWarp;
         _flat.Use();
         _flat.SetAlpha(alpha);
+        _flat.SetWarp(mode, shift);
         mesh.Draw();
     }
 
-    /// <summary>Draws a line mesh as screen-space quads of the given width (D-049).</summary>
-    private void DrawLines(GpuMesh? mesh, float alpha, float widthDip)
+    /// <summary>Draws a line mesh as screen-space quads of the given width (D-049); <paramref name="warp"/> as for triangles.</summary>
+    private void DrawLines(GpuMesh? mesh, float alpha, float widthDip, (int Mode, float Shift)? warp = null)
     {
         if (mesh is null)
         {
             return;
         }
 
+        (int mode, float shift) = warp ?? _spanWarp;
         _lines.Use();
         _lines.SetAlpha(alpha);
         _lines.SetLineWidth(widthDip * _pixelsPerDip);
+        _lines.SetWarp(mode, shift);
         mesh.Draw();
     }
 
@@ -457,6 +594,7 @@ public sealed class SceneRenderer : IDisposable
         {
             _levels.Add(new GpuLevel(
                 level.LevelId,
+                level.ElevationM,
                 GpuMesh.Create(level.Floor),
                 GpuMesh.Create(level.Solids),
                 GpuMesh.Create(level.Overlays),
@@ -471,6 +609,13 @@ public sealed class SceneRenderer : IDisposable
         _verticalLines = GpuMesh.Create(scene.VerticalLines);
         _shaftBoxes = GpuMesh.Create(scene.ShaftBoxes);
         _scene = scene;
+
+        // Level elevations for exploding (D-264), once per scene.
+        _elevations = ExplodeMap.Elevations(scene.Levels.Select(l => l.ElevationM));
+        for (int k = 0; k < _elevations.Length; k++)
+        {
+            _levelZ[k] = (float)_elevations[k];
+        }
     }
 
     /// <summary>Reuses textures whose pixel buffer is unchanged; creates new ones and frees the rest.</summary>
@@ -529,6 +674,8 @@ public sealed class SceneRenderer : IDisposable
         {
             ReleaseScene();
             ReleaseCars();
+            _boxLines?.Dispose();
+            _boxLines = null;
             foreach (GpuUnderlay underlay in _underlayCache.Values)
             {
                 underlay.Dispose();
@@ -555,7 +702,7 @@ public sealed class SceneRenderer : IDisposable
 
     /// <summary>GPU meshes for one level.</summary>
     private sealed record GpuLevel(
-        Guid LevelId, GpuMesh? Floor, GpuMesh? Solids, GpuMesh? Overlays, GpuMesh? Lines, GpuMesh? PlanOverlays, GpuMesh? PlanLines) : IDisposable
+        Guid LevelId, double ElevationM, GpuMesh? Floor, GpuMesh? Solids, GpuMesh? Overlays, GpuMesh? Lines, GpuMesh? PlanOverlays, GpuMesh? PlanLines) : IDisposable
     {
         public void Dispose()
         {

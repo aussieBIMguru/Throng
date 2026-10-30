@@ -9,7 +9,7 @@ namespace Throng.Analysis;
 /// CSV export of a run's results (round 011c, D-222; round 012, D-233): <c>devices.csv</c> (one row per device, after
 /// the warm-up), <c>zones.csv</c> (one row per measurement zone), <c>journeys.csv</c> (profile × journey rows) and
 /// <c>timeseries.csv</c> (one row per sample from the start, with a queue column per device and an occupancy column
-/// per zone). Invariant culture, comma separated, RFC 4180 quoting, UTF-8 without a byte order mark.
+/// per zone), and <c>lifts.csv</c> (one row per lift bank, round 015, D-260). Invariant culture, comma separated, RFC 4180 quoting, UTF-8 without a byte order mark.
 /// </summary>
 public static class ResultsCsv
 {
@@ -24,6 +24,9 @@ public static class ResultsCsv
 
     /// <summary>File name of the journey table (D-233).</summary>
     public const string JourneysFileName = "journeys.csv";
+
+    /// <summary>File name of the lift bank table (D-260).</summary>
+    public const string LiftsFileName = "lifts.csv";
 
     private static readonly CultureInfo C = CultureInfo.InvariantCulture;
     private static readonly char[] QuoteChars = [',', '"', '\r', '\n'];
@@ -94,6 +97,27 @@ public static class ResultsCsv
         return text.ToString();
     }
 
+    /// <summary>The lift bank table as CSV text (D-260).</summary>
+    public static string LiftsCsv(RunResults results)
+    {
+        var text = new StringBuilder();
+        text.Append("Lift,Cars,Boarded,MeanWaitS,P95WaitS,MaxWaitS,Rides,MeanRideS,GaveUp\r\n");
+        foreach (LiftResult l in results.Lifts)
+        {
+            text.Append(Quote(l.Name)).Append(',')
+                .Append(l.Cars.ToString(C)).Append(',')
+                .Append(l.Boarded.ToString(C)).Append(',')
+                .Append(l.MeanWaitS.ToString("0.0", C)).Append(',')
+                .Append(l.P95WaitS.ToString("0.0", C)).Append(',')
+                .Append(l.MaxWaitS.ToString("0.0", C)).Append(',')
+                .Append(l.Rides.ToString(C)).Append(',')
+                .Append(l.MeanRideS.ToString("0.0", C)).Append(',')
+                .Append(l.GaveUp.ToString(C)).Append("\r\n");
+        }
+
+        return text.ToString();
+    }
+
     /// <summary>The time series as CSV text; <c>WarmUp</c> is 1 for samples inside the warm-up (D-218).</summary>
     public static string TimeSeriesCsv(RunResults results)
     {
@@ -143,7 +167,7 @@ public static class ResultsCsv
         return text.ToString();
     }
 
-    /// <summary>Writes all four files into <paramref name="folder"/>, replacing any already there.</summary>
+    /// <summary>Writes all five files into <paramref name="folder"/>, replacing any already there.</summary>
     public static Result Export(RunResults results, string folder)
     {
         try
@@ -154,6 +178,7 @@ public static class ResultsCsv
             File.WriteAllText(Path.Combine(folder, TimeSeriesFileName), TimeSeriesCsv(results), utf8);
             File.WriteAllText(Path.Combine(folder, ZonesFileName), ZonesCsv(results), utf8);
             File.WriteAllText(Path.Combine(folder, JourneysFileName), JourneysCsv(results), utf8);
+            File.WriteAllText(Path.Combine(folder, LiftsFileName), LiftsCsv(results), utf8);
             return Result.Ok();
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)

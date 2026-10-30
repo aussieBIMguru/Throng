@@ -22,6 +22,6 @@ public static class LiftFactory
         Cars = 1,
         FrontEdge = 0,
         LandingDepthM = Lift.DefaultLandingDepthM,
-        Dispatch = template.Dispatch == LiftDispatch.DestinationDispatch ? LiftDispatch.Collective : template.Dispatch,
+        Dispatch = template.Dispatch,
     };
 }

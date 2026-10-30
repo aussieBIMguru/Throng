@@ -31,6 +31,7 @@
         <KeyBinding Key="Z" Modifiers="Control+Shift" Command="{Binding RedoCommand}" />
         <KeyBinding Key="F2" Command="{Binding PlanViewCommand}" />
         <KeyBinding Key="F3" Command="{Binding OrbitViewCommand}" />
+        <KeyBinding Key="F4" Command="{Binding IsoViewCommand}" />
         <KeyBinding Key="Home" Command="{Binding ZoomExtentsCommand}" />
         <KeyBinding Key="F7" Command="{Binding ValidateCommand}" />
     </Window.InputBindings>
@@ -70,6 +71,7 @@
             <MenuItem Header="_View">
                 <MenuItem Header="_Plan" InputGestureText="F2" Command="{Binding PlanViewCommand}" />
                 <MenuItem Header="_3D Orbit" InputGestureText="F3" Command="{Binding OrbitViewCommand}" />
+                <MenuItem Header="_Isometric" InputGestureText="F4" Command="{Binding IsoViewCommand}" ToolTip="2:1 isometric of every visible level; [ and ] turn it." />
                 <Separator />
                 <MenuItem Header="_Zoom Extents" InputGestureText="Home" Command="{Binding ZoomExtentsCommand}" />
                 <Separator />
@@ -142,9 +144,21 @@
                             </Style>
                         </Button.Style>
                     </Button>
+                    <Button Content="ISO" Tag="&#xE8A9;" Command="{Binding IsoViewCommand}" ToolTip="2:1 isometric of every visible level (F4). [ and ] turn it a quarter; STUDY ▸ VIEW cuts and explodes.">
+                        <Button.Style>
+                            <Style TargetType="Button" BasedOn="{StaticResource ToolButton}">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsIsoView}" Value="True">
+                                        <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                                        <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
                     <Button Style="{StaticResource ToolButton}" Tag="&#xE740;" Content="FIT" Command="{Binding ZoomExtentsCommand}" ToolTip="Zoom extents (Home)." />
                     <Border Style="{StaticResource ToolSeparator}" />
-                    <Button Style="{StaticResource ToolButton}" Tag="&#xE73E;" Content="CHECK" Command="{Binding ValidateCommand}" ToolTip="Validate the study (F7). Catches irrational setups before your agents do." />
+                    <Button Style="{StaticResource ToolButton}" Tag="&#xE73E;" Content="CHECK" Command="{Binding ValidateCommand}" ToolTip="CHECK the study (F7): every rule, routes and capacity, listed in the CHECK tab. Catches irrational setups before your agents do." />
                     <Border Style="{StaticResource ToolSeparator}" />
 
                     <!-- RUN (D-097, D-104, D-106): PLAY checks and compiles first; editing is locked until RESET. -->
@@ -399,6 +413,24 @@
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
+
+                        <!-- Profile exchange (round 016, D-275): AGENTS tab only. -->
+                        <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                            <StackPanel.Style>
+                                <Style TargetType="StackPanel">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding Library.SelectedTab.Label}" Value="AGENTS">
+                                            <Setter Property="Visibility" Value="Visible" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </StackPanel.Style>
+                            <Button Padding="6,0" Content="EXPORT…" Command="{Binding ExportProfileCommand}" FontFamily="{DynamicResource RetroFont}" FontSize="15"
+                                    ToolTip="Write the clicked profile and the journeys it's used with to a .throngprofile file." />
+                            <Button Margin="6,0,0,0" Padding="6,0" Content="IMPORT…" Command="{Binding ImportProfileCommand}" FontFamily="{DynamicResource RetroFont}" FontSize="15"
+                                    ToolTip="Add a profile (and its journeys) from a .throngprofile file. Anything this study lacks: keep, map or drop." />
+                        </StackPanel>
                     </StackPanel>
                 </ScrollViewer>
             </Grid>
@@ -448,8 +480,100 @@
                     </ListBox.ItemTemplate>
                 </ListBox>
 
-                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" IsEnabled="{Binding IsEditable}">
-                    <Grid Margin="0,0,0,12">
+                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                    <StackPanel>
+
+                    <!-- VIEW (round 015, D-264-D-268): cutaway and explode for 3D and ISO. Outside the edit lock, so it
+                         works while running; session only, never saved or undone. -->
+                    <StackPanel Margin="12,0,12,6" Visibility="{Binding IsStudyTab, Converter={StaticResource BoolToVis}}">
+                        <DockPanel>
+                            <Button DockPanel.Dock="Right" Padding="6,0" Content="CLEAR" Command="{Binding ClearViewCommand}"
+                                    FontFamily="{DynamicResource RetroFont}" FontSize="15" ToolTip="No clip, no section box, levels back at true elevation." />
+                            <TextBlock Style="{StaticResource PanelHeader}" Text="VIEW" VerticalAlignment="Center" />
+                        </DockPanel>
+                        <TextBlock Style="{StaticResource DimText}" TextWrapping="Wrap" Text="3D and ISO only (F3, F4). Not saved with the study; works while running."
+                                   Visibility="{Binding IsPlanView, Converter={StaticResource BoolToVis}}" />
+                        <StackPanel IsEnabled="{Binding IsViewControlsEnabled}">
+                            <ToggleButton Style="{StaticResource SwitchToggle}" Margin="0,8,0,0" Content="Clip above a level" IsChecked="{Binding ClipEnabled, Mode=TwoWay}"
+                                          ToolTip="Cut away everything above the chosen level (just under the floor above it)." />
+                            <ComboBox Margin="0,4,0,0" ItemsSource="{Binding Levels}" DisplayMemberPath="Name" SelectedItem="{Binding ClipLevel, Mode=TwoWay}"
+                                      IsEnabled="{Binding ClipEnabled}" ToolTip="Levels above this one are cut away." />
+
+                            <ToggleButton Style="{StaticResource SwitchToggle}" Margin="0,10,0,0" Content="Section box" IsChecked="{Binding SectionBoxEnabled, Mode=TwoWay}"
+                                          ToolTip="Show only what's inside a box; the sliders move its sides across the whole study." />
+                            <Grid Margin="0,4,0,0" IsEnabled="{Binding SectionBoxEnabled}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="58" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <TextBlock Style="{StaticResource FieldLabel}" Text="W ▸ E" VerticalAlignment="Center" Margin="0" />
+                                <Slider Grid.Column="1" Minimum="0" Maximum="100" Value="{Binding BoxWest, Mode=TwoWay}" Margin="0,2,4,2" ToolTip="West side" />
+                                <Slider Grid.Column="2" Minimum="0" Maximum="100" Value="{Binding BoxEast, Mode=TwoWay}" Margin="4,2,0,2" ToolTip="East side" />
+                                <TextBlock Grid.Row="1" Style="{StaticResource FieldLabel}" Text="S ▸ N" VerticalAlignment="Center" Margin="0" />
+                                <Slider Grid.Row="1" Grid.Column="1" Minimum="0" Maximum="100" Value="{Binding BoxSouth, Mode=TwoWay}" Margin="0,2,4,2" ToolTip="South side" />
+                                <Slider Grid.Row="1" Grid.Column="2" Minimum="0" Maximum="100" Value="{Binding BoxNorth, Mode=TwoWay}" Margin="4,2,0,2" ToolTip="North side" />
+                                <TextBlock Grid.Row="2" Style="{StaticResource FieldLabel}" Text="LOW ▸ HIGH" VerticalAlignment="Center" Margin="0" />
+                                <Slider Grid.Row="2" Grid.Column="1" Minimum="0" Maximum="100" Value="{Binding BoxBottom, Mode=TwoWay}" Margin="0,2,4,2" ToolTip="Bottom" />
+                                <Slider Grid.Row="2" Grid.Column="2" Minimum="0" Maximum="100" Value="{Binding BoxTop, Mode=TwoWay}" Margin="4,2,0,2" ToolTip="Top" />
+                            </Grid>
+
+                            <DockPanel Margin="0,10,0,0">
+                                <TextBlock DockPanel.Dock="Right" Text="{Binding ExplodeText}" Style="{StaticResource DimDataText}" VerticalAlignment="Center" />
+                                <TextBlock Style="{StaticResource FieldLabel}" Text="Explode levels" Margin="0" VerticalAlignment="Center" />
+                            </DockPanel>
+                            <Slider Minimum="0" Maximum="30" SmallChange="0.5" LargeChange="2" TickFrequency="0.5" IsSnapToTickEnabled="True"
+                                    Value="{Binding ExplodeM, Mode=TwoWay}"
+                                    ToolTip="Extra height between levels. Stairs, shafts and lift cars stretch to bridge the gap." />
+                            <TextBlock Style="{StaticResource DimText}" TextWrapping="Wrap" Margin="0,4,0,0"
+                                       Text="With the section box on, drag its square handles in 3D to move a side."
+                                       Visibility="{Binding SectionBoxEnabled, Converter={StaticResource BoolToVis}}" />
+                        </StackPanel>
+
+                        <!-- VIEWS (D-276): saved with the study (v10); works in plan too, and while running. -->
+                        <DockPanel Margin="0,12,0,0">
+                            <Button DockPanel.Dock="Right" Padding="6,0" Content="SAVE VIEW" Command="{Binding SaveViewCommand}"
+                                    FontFamily="{DynamicResource RetroFont}" FontSize="15" ToolTip="Save the camera, mode, level, cutaway and explode under a name, in the study." />
+                            <TextBlock Style="{StaticResource FieldLabel}" Text="Views" Margin="0" VerticalAlignment="Center" />
+                        </DockPanel>
+                        <TextBlock Style="{StaticResource DimText}" Text="No saved views yet." Margin="0,4,0,0"
+                                   Visibility="{Binding HasNoViews, Converter={StaticResource BoolToVis}}" />
+                        <ItemsControl ItemsSource="{Binding ViewRows}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Margin="0,4,0,0" Padding="4,3" BorderThickness="1">
+                                        <Border.Style>
+                                            <Style TargetType="Border">
+                                                <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsActive}" Value="True">
+                                                        <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Border.Style>
+                                        <DockPanel>
+                                            <Button DockPanel.Dock="Left" Padding="6,0" Margin="0,0,6,0" Content="GO" Command="{Binding RestoreCommand}" VerticalAlignment="Top"
+                                                    FontFamily="{DynamicResource RetroFont}" FontSize="15" ToolTip="Restore this view." />
+                                            <Button DockPanel.Dock="Right" Padding="6,0" Margin="6,0,0,0" Content="DELETE" Command="{Binding DeleteCommand}" VerticalAlignment="Top"
+                                                    FontFamily="{DynamicResource RetroFont}" FontSize="13" ToolTip="Delete this view (undoable)." />
+                                            <StackPanel>
+                                                <TextBox Text="{Binding Name, Mode=TwoWay}" ToolTip="Rename: type and leave the field." />
+                                                <TextBlock Text="{Binding Summary}" Style="{StaticResource DimDataText}" />
+                                            </StackPanel>
+                                        </DockPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+
+                    <Grid Margin="0,0,0,12" IsEnabled="{Binding IsEditable}">
 
                         <!-- SELECTION -->
                         <StackPanel Visibility="{Binding IsSelectionTab, Converter={StaticResource BoolToVis}}">
@@ -1048,7 +1172,75 @@
                                        Text="Fields commit when they lose focus; every edit can be undone with Ctrl+Z." />
                         </StackPanel>
                     </Grid>
+                    </StackPanel>
                 </ScrollViewer>
+
+                <!-- CHECK (round 016, D-271, D-272): every rule's findings; outside the edit lock so it reads while running. -->
+                <Grid Grid.Row="1" Margin="10,0,10,10" Visibility="{Binding IsCheckTab, Converter={StaticResource BoolToVis}}">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    <StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                            <Button Content="RUN CHECK" Command="{Binding RunCheckCommand}" Padding="6,0" Margin="0,0,8,0"
+                                    FontFamily="{DynamicResource RetroFont}" FontSize="15" ToolTip="Run every rule again (F7): model, routes, capacity, gaps." />
+                            <ToggleButton Style="{StaticResource ChipToggle}" Content="ALL" IsChecked="{Binding IsCheckAll, Mode=TwoWay}" />
+                            <ToggleButton Style="{StaticResource ChipToggle}" Content="ERRORS" IsChecked="{Binding IsCheckErrors, Mode=TwoWay}" ToolTip="The study can't run until these are fixed." />
+                            <ToggleButton Style="{StaticResource ChipToggle}" Content="WARNINGS" IsChecked="{Binding IsCheckWarnings, Mode=TwoWay}" ToolTip="Probably not what you meant; it still runs." />
+                            <ToggleButton Style="{StaticResource ChipToggle}" Content="INFO" IsChecked="{Binding IsCheckInfo, Mode=TwoWay}" ToolTip="Useful to know: capacity, Level of Service." />
+                        </StackPanel>
+                        <ToggleButton Style="{StaticResource SwitchToggle}" Content="Show ignored" IsChecked="{Binding ShowIgnoredFindings, Mode=TwoWay}" Margin="0,0,0,4"
+                                      ToolTip="Ignored findings stay ignored for this study (saved with it) until you UNIGNORE them." />
+                        <TextBlock Margin="2,0,2,6" Style="{StaticResource DimText}" TextWrapping="Wrap" Text="{Binding CheckSummary}" />
+                    </StackPanel>
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                        <ItemsControl ItemsSource="{Binding CheckRows}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Margin="0,0,0,4" Padding="6,4" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Background="{StaticResource PanelAltBrush}" Cursor="Hand"
+                                            ToolTip="Click to go there: plan view on its level, selected and framed.">
+                                        <Border.InputBindings>
+                                            <MouseBinding MouseAction="LeftClick" Command="{Binding GoCommand}" />
+                                        </Border.InputBindings>
+                                        <Border.Style>
+                                            <Style TargetType="Border">
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsIgnored}" Value="True">
+                                                        <Setter Property="Opacity" Value="0.45" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Border.Style>
+                                        <DockPanel>
+                                            <Button DockPanel.Dock="Right" VerticalAlignment="Top" Margin="6,0,0,0" Padding="4,0" Content="{Binding IgnoreText}" Command="{Binding ToggleIgnoreCommand}"
+                                                    FontFamily="{DynamicResource RetroFont}" FontSize="13" ToolTip="Ignore this finding for this study (undoable), or bring it back." />
+                                            <TextBlock DockPanel.Dock="Left" Width="44" Text="{Binding SeverityText}" FontFamily="{DynamicResource RetroFont}" FontSize="15" VerticalAlignment="Top">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Foreground" Value="{StaticResource TextDimBrush}" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding Severity}" Value="Error">
+                                                                <Setter Property="Foreground" Value="{StaticResource RedBrush}" />
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding Severity}" Value="Warning">
+                                                                <Setter Property="Foreground" Value="{StaticResource YellowBrush}" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                            <StackPanel>
+                                                <TextBlock Text="{Binding RuleText}" Style="{StaticResource DimText}" FontSize="11" />
+                                                <TextBlock Text="{Binding Message}" Foreground="{StaticResource TextBrush}" TextWrapping="Wrap" />
+                                            </StackPanel>
+                                        </DockPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </Grid>
 
                 <!-- RESULTS (D-219): outside the edit-locked scroller, so it works while running. Device stats after the
                      warm-up (D-218), the hand-drawn graph (D-220, D-221, D-226) and CSV export (D-222). -->
@@ -1068,6 +1260,7 @@
                             <ToggleButton Style="{StaticResource ChipToggle}" Content="DEVICES" IsChecked="{Binding IsTableDevices, Mode=TwoWay}" ToolTip="Served, waits, queues and utilisation per device, after the warm-up." />
                             <ToggleButton Style="{StaticResource ChipToggle}" Content="ZONES" IsChecked="{Binding IsTableZones, Mode=TwoWay}" ToolTip="Occupancy and flow through each measurement zone, after the warm-up." />
                             <ToggleButton Style="{StaticResource ChipToggle}" Content="JOURNEYS" IsChecked="{Binding IsTableJourneys, Mode=TwoWay}" ToolTip="Journey times per profile and journey, for people spawned after the warm-up." />
+                            <ToggleButton Style="{StaticResource ChipToggle}" Content="LIFTS" IsChecked="{Binding IsTableLifts, Mode=TwoWay}" ToolTip="Boardings, landing waits, rides and give-ups per lift bank, after the warm-up." />
                         </StackPanel>
                         <TextBlock Margin="2,0,2,6" Style="{StaticResource DimText}" TextWrapping="Wrap" Text="{Binding ResultsSummary}" />
                     </StackPanel>
@@ -1138,6 +1331,22 @@
                         </DataGrid.Columns>
                     </DataGrid>
 
+                    <!-- LIFTS (D-260): one row per bank; waits on the landing, rides from boarding to getting off. -->
+                    <DataGrid Grid.Row="1" Style="{StaticResource ResultsGrid}" ItemsSource="{Binding LiftResultRows}"
+                              Visibility="{Binding IsTableLifts, Converter={StaticResource BoolToVis}}">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="LIFT" Binding="{Binding Name}" IsReadOnly="True" />
+                            <DataGridTextColumn Header="CARS" Binding="{Binding Cars}" IsReadOnly="True" />
+                            <DataGridTextColumn Header="BOARDED" Binding="{Binding Boarded}" IsReadOnly="True" />
+                            <DataGridTextColumn Header="MEAN WAIT S" Binding="{Binding MeanWaitS, StringFormat={}{0:0.0}}" IsReadOnly="True" />
+                            <DataGridTextColumn Header="95% S" Binding="{Binding P95WaitS, StringFormat={}{0:0.0}}" IsReadOnly="True" />
+                            <DataGridTextColumn Header="MAX S" Binding="{Binding MaxWaitS, StringFormat={}{0:0.0}}" IsReadOnly="True" />
+                            <DataGridTextColumn Header="RIDES" Binding="{Binding Rides}" IsReadOnly="True" />
+                            <DataGridTextColumn Header="MEAN RIDE S" Binding="{Binding MeanRideS, StringFormat={}{0:0.0}}" IsReadOnly="True" />
+                            <DataGridTextColumn Header="GAVE UP" Binding="{Binding GaveUp}" IsReadOnly="True" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+
                     <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,4">
                         <TextBlock Text="GRAPH" Margin="0,0,6,0" VerticalAlignment="Center" FontFamily="{DynamicResource RetroFont}" FontSize="15" Foreground="{StaticResource TextDimBrush}" />
                         <ToggleButton Style="{StaticResource ChipToggle}" Content="PEOPLE" IsChecked="{Binding IsGraphPeople, Mode=TwoWay}" ToolTip="People in the model over time." />
@@ -1154,7 +1363,7 @@
                     <StackPanel Grid.Row="4" Orientation="Horizontal" Margin="0,8,0,0">
                         <Button Content="EXPORT CSV" Command="{Binding ExportResultsCommand}" Padding="6,0"
                                 FontFamily="{DynamicResource RetroFont}" FontSize="15"
-                                ToolTip="Write devices.csv, zones.csv, journeys.csv (stats after the warm-up) and timeseries.csv (every 5 s from the start) into a folder you pick." />
+                                ToolTip="Write devices.csv, zones.csv, journeys.csv, lifts.csv (stats after the warm-up) and timeseries.csv (every 5 s from the start) into a folder you pick." />
                         <Button Margin="6,0,0,0" Content="EXPORT PNG" Command="{Binding ExportPngCommand}" Padding="6,0"
                                 FontFamily="{DynamicResource RetroFont}" FontSize="15"
                                 ToolTip="Save the view at twice its size, with the map legend and a title block." />

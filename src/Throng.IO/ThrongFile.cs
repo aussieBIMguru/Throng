@@ -36,7 +36,7 @@ public static class ThrongFile
     /// lobby, dispatch, schedule and per-level doors; drawn train shapes (round 013b, D-249, additive:
     /// <c>TrainService.Shape</c>, empty = the automatic box).
     /// </summary>
-    public const int CurrentFormatVersion = 9;
+    public const int CurrentFormatVersion = 10;
 
     /// <summary>Zip folder holding underlay images (§14.2, D-083).</summary>
     public const string UnderlayFolder = "underlays/";

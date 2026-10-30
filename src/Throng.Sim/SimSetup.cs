@@ -210,14 +210,14 @@ public static class SimSetup
             if (reachable.Count == 0)
             {
                 string who = classes.Contains(MobilityClass.StepFree) ? " for step-free profiles" : string.Empty;
-                findings.Add(new ValidationMessage(ValidationSeverity.Error, $"{label} can't reach any of its sinks{who}.", region.Id));
+                findings.Add(new ValidationMessage(ValidationSeverity.Error, $"{label} can't reach any of its sinks{who}.", region.Id) { Rule = ValidationRules.Reachability });
                 continue;
             }
 
             if (unreachable.Count > 0 && rule.DestinationMode == DestinationMode.ChosenSinks)
             {
                 findings.Add(new ValidationMessage(ValidationSeverity.Warning,
-                    $"{label} can't reach {string.Join(", ", unreachable.Select(n => $"'{n}'"))}; those sinks are skipped.", region.Id));
+                    $"{label} can't reach {string.Join(", ", unreachable.Select(n => $"'{n}'"))}; those sinks are skipped.", region.Id) { Rule = ValidationRules.Reachability });
             }
 
             // Journey steps: some target of every step must be reachable from the zone (D-149).
@@ -241,7 +241,7 @@ public static class SimSetup
                     {
                         string who = mobility == MobilityClass.StepFree ? " for step-free profiles" : string.Empty;
                         findings.Add(new ValidationMessage(ValidationSeverity.Error,
-                            $"{label}: journey '{journeys[line.Journey].Name}' can't reach any '{step.Label}'{who}.", region.Id));
+                            $"{label}: journey '{journeys[line.Journey].Name}' can't reach any '{step.Label}'{who}.", region.Id) { Rule = ValidationRules.Reachability });
                         stepsOk = false;
                     }
                 }

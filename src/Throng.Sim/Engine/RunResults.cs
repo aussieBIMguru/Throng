@@ -76,6 +76,9 @@ public sealed class RunResults
     /// <summary>Journey rows: profile × journey, with an ALL row after a profile's rows when it has two or more (D-229).</summary>
     public IReadOnlyList<JourneyResult> Journeys { get; init; } = [];
 
+    /// <summary>One row per lift bank, in <see cref="SimModel.Lifts"/> order (round 015, D-260).</summary>
+    public IReadOnlyList<LiftResult> Lifts { get; init; } = [];
+
     /// <summary>Number of time-series samples.</summary>
     public int SampleCount => Times.Length;
 

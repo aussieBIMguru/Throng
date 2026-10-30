@@ -432,7 +432,20 @@ public static class SceneBuilder
             double z0 = bottom.ElevationM;
             double z1 = Math.Max(z0 + 0.1, top.ElevationM + top.HeightM);
             ColorF face = RenderPalette.Shaft.WithAlpha(RenderPalette.ShaftBoxAlpha);
-            boxes.PrismSides(shaft.Outline, z0, z1, face);
+            if (shaft.Lift is not null)
+            {
+                // Lift shafts (D-261): semi-transparent walls with the landing doors left open.
+                ColorF wall = RenderPalette.Shaft.WithAlpha(RenderPalette.LiftShaftWallAlpha);
+                foreach (WallPanel panel in ShaftWalls.Panels(shaft.Outline, z0, z1, LiftOpenings.For(study, shaft)))
+                {
+                    boxes.Quad(Point3.FromPlan(panel.A, panel.Z0), Point3.FromPlan(panel.B, panel.Z0), Point3.FromPlan(panel.B, panel.Z1), Point3.FromPlan(panel.A, panel.Z1), wall);
+                }
+            }
+            else
+            {
+                boxes.PrismSides(shaft.Outline, z0, z1, face);
+            }
+
             boxes.PolygonFill(shaft.Outline, z1, face);
 
             ColorF edge = RenderPalette.Shaft.WithAlpha(0.6f);

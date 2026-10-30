@@ -61,7 +61,7 @@ public sealed partial class MainViewModel : IEditorHost
     // ------------------------------------------------------------------ right panel tabs (D-045)
 
     /// <summary>Tab labels for the right panel.</summary>
-    public IReadOnlyList<string> PropertiesTabs { get; } = ["SELECTION", "LEVEL", "STUDY", "RESULTS"];
+    public IReadOnlyList<string> PropertiesTabs { get; } = ["SELECTION", "LEVEL", "STUDY", "RESULTS", "CHECK"];
 
     /// <summary>Selected right-panel tab. Selecting anything in the viewport switches to SELECTION.</summary>
     public int PropertiesTabIndex
@@ -69,7 +69,7 @@ public sealed partial class MainViewModel : IEditorHost
         get => _propertiesTabIndex;
         set
         {
-            if (value is < PropertiesTabSelection or > PropertiesTabResults)
+            if (value is < PropertiesTabSelection or > PropertiesTabCheck)
             {
                 OnPropertyChanged();
                 return;
@@ -81,6 +81,7 @@ public sealed partial class MainViewModel : IEditorHost
                 OnPropertyChanged(nameof(IsLevelTab));
                 OnPropertyChanged(nameof(IsStudyTab));
                 OnPropertyChanged(nameof(IsResultsTab));
+                OnPropertyChanged(nameof(IsCheckTab));
             }
         }
     }
@@ -280,6 +281,13 @@ public sealed partial class MainViewModel : IEditorHost
     /// </summary>
     private void UseLiftTemplate(LiftTemplate lift)
     {
+        if (_isRunActive)
+        {
+            // Editing is locked while a run is on (D-097); the click path must honour it too (round 014, D-252).
+            Ticker = "RUNNING ▸ RESET TO EDIT";
+            return;
+        }
+
         if (_selectedShaft is not { } shaft)
         {
             Ticker = $"{lift.Name}: lifts go in shafts. Draw or select a shaft, then click this preset again (or use SELECTION ▸ LIFT).";
@@ -724,7 +732,7 @@ public sealed partial class MainViewModel : IEditorHost
         if (Editor.SelectionCount > 0)
         {
             ClearJourneySelection();
-            if (_propertiesTabIndex != PropertiesTabResults)
+            if (_propertiesTabIndex is not PropertiesTabResults and not PropertiesTabCheck)
             {
                 PropertiesTabIndex = PropertiesTabSelection;
             }

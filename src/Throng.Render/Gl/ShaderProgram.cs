@@ -23,6 +23,14 @@ internal sealed class ShaderProgram : IDisposable
     private int _timeLocation;
     private int _colorModeLocation;
     private int _dimLocation = -1;
+    private int _warpLocation = -1;
+    private int _shiftLocation = -1;
+    private int _gapLocation = -1;
+    private int _levelCountLocation = -1;
+    private int _levelZLocation = -1;
+    private int _clipLocation = -1;
+    private int _boxMinLocation = -1;
+    private int _boxMaxLocation = -1;
 
     /// <summary>Creates a program from vertex, optional geometry, and fragment sources (compiled in <see cref="Initialise"/>).</summary>
     public ShaderProgram(string vertexSource, string? geometrySource, string fragmentSource)
@@ -99,6 +107,14 @@ internal sealed class ShaderProgram : IDisposable
         _timeLocation = GL.GetUniformLocation(_handle, "uTime");
         _colorModeLocation = GL.GetUniformLocation(_handle, "uColorMode");
         _dimLocation = GL.GetUniformLocation(_handle, "uDim");
+        _warpLocation = GL.GetUniformLocation(_handle, "uWarp");
+        _shiftLocation = GL.GetUniformLocation(_handle, "uShift");
+        _gapLocation = GL.GetUniformLocation(_handle, "uGap");
+        _levelCountLocation = GL.GetUniformLocation(_handle, "uLevelCount");
+        _levelZLocation = GL.GetUniformLocation(_handle, "uLevelZ");
+        _clipLocation = GL.GetUniformLocation(_handle, "uClip");
+        _boxMinLocation = GL.GetUniformLocation(_handle, "uBoxMin");
+        _boxMaxLocation = GL.GetUniformLocation(_handle, "uBoxMax");
         return Result.Ok();
     }
 
@@ -135,6 +151,36 @@ internal sealed class ShaderProgram : IDisposable
 
     /// <summary>Sets <c>uDim</c> (agents drawn smaller and greyer over a heatmap, D-207; 0 = normal).</summary>
     public void SetDim(float dim) => GL.Uniform1(_dimLocation, dim);
+
+    /// <summary>
+    /// Exploded levels (D-264): the distinct level elevations (lowest first, at most <see cref="Shaders.MaxLevels"/>)
+    /// and the extra gap between consecutive levels. Program must be in use.
+    /// </summary>
+    public void SetExplode(float[] levelZ, int count, float gap)
+    {
+        count = Math.Clamp(count, 0, Math.Min(levelZ.Length, Shaders.MaxLevels));
+        GL.Uniform1(_levelCountLocation, count);
+        GL.Uniform1(_gapLocation, gap);
+        if (count > 0 && _levelZLocation >= 0)
+        {
+            GL.Uniform1(_levelZLocation, count, levelZ);
+        }
+    }
+
+    /// <summary>How heights are remapped (D-264): 0 none, 1 stretch across storeys, 2 a rigid shift of <paramref name="shift"/> m.</summary>
+    public void SetWarp(int mode, float shift = 0f)
+    {
+        GL.Uniform1(_warpLocation, mode);
+        GL.Uniform1(_shiftLocation, shift);
+    }
+
+    /// <summary>Cutaway (D-266): discard fragments outside the box while <paramref name="on"/>. Program must be in use.</summary>
+    public void SetClip(bool on, Vector3 min, Vector3 max)
+    {
+        GL.Uniform1(_clipLocation, on ? 1 : 0);
+        GL.Uniform3(_boxMinLocation, min.X, min.Y, min.Z);
+        GL.Uniform3(_boxMaxLocation, max.X, max.Y, max.Z);
+    }
 
     /// <inheritdoc />
     public void Dispose()

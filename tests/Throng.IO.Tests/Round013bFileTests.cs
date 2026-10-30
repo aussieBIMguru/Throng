@@ -55,7 +55,7 @@ public sealed class Round013bFileTests
         Shaft core = tower.Shafts.Single();
         Assert.AreEqual(Lift.MaxCars, core.Lift!.Cars);
         Assert.AreEqual(tower.Levels.Count, tower.LiftStops(core).Count, "The bank stops at every floor.");
-        Assert.AreEqual(0, tower.Connectors.Count, "Lifts only (D-250).");
+        Assert.AreEqual(1, tower.Connectors.Count, "One stair beside the lifts (D-257).");
         IReadOnlyList<ValidationMessage> findings = StudyValidator.Validate(tower);
         Assert.AreEqual(0, findings.Count(f => f.Severity is ValidationSeverity.Error or ValidationSeverity.Warning),
             string.Join("\n", findings.Select(f => $"[{f.Severity}] {f.Message}")));

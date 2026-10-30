@@ -76,7 +76,17 @@ public sealed partial class MainViewModel
     private PngExportInfo BuildPngInfo()
     {
         CultureInfo c = CultureInfo.InvariantCulture;
-        string level = ViewMode == ViewMode.Plan ? HudLevelText + " · PLAN" : "ALL VISIBLE LEVELS · 3D";
+        string level = ViewMode switch
+        {
+            ViewMode.Plan => HudLevelText + " · PLAN",
+            ViewMode.Iso => "ALL VISIBLE LEVELS · " + HudModeText,
+            _ => "ALL VISIBLE LEVELS · 3D",
+        };
+        if (ActiveViewName is { } viewName)
+        {
+            // A saved view's name heads the title block (D-276).
+            level = $"VIEW '{viewName}' · {level}";
+        }
         string time = _isRunActive && _runner is not null
             ? string.Create(c, $"{RunClockText()} · {Clock(_stats.TimeS)} into the run")
             : RunClockText() + " · not running";

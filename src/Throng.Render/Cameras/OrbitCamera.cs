@@ -4,13 +4,26 @@ using Throng.Core.Geometry;
 namespace Throng.Render.Cameras;
 
 /// <summary>
-/// Perspective orbit camera around a target point, Z up (§12.1). Isometric and cutaway presets build on this in M6.
+/// Orbit camera around a target point, Z up (§12.1): perspective for 3D, or orthographic at a fixed 2:1 game iso
+/// angle for ISO (round 015, D-263), where <see cref="Distance"/> sets the zoom.
 /// </summary>
 public sealed class OrbitCamera
 {
     private const float MinPitch = 0.05f;
     private const float MaxPitch = 1.53f;
     private const float FieldOfView = MathF.PI / 4f;
+
+    /// <summary>2:1 game iso: the view looks down atan(½) ≈ 26.57°, so a ground square's diagonals read 2 : 1.</summary>
+    public static readonly float IsoPitch = MathF.Atan(0.5f);
+
+    /// <summary>Iso preset names, by where the eye sits (index 0–3; ] steps forward).</summary>
+    public static readonly string[] IsoPresetNames = ["SW", "SE", "NE", "NW"];
+
+    /// <summary>Where an orthographic eye sits back from the target, metres (so nothing in front is cut off).</summary>
+    private const float OrthoEyeDistance = 4000f;
+
+    /// <summary>True for an orthographic (ISO) camera.</summary>
+    public bool Orthographic { get; init; }
 
     /// <summary>World point the camera orbits.</summary>
     public Vector3 Target { get; set; } = Vector3.Zero;
@@ -32,6 +45,15 @@ public sealed class OrbitCamera
     public Matrix4x4 ViewProjection(double widthDip, double heightDip)
     {
         float aspect = (float)(Math.Max(1, widthDip) / Math.Max(1, heightDip));
+        if (Orthographic)
+        {
+            Vector3 back = Vector3.Normalize(Eye - Target);
+            Matrix4x4 isoView = Matrix4x4.CreateLookAt(Target + (back * OrthoEyeDistance), Target, Vector3.UnitZ);
+            float height = ViewHeightM;
+            Matrix4x4 ortho = Matrix4x4.CreateOrthographic(height * aspect, height, 1f, OrthoEyeDistance * 2f);
+            return isoView * ortho;
+        }
+
         Matrix4x4 view = Matrix4x4.CreateLookAt(Eye, Target, Vector3.UnitZ);
         float near = MathF.Max(0.05f, Distance * 0.01f);
         float far = (Distance * 10f) + 1000f;
@@ -39,9 +61,28 @@ public sealed class OrbitCamera
         return view * projection;
     }
 
-    /// <summary>Rotates by a screen drag in DIPs.</summary>
+    /// <summary>
+    /// Height of the view at the target, metres: what the perspective view spans there, and the orthographic view's
+    /// height, so zoom feels the same in 3D and ISO.
+    /// </summary>
+    public float ViewHeightM => 2f * Distance * MathF.Tan(FieldOfView / 2f);
+
+    /// <summary>Points the camera from one of the four iso presets (0 SW, 1 SE, 2 NE, 3 NW; wraps) at the 2:1 angle.</summary>
+    public void SetIsoPreset(int preset)
+    {
+        int k = ((preset % 4) + 4) % 4;
+        Yaw = (-3f * MathF.PI / 4f) + (k * MathF.PI / 2f);
+        Pitch = IsoPitch;
+    }
+
+    /// <summary>Rotates by a screen drag in DIPs (ignored by the fixed-angle ISO camera).</summary>
     public void Orbit(double dxDip, double dyDip)
     {
+        if (Orthographic)
+        {
+            return;
+        }
+
         Yaw -= (float)dxDip * 0.008f;
         Pitch = Math.Clamp(Pitch + ((float)dyDip * 0.008f), MinPitch, MaxPitch);
     }

@@ -18,6 +18,27 @@ public sealed class LiftLayout
     /// <summary>A rear edge must face within this of straight back (cosine of the angle between the edges' directions).</summary>
     public const double RearFacingCos = -0.5;
 
+    /// <summary>Car inside height, metres, where the storeys allow it (round 013b).</summary>
+    public const double CarHeightM = 2.4;
+
+    /// <summary>Door opening height as a share of the car height (round 014, D-258; shaft walls, D-261).</summary>
+    public const double DoorHeightShare = 0.88;
+
+    /// <summary>
+    /// Car inside height for a bank with stops at <paramref name="stopZ"/> (lowest first): <see cref="CarHeightM"/>,
+    /// or 0.4 m under the closest pair of stops, but never below 1.8 m.
+    /// </summary>
+    public static double CarHeightFor(IReadOnlyList<double> stopZ)
+    {
+        double gap = double.PositiveInfinity;
+        for (int s = 1; s < stopZ.Count; s++)
+        {
+            gap = Math.Min(gap, stopZ[s] - stopZ[s - 1]);
+        }
+
+        return double.IsFinite(gap) ? Math.Clamp(gap - 0.4, 1.8, CarHeightM) : CarHeightM;
+    }
+
     /// <summary>Front edge, as drawn.</summary>
     public required LiftSide Front { get; init; }
 

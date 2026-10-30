@@ -66,6 +66,21 @@ public sealed class LibraryBrowserViewModel : ObservableObject
     /// <summary>The JOURNEYS tab.</summary>
     public LibraryTabViewModel JourneysTab => Tabs[^1];
 
+    /// <summary>Replaces the AGENTS tab's rows with the study's profiles (embedded and imported, then built-ins; D-275).</summary>
+    public void SetProfiles(IEnumerable<AgentProfileTemplate> profiles)
+    {
+        LibraryTabViewModel tab = Tabs[0];
+        List<AgentProfileTemplate> next = [.. profiles];
+        if (next.Count == tab.Items.Count && next.Zip(tab.Items).All(pair => ReferenceEquals(pair.First, pair.Second.Template)))
+        {
+            return;
+        }
+
+        tab.SetItems(next);
+        MarkSelected(_selectedId);
+        Refilter();
+    }
+
     /// <summary>
     /// Replaces the JOURNEYS tab's rows (the study's own journeys first, then the built-ins it hasn't embedded) and
     /// re-applies the search.

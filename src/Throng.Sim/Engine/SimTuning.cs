@@ -121,6 +121,18 @@ public sealed record SimTuning
     /// no penalty).
     /// </summary>
     public bool LiftPriority { get; init; } = true;
+
+    /// <summary>
+    /// Patience at lift landings (D-253, D-254): after the profile's patience on a landing, people look for another way
+    /// with that bank barred until they've left the floor (lift-only people keep waiting); off = r013b (wait for ever).
+    /// </summary>
+    public bool LiftPatience { get; init; } = true;
+
+    /// <summary>
+    /// Destination dispatch (D-255): lifts set to it give each arriving person a car grouped by destination; off = it
+    /// runs as Collective (r013b).
+    /// </summary>
+    public bool DestinationDispatch { get; init; } = true;
 }
 
 /// <summary>Where and how an agent was removed as stuck (D-106), for diagnostics.</summary>

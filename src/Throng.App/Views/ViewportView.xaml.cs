@@ -27,10 +27,10 @@ public delegate int AgentFeed(ViewMode mode, ref float[] buffer);
 public delegate IReadOnlyList<HeatLayerDraw>? HeatFeed(ViewMode mode, out long version);
 
 /// <summary>
-/// Supplies the lift cars to draw in 3D this frame (round 013b), or null for none. Return the same list instance while
-/// nothing changed so the renderer doesn't rebuild its meshes.
+/// Supplies the lift cars and doors to draw in 3D this frame (round 013b, doors round 014), or null for none. Return the
+/// same instance while nothing changed so the renderer doesn't rebuild its meshes.
 /// </summary>
-public delegate IReadOnlyList<LiftCarDraw>? LiftCarFeed();
+public delegate LiftSceneDraw? LiftCarFeed();
 
 /// <summary>A LIBRARY row dropped on the viewport (D-098).</summary>
 /// <param name="Data">The dragged item.</param>
@@ -44,7 +44,8 @@ public sealed record TemplateDropEventArgs(object Data, Point2? PlanPoint, doubl
 /// </summary>
 /// <remarks>
 /// Plan: wheel zooms at the cursor, middle/right-drag pans, left button edits.
-/// 3D: wheel zooms, right-drag orbits, middle-drag or Shift+right-drag pans (view only until M6, D-026).
+/// 3D: wheel zooms, right-drag orbits, middle-drag or Shift+right-drag pans (view only, D-026).
+/// ISO (round 015, D-263): wheel zooms, right- or middle-drag pans, [ and ] turn the preset.
 /// </remarks>
 public partial class ViewportView : UserControl
 {
@@ -56,6 +57,16 @@ public partial class ViewportView : UserControl
     private readonly SceneRenderer _renderer = new();
     private readonly PlanCamera _planCamera = new();
     private readonly OrbitCamera _orbitCamera = new();
+    private readonly OrbitCamera _isoCamera = new() { Orthographic = true };
+    private int _isoPreset;
+    private ViewSettings _view = ViewSettings.None;
+    private Matrix4x4 _lastViewProjection = Matrix4x4.Identity;
+    private int _boxDragFace = -1;
+    private Point _boxDragStart;
+    private double _boxDragFrom;
+
+    /// <summary>Pick radius round a section box handle, DIPs (D-277).</summary>
+    private const double HandlePickDip = 14;
     private readonly GLWpfControl? _gl;
     private readonly DispatcherTimer _flashTimer;
     private SceneData _scene = SceneData.Empty;
@@ -123,6 +134,70 @@ public partial class ViewportView : UserControl
     /// <summary>Raised when a LIBRARY row is dropped on the viewport.</summary>
     public event EventHandler<TemplateDropEventArgs>? TemplateDropped;
 
+    /// <summary>Raised with −1 or +1 when [ or ] is pressed in ISO (D-268); the owner turns the preset.</summary>
+    public event EventHandler<int>? IsoRotateRequested;
+
+    /// <summary>
+    /// Raised while a section box handle is dragged (D-277): the face (0 west, 1 east, 2 south, 3 north, 4 bottom,
+    /// 5 top) and its new position as a share (0–1) of the study's extents; the owner moves the slider.
+    /// </summary>
+    public event EventHandler<(int Face, double Share)>? BoxFaceDragged;
+
+    /// <summary>Copies the current camera of the current mode into a saved view (D-276).</summary>
+    public void WriteCamera(Throng.Core.Model.SavedView view)
+    {
+        if (_mode == ViewMode.Plan)
+        {
+            view.TargetX = _planCamera.Center.X;
+            view.TargetY = _planCamera.Center.Y;
+            view.TargetZ = 0;
+            view.Distance = _planCamera.MetresPerDip;
+            return;
+        }
+
+        OrbitCamera camera = Camera3D;
+        view.TargetX = camera.Target.X;
+        view.TargetY = camera.Target.Y;
+        view.TargetZ = camera.Target.Z;
+        view.Yaw = camera.Yaw;
+        view.Pitch = camera.Pitch;
+        view.Distance = camera.Distance;
+    }
+
+    /// <summary>Puts a saved view's camera back (call after the mode has been set to the view's mode; D-276).</summary>
+    public void ReadCamera(Throng.Core.Model.SavedView view)
+    {
+        _zoomExtentsPending = false;
+        if (_mode == ViewMode.Plan)
+        {
+            if (view.Distance > 0)
+            {
+                _planCamera.Center = new Point2(view.TargetX, view.TargetY);
+                _planCamera.MetresPerDip = view.Distance;
+            }
+
+            Overlay.InvalidateVisual();
+            return;
+        }
+
+        OrbitCamera camera = Camera3D;
+        camera.Target = new Vector3((float)view.TargetX, (float)view.TargetY, (float)view.TargetZ);
+        if (view.Distance > 0)
+        {
+            camera.Distance = (float)view.Distance;
+        }
+
+        if (_mode == ViewMode.Iso)
+        {
+            camera.SetIsoPreset(_isoPreset);
+        }
+        else
+        {
+            camera.Yaw = (float)view.Yaw;
+            camera.Pitch = (float)view.Pitch;
+        }
+    }
+
     /// <summary>Format name of dragged LIBRARY rows.</summary>
     public const string TemplateDragFormat = "Throng.LibraryTemplate";
 
@@ -140,6 +215,36 @@ public partial class ViewportView : UserControl
     {
         get => _renderer.AgentColoring;
         set => _renderer.AgentColoring = value;
+    }
+
+    /// <summary>Cutaway and exploded levels for 3D and ISO (D-264–D-266); re-frames when the explode changes.</summary>
+    public ViewSettings View
+    {
+        get => _view;
+        set
+        {
+            bool reframe = Math.Abs(value.ExplodeGapM - _view.ExplodeGapM) > 1e-9;
+            _view = value;
+            _renderer.View = value;
+            if (reframe && _mode != ViewMode.Plan)
+            {
+                // Keep the target in the middle of the taller stack without moving the eye angle.
+                FitHeight(_orbitCamera);
+                FitHeight(_isoCamera);
+            }
+        }
+    }
+
+    /// <summary>ISO preset 0–3 (SW, SE, NE, NW; D-263).</summary>
+    public int IsoPreset
+    {
+        get => _isoPreset;
+        set
+        {
+            _isoPreset = ((value % 4) + 4) % 4;
+            _isoCamera.SetIsoPreset(_isoPreset);
+            UpdateModeText();
+        }
     }
 
     /// <summary>Plan editor driven by this viewport (set once by the main window).</summary>
@@ -184,7 +289,7 @@ public partial class ViewportView : UserControl
             }
 
             _mode = value;
-            ModeText.Text = value == ViewMode.Plan ? "PLAN" : "3D ORBIT";
+            UpdateModeText();
             Overlay.IsPlanActive = value == ViewMode.Plan;
             if (value != ViewMode.Plan)
             {
@@ -194,6 +299,30 @@ public partial class ViewportView : UserControl
             UpdateHint();
             Overlay.InvalidateVisual();
         }
+    }
+
+    private void UpdateModeText() => ModeText.Text = _mode switch
+    {
+        ViewMode.Plan => "PLAN",
+        ViewMode.Iso => "ISO " + OrbitCamera.IsoPresetNames[_isoPreset],
+        _ => "3D ORBIT",
+    };
+
+    /// <summary>The camera for the current mode in 3D or ISO.</summary>
+    private OrbitCamera Camera3D => _mode == ViewMode.Iso ? _isoCamera : _orbitCamera;
+
+    /// <summary>Height added to the stack by exploding (D-264): the gap between each pair of visible levels.</summary>
+    private double ExplodeExtraM()
+    {
+        int levels = ExplodeMap.Elevations(_scene.Levels.Select(l => l.ElevationM)).Length;
+        return levels >= 2 ? Math.Max(0, _view.ExplodeGapM) * (levels - 1) : 0;
+    }
+
+    /// <summary>Centres a camera's target height on the (exploded) stack, keeping its plan target, angle and zoom.</summary>
+    private void FitHeight(OrbitCamera camera)
+    {
+        double min = _scene.MinElevationM, max = _scene.MaxElevationM + ExplodeExtraM();
+        camera.Target = new Vector3(camera.Target.X, camera.Target.Y, (float)((min + max) * 0.5));
     }
 
     /// <summary>Replaces the displayed scene.</summary>
@@ -216,6 +345,20 @@ public partial class ViewportView : UserControl
 
     /// <summary>Frames the content in both cameras (deferred until the viewport has a size).</summary>
     public void ZoomExtents() => _zoomExtentsPending = true;
+
+    /// <summary>Frames plan bounds in the plan camera (CHECK rows, D-271), with at least 8 m showing.</summary>
+    public void ZoomTo(Bounds2 bounds)
+    {
+        if (bounds.IsEmpty || ActualWidth < 1 || ActualHeight < 1)
+        {
+            return;
+        }
+
+        Point2 c = bounds.Center;
+        double half = Math.Max(4, Math.Max(bounds.Width, bounds.Height) * 0.5);
+        _planCamera.Fit(new Bounds2(c.X - half, c.Y - half, c.X + half, c.Y + half), ActualWidth, ActualHeight);
+        Overlay.InvalidateVisual();
+    }
 
     /// <summary>
     /// Captures the view at <paramref name="scale"/> × its on-screen pixel size (PNG export, D-234): the GL scene is
@@ -339,7 +482,13 @@ public partial class ViewportView : UserControl
             int pixelHeight = (int)Math.Round(height * dpi.DpiScaleY);
             Matrix4x4 viewProjection = _mode == ViewMode.Plan
                 ? _planCamera.ViewProjection(width, height)
-                : _orbitCamera.ViewProjection(width, height);
+                : Camera3D.ViewProjection(width, height);
+            _lastViewProjection = viewProjection;
+
+            // Agent LOD (D-267): framebuffer pixels per metre near the middle of the view.
+            _renderer.AgentPixelsPerMetre = _mode == ViewMode.Plan
+                ? (float)(dpi.DpiScaleY / Math.Max(1e-6, _planCamera.MetresPerDip))
+                : (float)(pixelHeight / Math.Max(1e-3, Camera3D.ViewHeightM));
 
             int agents = Agents?.Invoke(_mode, ref _agentBuffer) ?? 0;
             _renderer.SetAgents(_agentBuffer, agents);
@@ -387,7 +536,10 @@ public partial class ViewportView : UserControl
     {
         Bounds2 plan = _scene.ActiveBounds.IsEmpty ? _scene.Bounds : _scene.ActiveBounds;
         _planCamera.Fit(plan, width, height);
-        _orbitCamera.Fit(_scene.Bounds, _scene.MinElevationM, _scene.MaxElevationM);
+        double top = _scene.MaxElevationM + ExplodeExtraM();
+        _orbitCamera.Fit(_scene.Bounds, _scene.MinElevationM, top);
+        _isoCamera.Fit(_scene.Bounds, _scene.MinElevationM, top);
+        _isoCamera.SetIsoPreset(_isoPreset);
     }
 
     private Point PlanToScreen(Point2 p)
@@ -416,6 +568,18 @@ public partial class ViewportView : UserControl
             return;
         }
 
+        // Section box handles in 3D and ISO (D-277): left-drag a face.
+        int face = e.ChangedButton == MouseButton.Left && _mode != ViewMode.Plan && _dragButton is null ? HandleAt(position) : -1;
+        if (face >= 0 && _renderer.TryGetBoxHandles(out _, out Point3 boxMin, out Point3 boxMax))
+        {
+            _boxDragFace = face;
+            _boxDragStart = position;
+            _boxDragFrom = FaceCoordinate(face, boxMin, boxMax);
+            InputLayer.CaptureMouse();
+            e.Handled = true;
+            return;
+        }
+
         if (e.ChangedButton == MouseButton.Left && IsEditing && _dragButton is null)
         {
             CloseTypedBox(refocus: false);
@@ -429,6 +593,16 @@ public partial class ViewportView : UserControl
     private void OnMouseMove(object sender, MouseEventArgs e)
     {
         Point position = e.GetPosition(InputLayer);
+        if (_boxDragFace >= 0)
+        {
+            DragBoxFace(position);
+            return;
+        }
+
+        if (_mode != ViewMode.Plan && _dragButton is null)
+        {
+            _renderer.HoveredBoxFace = HandleAt(position);
+        }
 
         if (_dragButton is not null)
         {
@@ -440,9 +614,10 @@ public partial class ViewportView : UserControl
             {
                 _planCamera.Pan(dx, dy);
             }
-            else if (_dragButton == MouseButton.Middle || Keyboard.Modifiers.HasFlag(ModifierKeys.Shift))
+            else if (_mode == ViewMode.Iso || _dragButton == MouseButton.Middle || Keyboard.Modifiers.HasFlag(ModifierKeys.Shift))
             {
-                _orbitCamera.Pan(dx, dy);
+                // ISO is fixed-angle, so any drag pans (D-263).
+                Camera3D.Pan(dx, dy);
             }
             else
             {
@@ -462,6 +637,14 @@ public partial class ViewportView : UserControl
 
     private void OnMouseUp(object sender, MouseButtonEventArgs e)
     {
+        if (_boxDragFace >= 0 && e.ChangedButton == MouseButton.Left)
+        {
+            _boxDragFace = -1;
+            InputLayer.ReleaseMouseCapture();
+            e.Handled = true;
+            return;
+        }
+
         if (_dragButton == e.ChangedButton)
         {
             _dragButton = null;
@@ -495,6 +678,7 @@ public partial class ViewportView : UserControl
     {
         // Capture lost mid-gesture (Alt+Tab, a dialog): abandon the drag rather than leave it half-done.
         _dragButton = null;
+        _boxDragFace = -1;
         if (_leftDown)
         {
             _leftDown = false;
@@ -527,10 +711,106 @@ public partial class ViewportView : UserControl
         }
         else
         {
-            _orbitCamera.Zoom(factor);
+            Camera3D.Zoom(factor);
         }
 
         e.Handled = true;
+    }
+
+    // ------------------------------------------------------------------ section box handles (D-277)
+
+    /// <summary>The handle face under a screen point (nearest within <see cref="HandlePickDip"/>), or −1.</summary>
+    private int HandleAt(Point position)
+    {
+        if (!_renderer.TryGetBoxHandles(out Vector3[] centres, out _, out _))
+        {
+            return -1;
+        }
+
+        int best = -1;
+        double bestDistance = HandlePickDip;
+        for (int f = 0; f < centres.Length; f++)
+        {
+            if (ToScreen(centres[f]) is { } screen)
+            {
+                double d = (screen - position).Length;
+                if (d < bestDistance)
+                {
+                    bestDistance = d;
+                    best = f;
+                }
+            }
+        }
+
+        return best;
+    }
+
+    /// <summary>Moves the dragged face along its axis by the pointer's movement along that axis on screen.</summary>
+    private void DragBoxFace(Point position)
+    {
+        if (!_renderer.TryGetBoxHandles(out Vector3[] centres, out _, out _) || _boxDragFace >= centres.Length)
+        {
+            return;
+        }
+
+        // Screen pixels per true metre along the face's axis, measured at the handle.
+        Vector3 at = centres[_boxDragFace];
+        int axis = _boxDragFace / 2;
+        Vector3 step = axis switch
+        {
+            0 => at + Vector3.UnitX,
+            1 => at + Vector3.UnitY,
+            _ => new Vector3(at.X, at.Y, (float)_renderer.WarpZ(_renderer.UnwarpZ(at.Z) + 1)),
+        };
+        if (ToScreen(at) is not { } s0 || ToScreen(step) is not { } s1)
+        {
+            return;
+        }
+
+        System.Windows.Vector perMetre = s1 - s0;
+        double lengthSquared = (perMetre.X * perMetre.X) + (perMetre.Y * perMetre.Y);
+        if (lengthSquared < 1e-6)
+        {
+            return;
+        }
+
+        System.Windows.Vector moved = position - _boxDragStart;
+        double metres = ((moved.X * perMetre.X) + (moved.Y * perMetre.Y)) / lengthSquared;
+        (Point3 lo, Point3 hi) = ViewSettings.Extents(_scene.Bounds, _scene.MinElevationM, _scene.MaxElevationM);
+        double min = axis switch { 0 => lo.X, 1 => lo.Y, _ => lo.Z };
+        double max = axis switch { 0 => hi.X, 1 => hi.Y, _ => hi.Z };
+        if (max - min < 1e-6)
+        {
+            return;
+        }
+
+        double share = Math.Clamp((_boxDragFrom + metres - min) / (max - min), 0, 1);
+        BoxFaceDragged?.Invoke(this, (_boxDragFace, share));
+    }
+
+    /// <summary>The box's true coordinate on a face's axis.</summary>
+    private static double FaceCoordinate(int face, Point3 min, Point3 max) => face switch
+    {
+        0 => min.X,
+        1 => max.X,
+        2 => min.Y,
+        3 => max.Y,
+        4 => min.Z,
+        _ => max.Z,
+    };
+
+    /// <summary>A world point (exploded heights) on screen in DIPs, or null behind the camera.</summary>
+    private Point? ToScreen(Vector3 world)
+    {
+        Vector4 clip = Vector4.Transform(new Vector4(world, 1f), _lastViewProjection);
+        if (clip.W <= 1e-6f)
+        {
+            return null;
+        }
+
+        double x = ((clip.X / clip.W) + 1) * 0.5 * ActualWidth;
+        double y = (1 - (clip.Y / clip.W)) * 0.5 * ActualHeight;
+        return new Point(x, y);
     }
 
     // ------------------------------------------------------------------ drag and drop (D-098)
@@ -569,6 +849,13 @@ public partial class ViewportView : UserControl
 
     private void OnKeyDown(object sender, KeyEventArgs e)
     {
+        if (_mode == ViewMode.Iso && Keyboard.Modifiers == ModifierKeys.None && e.Key is Key.OemOpenBrackets or Key.OemCloseBrackets)
+        {
+            IsoRotateRequested?.Invoke(this, e.Key == Key.OemCloseBrackets ? 1 : -1);
+            e.Handled = true;
+            return;
+        }
+
         if (IsEditing && _editor!.HandleKey(e.Key, Keyboard.Modifiers))
         {
             e.Handled = true;
@@ -694,9 +981,15 @@ public partial class ViewportView : UserControl
 
     private void UpdateHint()
     {
+        if (_mode == ViewMode.Iso)
+        {
+            HintText.Text = "Wheel: zoom   ·   Right or Middle-drag: pan   ·   [ ]: turn   ·   Home: zoom extents   ·   STUDY ▸ VIEW: cutaway, explode   ·   F2: plan to edit";
+            return;
+        }
+
         if (_mode != ViewMode.Plan)
         {
-            HintText.Text = "Wheel: zoom   ·   Right-drag: orbit   ·   Middle or Shift+Right-drag: pan   ·   Home: zoom extents   ·   F2: plan to edit";
+            HintText.Text = "Wheel: zoom   ·   Right-drag: orbit   ·   Middle or Shift+Right-drag: pan   ·   Home: zoom extents   ·   STUDY ▸ VIEW: cutaway, explode   ·   F2: plan to edit";
             return;
         }
 

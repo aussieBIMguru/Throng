@@ -1,13 +1,21 @@
 # Throng — Handover to the next chat
 
-**Written:** 2026-10-29, end of the round 013b build. **Brief:** v0.31. **Decisions:** D-001–D-251.
-**State:** 013a confirmed by Gavin's build. **013b built, unbuilt in sandbox**: 3D lift cars with riders, accessible
-lift priority + 60 s avoidance (D-247, D-248), drawn train shapes (D-249), demo lifts (D-246), Office tower demo
-(D-250), r013a fixes. **Format v9; 281 tests expected.** If Gavin reports 013b build errors, fix those first.
+**Written:** 2026-10-30, end of the round 016 build. **Brief:** v0.34. **Decisions:** D-001–D-279.
+**State:** 015 confirmed by Gavin (no issues). **Round 016 built, unbuilt in sandbox**: M7: CHECK tab with named rules,
+per-study ignore, full compile + static capacity + escalator / unused device / narrow gap rules (D-271–D-274);
+.throngprofile export/import with reconcile (D-275); saved named views (D-276); section box outline + 3D face handles
+(D-277). **Format v10; 309 tests expected.** If Gavin reports 016 build errors, fix those first (shaders still only
+compile at run time).
 **Start here (next chat):** `ai/PROTOCOL.md` (AFK / manual-approval rule: ask permissions before the build, none
-during it; agreed splits aren't split again), this file, then `ai/rounds/round-013.md`.
-**Next: round 014, scope not yet queried.** Round 013's open questions (patience at landings, 3D landing doors,
-destination dispatch, tower fire stairs) are at the end of `round-013.md`.
+during it; agreed splits aren't split again), this file, then `ai/rounds/round-016.md`.
+**After 016 (same chat, D-280–D-284):** three build fixes (Vector clash, unused devices judged from the study,
+capacity check now per-minute queues with tag shares) and the lift courtesy system (step aside while riders get off,
+3 s squeeze / 8 s force jam breaker, overflow band behind full landings); see `round-016.md` ▸ "016 fixes". Gavin
+confirmed CHECK on the demo: 0 errors. **Unconfirmed:** the courtesy fix in a real run (ask Gavin first thing).
+**Next: round 017, scope not yet queried.** Ask: (1) did the lift courtesy fix the jam; (2) the demo's staffed ticket
+counters and information desk are flagged unused (correct: no demo journey has a TicketCounter or InfoDesk step) —
+add journeys that use them, or remove them from the demo?; then round 016's open questions (M8 or tuning, auto
+re-CHECK, capacity Info trimming) at the end of `round-016.md`.
 Open watch items: crowd stress (D-194) barely shows at 2.5 p/m² with 1 m counting; hold points can sit in front of an
 adjacent device's lane mouth; gate throughput with D-209/D-211 (diagnostics row "no lane clear").
 **Quota:** Gavin's weekly quota ran to ~98% in round 010. Keep reads to the files a change touches, batch edits,
@@ -126,6 +134,13 @@ LEVEL / STUDY right.
 - `EmissionRule` is an immutable record: never assign its init-only properties outside an initializer; use `with`.
   Same for `MixLine`, `SpawnTag` and `JourneyStep`.
 - r009a: no NuGet or .NET SDK in the sandbox again; the round was statically reviewed (brace check, CRLF) only.
+- r016: CHECK findings need a rule id (`ValidationRules`) and, if they're about a place rather than an object, `LevelId`
+  + `At`; new rule ids are stored in studies' ignore lists, so never rename one.
+- r015: every shader shares `Version + Warp` / `Version + Clip` const chunks; a new vertex shader must pass `vWorld`
+  (true position) and a new fragment shader must call `clipped`, and a level's own meshes draw with `LevelWarp`,
+  everything spanning levels with the stretch, or exploded views tear.
+- r014: re-review before building found two editing-lock gaps in a rushed round (013b): any new edit path (library
+  click, drop) must check `_isRunActive` itself, because `MainViewModel.Apply` doesn't.
 - r009b: same (pip and npm registries were blocked too, so no syntax tools). r010a: same. Python text edits read CRLF files as LF;
   re-normalise every touched `.cs` / `.xaml` / `.md` to CRLF before zipping.
 
@@ -182,18 +197,24 @@ served level** (D-068). Shafts already carry "no stop" levels (D-087) for that.
 | Zone and journey results, PNG (012) | `Core/Geometry/OrientedBounds.cs`, `Sim/SimZone.cs`, `SimSetup.BuildZones`, `Sim/Engine/{SimEngine.ZoneResults,SimEngine.JourneyResults,ZoneResult,JourneyResult}.cs`, `AgentStore.{ZoneBits,MaxWaitS,LeftEarly}`, `App/ViewModels/{ZoneResultRow,JourneyResultRow,ResultsTable,MainViewModel.Png}.cs`, `Render/Gl/OffscreenCapture.cs`, `ViewportView.CaptureAsync`, `App/Services/{PngExport,PngExportInfo,PngLegendRow}.cs` |
 | Lifts (013a) | `Core/Model/{Lift,LiftDoorUse,LiftLevelDoors,LiftScheduleEntry,Shaft}.cs`, `Core/Geometry/{LiftLayout,LiftSide,LiftCarLayout}.cs`, `Core/Editing/LiftFactory.cs`, `NavWorldBuilder.AddLift`, `Nav/LiftTiming.cs`, `NavRoutes` (lift options), `Sim/SimLift.cs`, `SimSetup.BuildLifts`, `Sim/Engine/{SimEngine.Lifts,LiftCarStatus}.cs`, `AgentPhase.{LiftWait,LiftRide}`, `SimRunner.CopyLiftCarStates`, `App/ViewModels/{ShaftViewModel.Lift,LiftDoorRowViewModel,LiftScheduleRowViewModel}.cs`, `App/Editing/{LiftSymbolView,RunLiftCarView}.cs`, `PlanEditor.LiftSymbolsOn`, `EditorOverlay.DrawLifts` |
 | Lifts 3D, priority, train shapes, tower (013b) | `Render/Scene/{LiftCarDraw,LiftCarMeshes}.cs`, `SceneRenderer.SetLiftCars`, `App/ViewModels/MainViewModel.LiftCars.cs`, `ViewportView.LiftCars`; `RoutePlanner.HasLiftPriority` + `priorityPenaltyS`, `SimEngine.{LiftPriorityPenaltyS,UpdateLiftPriorityPenalty,HasLiftPriority}`, `SimTuning.LiftPriority`; `TrainService.Shape`, `App/Editing/PlanEditor.Train.cs`, `MainViewModel.Trains` (DRAW TRAIN / AUTO); `IO/OfficeTowerBuilder.cs`, `MainViewModel.LoadDemo` |
+| Lift finish-off (014) | `SimEngine.{TryLeaveLift,Barred,LiftGaveUp,AssignDestinations,AimBesideCarDoor,ReleaseDestinationWaiters,LiftDoorShare}`, `AgentStore.{LiftBar,LiftBarFloor,LiftGiveUpAt}`, `RoutePlanner.Choose(barredConnector)`, `SimTuning.{LiftPatience,DestinationDispatch}`, `SimRunner.CopyLiftDoorShares`, `Render/Scene/{LiftDoorDraw,LiftSceneDraw}.cs`, `LiftCarMeshes`, `MainViewModel.LiftCars.cs` (landing doors, level visibility), `OfficeTowerBuilder.BuildStair` |
+| Views (015) | `Render/Cameras/OrbitCamera` (`Orthographic`, `SetIsoPreset`), `Render/Gl/{Shaders (warpZ, clipped), ShaderProgram (SetExplode/SetWarp/SetClip), SceneRenderer (View, PrepareView, LevelWarp, AgentPixelsPerMetre), GpuAgents (disc LOD)}`, `Render/Scene/ViewSettings`, `Core/Geometry/ExplodeMap`, `App/ViewModels/MainViewModel.View.cs`, `ViewportView` (`_isoCamera`, `View`, `IsoPreset`, `IsoRotateRequested`), STUDY ▸ VIEW in `MainWindow.xaml`, `Slider` style in `Theme.xaml` |
+| Lift results, shaft walls (015) | `Sim/Engine/{LiftResult,SimEngine.LiftResults}.cs`, `AgentStore.LiftRideFrom`, `RunResults.Lifts`, `ResultsCsv.LiftsCsv`, `App/ViewModels/LiftResultRow.cs`, RESULTS ▸ LIFTS; `Core/Geometry/{ShaftWalls,WallOpening,WallPanel}.cs`, `Core/World/LiftOpenings.cs`, `LiftLayout.{CarHeightFor,DoorHeightShare}`, `SceneBuilder.BuildVertical` |
+| CHECK, rules, capacity (016) | `Core/Validation/{StudyValidator (Tag, ValidationMessage.Rule/At/IgnoreKey), ValidationRule, ValidationRules}.cs`, `Analysis/Checks/{StudyCheck, CapacityCheck, NarrowGapCheck}.cs`, `Study.IgnoredFindings`, `App/ViewModels/{MainViewModel.Check, CheckRowViewModel}.cs`, CHECK tab in `MainWindow.xaml`, `ViewportView.ZoomTo` |
+| Profile exchange (016) | `Core/Library/{ProfileBundle, ProfileReconciler, ReconcileKind, ReconcileAction, ReconcileItem, ReconcileChoice}.cs`, `IO/ProfileFile.cs`, `App/ViewModels/MainViewModel.Profiles.cs`, `App/Views/ReconcileDialog.xaml(.cs)`, `LibraryBrowserViewModel.SetProfiles`, LIBRARY ▸ AGENTS buttons |
+| Named views, box handles (016) | `Core/Model/SavedView.cs`, `Study.Views`, `FormatMigrations.UpgradeV9ToV10`, `App/ViewModels/{MainViewModel.NamedViews, SavedViewRowViewModel}.cs`, `ViewportView.{WriteCamera, ReadCamera, HandleAt, DragBoxFace}`, `Render/Scene/SectionBoxMesh.cs`, `SceneRenderer.{DrawSectionBox, TryGetBoxHandles}`, `ExplodeMap.Unwarp` |
 | Clean script | `clean.bat` (repo root) |
 
 ## 8. Don't regress
 
-- Demo loads clean (0 errors, 0 warnings) and all tests pass (281 on 013b; the wheelchair test expects > 95 % at the accessible gate, D-213).
+- Demo loads clean (0 errors, 0 warnings) and all tests pass (309 on 016; the wheelchair test expects > 95 % at the accessible gate, D-213).
 - Test helpers live in classes named for what they test, not the file (`VerticalCutTests.TwoLevelsWithStair` is in
   `ConnectorTests.cs`): grep for the class before calling a helper.
 - Demo PLAY runs: people cross all three levels; editing locks until RESET.
-- Older files open with their old behaviour (v1/v2: single-level fixed regions, single-run switchbacks; v1–v3: no emission rules; v1–v4: flat rates; v1–v5: one profile per rule, no journey, straight to a sink; v1–v6: no train services, doors emit continuously; v1–v7: no accessible flags, except the built-in accessible gate and wheelchair profile, upgraded on load; v1–v8: no lifts; v9 before 013b: automatic train boxes).
+- Older files open with their old behaviour (v1/v2: single-level fixed regions, single-run switchbacks; v1–v3: no emission rules; v1–v4: flat rates; v1–v5: one profile per rule, no journey, straight to a sink; v1–v6: no train services, doors emit continuously; v1–v7: no accessible flags, except the built-in accessible gate and wheelchair profile, upgraded on load; v1–v8: no lifts; v9 before 013b: automatic train boxes; lifts saved with Destination before 014 never existed, the factory mapped it to Collective; v1–v9: no saved views, nothing ignored).
 - Queuers, people being served and dwellers are never removed as stuck; device line membership is per agent (device, line, slot), never agent indices (the store swap-removes).
 - Built-in journeys (and their embedded copies, same id) stay read-only; only `StudyTemplates.IsEditableJourney` ones are edited. Steps and step lists are replaced, never mutated.
 - Editing shortcuts only fire while the viewport has focus; New from Demo is Ctrl+Shift+D (D-043).
-- Plan view ghosts the level below; 3D shows all visible levels; Home re-frames.
+- Plan view ghosts the level below and ignores STUDY ▸ VIEW (no clip, no warp); 3D and ISO show all visible levels; Home re-frames.
 - Undo/redo for every edit; dirty marker in the title; save → reopen round-trips.
 - The viewport shows its offline panel (never crashes the app) if OpenGL can't start.

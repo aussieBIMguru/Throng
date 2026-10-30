@@ -20,15 +20,35 @@ public enum ValidationSeverity
     Error,
 }
 
-/// <summary>One validation finding, optionally pointing at the offending object.</summary>
+/// <summary>
+/// One validation finding, optionally pointing at the offending object (or, round 016, at a place on a level), and
+/// tagged with the rule that found it (D-272).
+/// </summary>
 /// <param name="Severity">How serious it is.</param>
 /// <param name="Message">Human-readable explanation.</param>
 /// <param name="ObjectId">Id of the object to zoom to, if any.</param>
-public sealed record ValidationMessage(ValidationSeverity Severity, string Message, Guid? ObjectId = null);
+public sealed record ValidationMessage(ValidationSeverity Severity, string Message, Guid? ObjectId = null)
+{
+    /// <summary>Id of the rule that found it (<see cref="ValidationRules"/>).</summary>
+    public string Rule { get; init; } = ValidationRules.General;
+
+    /// <summary>Level of <see cref="At"/>, for findings about a place rather than an object.</summary>
+    public Guid? LevelId { get; init; }
+
+    /// <summary>Plan point the finding is about (CHECK zooms there when there's no object).</summary>
+    public Point2? At { get; init; }
+
+    /// <summary>
+    /// What a per-study ignore matches (D-272): the rule plus the object, or the rule plus the message when there's no
+    /// object, so an ignored finding stays ignored while its numbers change only when it points at an object.
+    /// </summary>
+    public string IgnoreKey => ObjectId is { } id ? $"{Rule}|{id:D}" : $"{Rule}|{Message}";
+}
 
 /// <summary>
-/// Structural checks on a study. M0 covers model integrity; round 004 adds connector and shaft checks (D-066);
-/// the full rule set (reachability, capacity checks, irrational setups) grows in M7.
+/// Structural checks on a study. M0 covers model integrity; round 004 adds connector and shaft checks (D-066). Round
+/// 016 (D-272) tags every finding with its rule; the checks that need the navigation world (reachability, capacity,
+/// escalator demand, unused devices, narrow gaps) run in <c>Throng.Analysis.StudyCheck</c>.
 /// </summary>
 public static class StudyValidator
 {
@@ -75,6 +95,8 @@ public static class StudyValidator
             }
         }
 
+        Tag(messages, 0, ValidationRules.Levels);
+        int start = messages.Count;
         var levelIds = study.Levels.Select(l => l.Id).ToHashSet();
         foreach (Region region in study.Regions)
         {
@@ -119,14 +141,39 @@ public static class StudyValidator
             }
         }
 
+        Tag(messages, start, ValidationRules.Regions);
         IPolygonOps polygons = ops ?? ClipperPolygonOps.Instance;
+        start = messages.Count;
         ValidateVertical(study, polygons, levelIds, messages);
+        Tag(messages, start, ValidationRules.Vertical);
+        start = messages.Count;
         ValidateDevicesAndUnderlays(study, polygons, levelIds, messages);
+        Tag(messages, start, ValidationRules.Devices);
+        start = messages.Count;
         ValidateDemand(study, messages);
+        Tag(messages, start, ValidationRules.Demand);
+        start = messages.Count;
         ValidateAccessibleDevices(study, messages);
+        Tag(messages, start, ValidationRules.Accessible);
+        start = messages.Count;
         ValidateTrains(study, messages);
+        Tag(messages, start, ValidationRules.Trains);
+        start = messages.Count;
         ValidateLifts(study, messages);
+        Tag(messages, start, ValidationRules.Lifts);
         return messages;
+    }
+
+    /// <summary>Gives the findings from <paramref name="from"/> on that still carry the general rule the rule <paramref name="rule"/> (D-272).</summary>
+    public static void Tag(List<ValidationMessage> messages, int from, string rule)
+    {
+        for (int k = Math.Max(0, from); k < messages.Count; k++)
+        {
+            if (messages[k].Rule == ValidationRules.General)
+            {
+                messages[k] = messages[k] with { Rule = rule };
+            }
+        }
     }
 
     /// <summary>

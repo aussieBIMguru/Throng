@@ -10,7 +10,7 @@ namespace Throng.App.ViewModels;
 public sealed class LiftScheduleRowViewModel : ObservableObject
 {
     private static readonly IReadOnlyList<LabelledOption<LiftDispatch>> Choices =
-        [new(LiftDispatch.Collective, "Collective"), new(LiftDispatch.UpPeak, "Up-peak")];
+        [new(LiftDispatch.Collective, "Collective"), new(LiftDispatch.UpPeak, "Up-peak"), new(LiftDispatch.DestinationDispatch, "Destination")];
 
     private readonly Action<TimeSpan, LiftDispatch> _set;
     private readonly MainViewModel _owner;
@@ -23,7 +23,7 @@ public sealed class LiftScheduleRowViewModel : ObservableObject
     public LiftScheduleRowViewModel(LiftScheduleEntry entry, Action<TimeSpan, LiftDispatch> set, Action remove, MainViewModel owner)
     {
         From = entry.From;
-        Dispatch = entry.Dispatch == LiftDispatch.UpPeak ? LiftDispatch.UpPeak : LiftDispatch.Collective;
+        Dispatch = entry.Dispatch is LiftDispatch.UpPeak or LiftDispatch.DestinationDispatch ? entry.Dispatch : LiftDispatch.Collective;
         _set = set;
         _owner = owner;
         RemoveCommand = new RelayCommand(remove);

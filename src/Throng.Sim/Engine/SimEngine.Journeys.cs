@@ -329,7 +329,7 @@ public sealed partial class SimEngine
                 continue;
             }
 
-            double walk = RoutePlanner.Choose(_routes, a.Surface[i], a.X[i], a.Y[i], device.Target, profile.Mobility, profile.Template, random, out _, out _, _wait, BeltWalkSpeed(i), stairEffort: _tuning.StairEffort, standingRest: _tuning.StandingRest, sightRadius: Sight(i), priorityPenaltyS: _liftPriorityS);
+            double walk = RoutePlanner.Choose(_routes, a.Surface[i], a.X[i], a.Y[i], device.Target, profile.Mobility, profile.Template, random, out _, out _, _wait, BeltWalkSpeed(i), stairEffort: _tuning.StairEffort, standingRest: _tuning.StandingRest, sightRadius: Sight(i), priorityPenaltyS: _liftPriorityS, barredConnector: Barred(i));
             if (!double.IsFinite(walk))
             {
                 continue;
@@ -397,7 +397,7 @@ public sealed partial class SimEngine
         double bestCost = double.PositiveInfinity;
         foreach (int target in step.Targets)
         {
-            double c = RoutePlanner.Choose(_routes, a.Surface[i], a.X[i], a.Y[i], target, profile.Mobility, profile.Template, random, out _, out _, _wait, BeltWalkSpeed(i), stairEffort: _tuning.StairEffort, standingRest: _tuning.StandingRest, sightRadius: Sight(i), priorityPenaltyS: _liftPriorityS);
+            double c = RoutePlanner.Choose(_routes, a.Surface[i], a.X[i], a.Y[i], target, profile.Mobility, profile.Template, random, out _, out _, _wait, BeltWalkSpeed(i), stairEffort: _tuning.StairEffort, standingRest: _tuning.StandingRest, sightRadius: Sight(i), priorityPenaltyS: _liftPriorityS, barredConnector: Barred(i));
             if (c < bestCost)
             {
                 bestCost = c;
@@ -593,6 +593,11 @@ public sealed partial class SimEngine
                     TryJoin(i, waiting: true);
                 }
 
+                break;
+
+            case AgentPhase.LiftWait:
+                // Patience at lift landings (D-253).
+                TryLeaveLift(i);
                 break;
 
             case AgentPhase.Queue:

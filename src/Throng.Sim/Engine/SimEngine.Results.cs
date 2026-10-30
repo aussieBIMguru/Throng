@@ -76,6 +76,7 @@ public sealed partial class SimEngine
         _seriesSpawned = _seriesArrived = 0;
         ResetZoneResults();
         ResetJourneyResults();
+        ResetLiftResults();
         _resultsVersion++;
     }
 
@@ -238,6 +239,7 @@ public sealed partial class SimEngine
             ZoneNames = zoneNames,
             ZoneOccupancy = [.. _seriesZones],
             Journeys = CopyJourneyResults(),
+            Lifts = CopyLiftResults(),
         };
     }
 

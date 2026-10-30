@@ -21,7 +21,8 @@ public sealed partial class ShaftViewModel
         [new(1, "1 car"), new(2, "2 cars"), new(3, "3 cars"), new(4, "4 cars")];
 
     private static readonly IReadOnlyList<LabelledOption<LiftDispatch>> DispatchChoices =
-        [new(LiftDispatch.Collective, "Collective"), new(LiftDispatch.UpPeak, "Up-peak"), new(LiftDispatch.Shuttle, "Shuttle (lowest ↔ highest)")];
+        [new(LiftDispatch.Collective, "Collective"), new(LiftDispatch.UpPeak, "Up-peak"), new(LiftDispatch.Shuttle, "Shuttle (lowest ↔ highest)"),
+         new(LiftDispatch.DestinationDispatch, "Destination (assigned cars)")];
 
     private RelayCommand? _addScheduleRowCommand;
 
@@ -58,7 +59,7 @@ public sealed partial class ShaftViewModel
                 Lift copy = lift.Clone();
                 copy.PresetKey = preset.Key;
                 copy.TemplateId = embedded.Id;
-                copy.Dispatch = preset.Dispatch == LiftDispatch.DestinationDispatch ? LiftDispatch.Collective : preset.Dispatch;
+                copy.Dispatch = preset.Dispatch;
                 _owner.Apply($"Change {lift.Name} to {preset.Name}", () => Model.Lift, v => Model.Lift = v, copy);
             }
             else

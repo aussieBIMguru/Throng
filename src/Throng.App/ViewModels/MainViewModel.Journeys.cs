@@ -26,6 +26,10 @@ public sealed partial class MainViewModel
         {
             SelectJourney(journey);
         }
+        else if (item?.Template is AgentProfileTemplate profile)
+        {
+            SelectLibraryProfile(profile);
+        }
     }
 
     /// <summary>Number of mix lines (on every spawn zone's rules) that use a journey.</summary>
@@ -127,6 +131,13 @@ public sealed partial class MainViewModel
     /// </summary>
     private void RefreshJourneys()
     {
+        // Imported profiles (D-275) show with the built-ins.
+        Library.SetProfiles(StudyTemplates.AvailableProfiles(_study));
+        if (_libraryProfile is { } picked && !StudyTemplates.AvailableProfiles(_study).Contains(picked))
+        {
+            _libraryProfile = null;
+        }
+
         IReadOnlyList<JourneyTemplate> available = StudyTemplates.AvailableJourneys(_study);
         Library.SetJourneys([.. available.Where(j => StudyTemplates.IsEditableJourney(_study, j)), .. available.Where(j => !StudyTemplates.IsEditableJourney(_study, j))]);
         if (_selectedJourney is { } selected)

@@ -56,6 +56,9 @@ public sealed class SimRunner : IDisposable
     private double[] _frontCars = [];
     private double[] _backCars = [];
 
+    /// <summary>Values per car in the published car buffers: height, state, riders, direction, door opening (0–1).</summary>
+    private const int CarStride = 5;
+
     // Density maps (D-202, D-216): every measure back to back (DensityMeasure order, CellCount each), copied only
     // when the engine has sampled since the last publish.
     private static readonly DensityMeasure[] Measures = Enum.GetValues<DensityMeasure>();
@@ -392,7 +395,7 @@ public sealed class SimRunner : IDisposable
         _backWaits = new double[_frontWaits.Length];
         _frontTrains = new byte[_engine.Model.Trains.Count];
         _backTrains = new byte[_frontTrains.Length];
-        _frontCars = new double[_engine.LiftCarCount * 4];
+        _frontCars = new double[_engine.LiftCarCount * CarStride];
         _backCars = new double[_frontCars.Length];
     }
 
@@ -410,8 +413,8 @@ public sealed class SimRunner : IDisposable
             {
                 for (int c = 0; c < lift.Cars; c++)
                 {
-                    int o = (lift.FirstCar + c) * 4;
-                    if (o + 3 < _frontCars.Length)
+                    int o = (lift.FirstCar + c) * CarStride;
+                    if (o + CarStride - 1 < _frontCars.Length)
                     {
                         result.Add((lift, c, _frontCars[o], (LiftCarStatus)(int)_frontCars[o + 1], (int)_frontCars[o + 2], (int)_frontCars[o + 3]));
                     }
@@ -420,6 +423,24 @@ public sealed class SimRunner : IDisposable
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// How far open each car's doors are, 0 (shut) to 1 (open), indexed like the engine's cars (round 014, D-258: the
+    /// sliding leaves in 3D).
+    /// </summary>
+    public double[] CopyLiftDoorShares()
+    {
+        lock (_gate)
+        {
+            var shares = new double[_frontCars.Length / CarStride];
+            for (int c = 0; c < shares.Length; c++)
+            {
+                shares[c] = _frontCars[(c * CarStride) + 4];
+            }
+
+            return shares;
+        }
     }
 
     /// <summary>
@@ -457,13 +478,15 @@ public sealed class SimRunner : IDisposable
             _backTrains[v] = (byte)(!isIn ? 0 : boarding ? 2 : 1);
         }
 
-        for (int c = 0; c * 4 < _backCars.Length; c++)
+        for (int c = 0; c * CarStride < _backCars.Length; c++)
         {
             (int _, double z, LiftCarStatus state, int riders, int direction) = _engine.LiftCarState(c);
-            _backCars[c * 4] = z;
-            _backCars[(c * 4) + 1] = (int)state;
-            _backCars[(c * 4) + 2] = riders;
-            _backCars[(c * 4) + 3] = direction;
+            int o = c * CarStride;
+            _backCars[o] = z;
+            _backCars[o + 1] = (int)state;
+            _backCars[o + 2] = riders;
+            _backCars[o + 3] = direction;
+            _backCars[o + 4] = _engine.LiftDoorShare(c);
         }
 
         // The back buffer holds the map from two publishes ago; refresh it only when the engine has sampled since.

@@ -22,6 +22,8 @@ namespace Throng.IO;
 /// <item>7 → 8 (round 011b, D-213, D-223): accessible devices. Embedded copies of the built-in accessible gate
 /// become accessible and the built-in wheelchair profile needs accessible devices; every other preset and profile
 /// keeps the old behaviour (not accessible, no need), and placed devices take their preset's flag.</item>
+/// <item>8 → 9 (round 013, D-236): lifts in shafts; older shafts have none.</item>
+/// <item>9 → 10 (round 016, D-272, D-276): saved named views and ignored CHECK findings; older studies have none.</item>
 /// </list>
 /// </remarks>
 internal static class FormatMigrations
@@ -37,6 +39,7 @@ internal static class FormatMigrations
         (6, UpgradeV6ToV7),
         (7, UpgradeV7ToV8),
         (8, UpgradeV8ToV9),
+        (9, UpgradeV9ToV10),
     ];
 
     /// <summary>Applies every step needed to bring a study from <paramref name="fileVersion"/> to current.</summary>
@@ -171,6 +174,18 @@ internal static class FormatMigrations
 
     /// <summary>v8 → v9: lifts arrive in shafts (round 013, D-236). Older shafts have no lift, so nothing changes.</summary>
     private static void UpgradeV8ToV9(Study study) => _ = study;
+
+    /// <summary>
+    /// v9 → v10: saved named views (D-276) and ignored CHECK findings (D-272) arrive (round 016). Older studies have
+    /// neither, so both lists start empty.
+    /// </summary>
+    private static void UpgradeV9ToV10(Study study)
+    {
+        study.Views ??= [];
+        study.Views.RemoveAll(v => v is null);
+        study.IgnoredFindings ??= [];
+        study.IgnoredFindings.RemoveAll(string.IsNullOrWhiteSpace);
+    }
 
     /// <summary>
     /// v7 → v8: accessible devices arrive (D-213). The built-in accessible gate and wheelchair profile gained their

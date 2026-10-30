@@ -70,7 +70,7 @@ public sealed class SimLift
     /// <summary>Stop the bank returns to in Up-peak (D-244).</summary>
     public required int LobbyStop { get; init; }
 
-    /// <summary>Dispatch before the first schedule row (Shuttle ignores the schedule).</summary>
+    /// <summary>Dispatch before the first schedule row (Shuttle ignores the schedule; Destination runs as D-255).</summary>
     public required LiftDispatch Dispatch { get; init; }
 
     /// <summary>Schedule rows sorted by time of day (D-238).</summary>
@@ -105,6 +105,6 @@ public sealed class SimLift
             }
         }
 
-        return mode == LiftDispatch.DestinationDispatch ? LiftDispatch.Collective : mode;
+        return mode;
     }
 }

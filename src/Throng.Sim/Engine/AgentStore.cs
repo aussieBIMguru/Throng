@@ -172,6 +172,18 @@ public sealed class AgentStore
     /// <summary>Lift car (global car index) it's waiting for or riding, or −1 (round 013).</summary>
     public int[] LiftCar = [];
 
+    /// <summary>Lift bank connector it gave up on and won't use again until it has left that floor, or −1 (D-253, D-254).</summary>
+    public int[] LiftBar = [];
+
+    /// <summary>Floor surface it gave up on <see cref="LiftBar"/> from.</summary>
+    public int[] LiftBarFloor = [];
+
+    /// <summary>Time it next looks for another way while waiting at a lift landing, s (patience, D-253).</summary>
+    public double[] LiftGiveUpAt = [];
+
+    /// <summary>Time it boarded its current lift car, s (ride time for the LIFTS results, D-260).</summary>
+    public double[] LiftRideFrom = [];
+
     /// <summary>Adds an agent with default state and returns its index.</summary>
     public int Add()
     {
@@ -211,6 +223,9 @@ public sealed class AgentStore
         MaxWaitS[i] = 0;
         LeftEarly[i] = false;
         LiftCar[i] = -1;
+        LiftBar[i] = LiftBarFloor[i] = -1;
+        LiftGiveUpAt[i] = 0;
+        LiftRideFrom[i] = 0;
         return i;
     }
 
@@ -273,6 +288,10 @@ public sealed class AgentStore
         MaxWaitS[i] = MaxWaitS[last];
         LeftEarly[i] = LeftEarly[last];
         LiftCar[i] = LiftCar[last];
+        LiftBar[i] = LiftBar[last];
+        LiftBarFloor[i] = LiftBarFloor[last];
+        LiftGiveUpAt[i] = LiftGiveUpAt[last];
+        LiftRideFrom[i] = LiftRideFrom[last];
     }
 
     /// <summary>Removes every agent.</summary>
@@ -330,5 +349,9 @@ public sealed class AgentStore
         Array.Resize(ref MaxWaitS, capacity);
         Array.Resize(ref LeftEarly, capacity);
         Array.Resize(ref LiftCar, capacity);
+        Array.Resize(ref LiftBar, capacity);
+        Array.Resize(ref LiftBarFloor, capacity);
+        Array.Resize(ref LiftGiveUpAt, capacity);
+        Array.Resize(ref LiftRideFrom, capacity);
     }
 }

@@ -46,6 +46,18 @@ public interface IDialogService
     /// <param name="message">What will happen.</param>
     /// <param name="confirmText">Label of the confirming button, e.g. "DELETE".</param>
     bool Confirm(string title, string message, string confirmText);
+
+    /// <summary>Picks a .throngprofile to import (D-275); null when cancelled.</summary>
+    string? PickProfileOpenPath();
+
+    /// <summary>Picks where to export a .throngprofile (D-275); null when cancelled.</summary>
+    string? PickProfileSavePath(string suggestedFileName);
+
+    /// <summary>
+    /// Asks keep / map / drop for each reference an imported profile makes that the study lacks (D-275); one choice per
+    /// item, or null when cancelled.
+    /// </summary>
+    IReadOnlyList<Throng.Core.Library.ReconcileChoice>? Reconcile(string profileName, IReadOnlyList<Throng.Core.Library.ReconcileItem> items);
 }
 
 /// <summary>
@@ -153,4 +165,32 @@ public sealed class DialogService : IDialogService
     /// <inheritdoc />
     public IReadOnlyList<Guid>? PickLevels(string title, string message, IReadOnlyList<LevelOption> levels) =>
         LevelPickerDialog.Show(_owner, title, message, levels);
+
+    /// <inheritdoc />
+    public string? PickProfileOpenPath()
+    {
+        var dialog = new OpenFileDialog { Filter = ProfileFilter, Title = "Import profile", CheckFileExists = true };
+        return dialog.ShowDialog(_owner) == true ? dialog.FileName : null;
+    }
+
+    /// <inheritdoc />
+    public string? PickProfileSavePath(string suggestedFileName)
+    {
+        var dialog = new SaveFileDialog
+        {
+            Filter = ProfileFilter,
+            Title = "Export profile",
+            FileName = suggestedFileName,
+            DefaultExt = ProfileFile.Extension,
+            AddExtension = true,
+            OverwritePrompt = true,
+        };
+        return dialog.ShowDialog(_owner) == true ? dialog.FileName : null;
+    }
+
+    /// <inheritdoc />
+    public IReadOnlyList<Throng.Core.Library.ReconcileChoice>? Reconcile(string profileName, IReadOnlyList<Throng.Core.Library.ReconcileItem> items) =>
+        ReconcileDialog.Show(_owner, profileName, items);
+
+    private const string ProfileFilter = "Throng profile (*.throngprofile)|*.throngprofile|All files (*.*)|*.*";
 }
