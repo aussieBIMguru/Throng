@@ -14,4 +14,16 @@ public enum ReconcileKind
 
     /// <summary>A person tag a step needs or lacks, granted by nothing in the study.</summary>
     Tag,
+
+    /// <summary>
+    /// An imported device definition's own type tag that no journey step or placed device in the study uses (round 017,
+    /// D-290): keep it as a new type, or use one the study has. Dropping keeps it too.
+    /// </summary>
+    ImportedDeviceType,
+
+    /// <summary>
+    /// A .thronglib item whose id your library already holds with different values (round 020, D-347): keep both
+    /// (the incoming one as a copy), skip it, or replace yours.
+    /// </summary>
+    LibraryItem,
 }

@@ -6,8 +6,11 @@ namespace Throng.Core.Library;
 /// </summary>
 public sealed class ProfileBundle
 {
-    /// <summary>Current bundle format version.</summary>
-    public const int CurrentFormatVersion = 1;
+    /// <summary>
+    /// Current bundle format version. 1: journeys as step lists (round 016). 2: journeys as graphs and the profile's
+    /// default journey (round 018, D-302, D-304); format 1 journeys convert on load.
+    /// </summary>
+    public const int CurrentFormatVersion = 2;
 
     /// <summary>Format version of this file.</summary>
     public int FormatVersion { get; set; } = CurrentFormatVersion;
@@ -15,6 +18,6 @@ public sealed class ProfileBundle
     /// <summary>The profile.</summary>
     public AgentProfileTemplate Profile { get; set; } = new();
 
-    /// <summary>Journeys it was used with.</summary>
+    /// <summary>Journeys it was used with, its default journey first (D-304).</summary>
     public List<JourneyTemplate> Journeys { get; set; } = [];
 }

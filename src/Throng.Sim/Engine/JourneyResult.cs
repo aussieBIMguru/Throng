@@ -16,6 +16,15 @@ namespace Throng.Sim.Engine;
 /// <param name="GaveUp">Finished people whose patience ran out in a line and who left (D-165).</param>
 /// <param name="Stuck">People removed as stuck.</param>
 /// <param name="InProgress">People still in the model.</param>
+/// <param name="Sink">
+/// Per-sink rows (D-312): the sink the finished left by (e.g. "Northbound", or "rule's sinks" for people who left
+/// without reaching a sink node); empty on journey and ALL rows. Sink rows count the finished only (stuck and in
+/// progress stay on the journey row).
+/// </param>
 public readonly record struct JourneyResult(
     string Profile, string Journey, bool IsAll, long Finished, double MeanS, double P95S, double AcceptableS, double WithinAcceptablePct,
-    double LongWaitPct, long GaveUp, long Stuck, int InProgress);
+    double LongWaitPct, long GaveUp, long Stuck, int InProgress, string Sink = "")
+{
+    /// <summary>True for a per-sink row (D-312).</summary>
+    public bool IsSink => !string.IsNullOrEmpty(Sink);
+}

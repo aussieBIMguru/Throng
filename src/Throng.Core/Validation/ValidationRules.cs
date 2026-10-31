@@ -24,6 +24,9 @@ public static class ValidationRules
     /// <summary>Emission rules, mixes, journeys and the devices and zones they need.</summary>
     public const string Demand = "demand";
 
+    /// <summary>Journey graph structure: one Spawn, no loops, wires and branch settings (D-302–D-306).</summary>
+    public const string JourneyGraph = "journey-graph";
+
     /// <summary>Accessible devices for profiles that need them (D-213).</summary>
     public const string Accessible = "accessible";
 
@@ -51,6 +54,9 @@ public static class ValidationRules
     /// <summary>Walkable gaps narrower than the widest profile using the level (D-274).</summary>
     public const string NarrowGap = "narrow-gap";
 
+    /// <summary>Journey nodes whose picks match nothing in the study, so they use their type / tag (round 020, D-349).</summary>
+    public const string PicksFallback = "journey-picks-fallback";
+
     /// <summary>Every rule, in CHECK order.</summary>
     public static IReadOnlyList<ValidationRule> All { get; } =
     [
@@ -60,6 +66,8 @@ public static class ValidationRules
         new(Lifts, "Vertical", "Lifts"),
         new(Devices, "Model", "Devices and underlays"),
         new(Demand, "Demand", "Emission rules and journeys"),
+        new(JourneyGraph, "Demand", "Journey graphs"),
+        new(PicksFallback, "Demand", "Picks not in this study"),
         new(Accessible, "Demand", "Accessible devices"),
         new(Trains, "Demand", "Trains"),
         new(Setup, "Navigation", "Floors under zones and devices"),

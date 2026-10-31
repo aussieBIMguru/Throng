@@ -126,24 +126,29 @@ public sealed record JourneyStep
 }
 
 /// <summary>
-/// A journey (D-149, BRIEF §8.2): the ordered steps an agent works through between appearing and leaving, such as
-/// ticket machine → gates → exit. Emission rules pick a journey per mix line (D-151). A journey without an
-/// <see cref="JourneyStepKind.Exit"/> step still ends with one.
+/// A journey (D-149, D-302, BRIEF §8.2): a graph of nodes wired from one Spawn to one or more Sinks, such as
+/// spawn → has ticket? → ticket machine → gate → chance → north / south train. Emission rules pick a journey per mix
+/// line (D-151), or the profile's default journey (D-304). Graphs have no loops (D-306).
 /// </summary>
+/// <remarks>
+/// Files before format v11 (and .throngprofile bundles before format 2) hold an ordered <see cref="Steps"/> list
+/// instead; <see cref="JourneyGraph.Ensure"/> converts it into <see cref="Nodes"/> and <see cref="Wires"/> once, on
+/// load, and clears it.
+/// </remarks>
 public sealed class JourneyTemplate : TemplateBase
 {
-    /// <summary>The steps, in order.</summary>
-    public List<JourneyStep> Steps { get; set; } = [];
+    /// <summary>
+    /// Legacy ordered steps (round 009 to 017). Only read when loading older files; null once converted, and never
+    /// written by this version.
+    /// </summary>
+    public List<JourneyStep>? Steps { get; set; }
+
+    /// <summary>The nodes (D-302): one Spawn, one or more Sinks, and the steps and branches between.</summary>
+    public List<JourneyNode> Nodes { get; set; } = [];
+
+    /// <summary>The wires: each joins one output port of a node to another node's input.</summary>
+    public List<JourneyWire> Wires { get; set; } = [];
 
     /// <inheritdoc />
-    public override string Summarise()
-    {
-        if (Steps.Count == 0)
-        {
-            return "exit";
-        }
-
-        string steps = string.Join(" → ", Steps.Select(s => s.Describe()));
-        return Steps.Count == 1 ? steps : string.Create(CultureInfo.InvariantCulture, $"{Steps.Count} steps · {steps}");
-    }
+    public override string Summarise() => JourneyGraph.Summarise(this);
 }

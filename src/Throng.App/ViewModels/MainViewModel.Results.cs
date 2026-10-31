@@ -118,6 +118,7 @@ public sealed partial class MainViewModel
                 JourneyResultRows.Clear();
                 LiftResultRows.Clear();
                 SelectedResultRow = null;
+                RefreshJourneyOverlay();
                 ResultsSummary = "No run yet. PLAY to gather results; they stay until RESET.";
                 RebuildGraph();
                 ExportResultsCommand.NotifyCanExecuteChanged();
@@ -160,7 +161,7 @@ public sealed partial class MainViewModel
             JourneyResultRows.Clear();
             foreach (JourneyResult journey in results.Journeys)
             {
-                JourneyResultRows.Add(new JourneyResultRow(journey.Profile, journey.Journey, journey.IsAll, journey.AcceptableS));
+                JourneyResultRows.Add(new JourneyResultRow(journey.Profile, journey.Journey, journey.IsAll, journey.AcceptableS, journey.Sink));
             }
         }
 
@@ -272,7 +273,7 @@ public sealed partial class MainViewModel
                     ? "No measurement zones. Draw a zone and set its kind to Measurement to count people through it."
                     : string.Create(c, $"{Clock(results.MeasuredS)} measured{warm} · {results.Zones.Sum(z => z.Entries):N0} entries. Flow per metre uses the zone's narrower side; tick ▸ graph a zone.");
             case ResultsTable.Journeys:
-                long finished = results.Journeys.Where(j => !j.IsAll).Sum(j => j.Finished);
+                long finished = results.Journeys.Where(j => !j.IsAll && !j.IsSink).Sum(j => j.Finished);
                 return string.Create(c, $"People spawned{warm} · {finished:N0} finished. Long wait = one queue wait over {results.LongWaitS:0} s (STUDY ▸ RUN).");
             case ResultsTable.Lifts:
                 return results.Lifts.Count == 0
@@ -432,12 +433,12 @@ public sealed partial class MainViewModel
             return;
         }
 
-        if (_dialogs.PickFolder("Export results (devices.csv, zones.csv, journeys.csv, timeseries.csv)") is not { } folder)
+        if (_dialogs.PickFolder("Export results (devices.csv, zones.csv, journeys.csv, lifts.csv, nodes.csv, timeseries.csv)") is not { } folder)
         {
             return;
         }
 
-        Result written = ResultsCsv.Export(results, folder);
+        Result written = ResultsCsv.Export(results, folder, (_runner ?? _resultsRunner)?.Model);
         if (!written.IsSuccess)
         {
             AppLog.Warn(written.Error ?? "Results export failed.");
@@ -446,6 +447,6 @@ public sealed partial class MainViewModel
         }
 
         AppLog.Info($"Results exported to {folder}");
-        Ticker = $"EXPORTED ▸ {ResultsCsv.DevicesFileName}, {ResultsCsv.ZonesFileName}, {ResultsCsv.JourneysFileName}, {ResultsCsv.LiftsFileName}, {ResultsCsv.TimeSeriesFileName}";
+        Ticker = $"EXPORTED ▸ {ResultsCsv.DevicesFileName}, {ResultsCsv.ZonesFileName}, {ResultsCsv.JourneysFileName}, {ResultsCsv.LiftsFileName}, {ResultsCsv.NodesFileName}, {ResultsCsv.TimeSeriesFileName}";
     }
 }

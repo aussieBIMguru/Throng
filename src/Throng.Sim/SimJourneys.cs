@@ -3,7 +3,10 @@ using Throng.Core.Library;
 
 namespace Throng.Sim;
 
-/// <summary>One journey step ready to run (D-149, D-150).</summary>
+/// <summary>
+/// One action node of a journey ready to run (D-149, D-302): a device, a zone, or a sink (exit or board train). The
+/// branch nodes around it are <see cref="SimNode"/>s.
+/// </summary>
 public sealed class SimStep
 {
     /// <summary>What to do.</summary>
@@ -11,15 +14,9 @@ public sealed class SimStep
 
     /// <summary>
     /// Candidates: device indices (<see cref="SimModel.Devices"/>) for device steps, route target indices
-    /// (<c>NavWorld.Sinks</c>) for zone steps; empty for exits.
+    /// (<c>NavWorld.Sinks</c>) for zone steps, zone sinks and train doors; empty for exits by the rule's sinks.
     /// </summary>
     public required int[] Targets { get; init; }
-
-    /// <summary>Tag bits the agent must carry for the step to apply (0 = none).</summary>
-    public required ulong Needs { get; init; }
-
-    /// <summary>Tag bits the agent must not carry for the step to apply (0 = none).</summary>
-    public required ulong Lacks { get; init; }
 
     /// <summary>Tag bits given on completing the step.</summary>
     public required ulong Grants { get; init; }
@@ -27,23 +24,100 @@ public sealed class SimStep
     /// <summary>Dwell time for dwell steps.</summary>
     public required Distribution Dwell { get; init; }
 
-    /// <summary>Text for messages and diagnostics, e.g. "TicketMachine".</summary>
+    /// <summary>Text for messages, diagnostics and per-sink results, e.g. "TicketMachine" or "Northbound".</summary>
     public required string Label { get; init; }
 
-    /// <summary>Device steps: what a queuer does once their patience runs out (D-165).</summary>
+    /// <summary>Device steps: what a queuer does once their patience runs out (D-165, D-306).</summary>
     public JourneyGiveUp OnGiveUp { get; init; } = JourneyGiveUp.KeepWaiting;
 
-    /// <summary>
-    /// Index (in <see cref="SimJourney.Steps"/>) of the step to carry on from for <see cref="JourneyGiveUp.JumpTo"/>;
-    /// −1 when the jump target was dropped (the person then leaves).
-    /// </summary>
-    public int GiveUpStep { get; init; } = -1;
+    /// <summary>This step's node (index into <see cref="SimJourney.Nodes"/>).</summary>
+    public int Node { get; init; } = -1;
 
-    /// <summary>True when an agent with <paramref name="tags"/> does this step (needs met, nothing it lacks).</summary>
-    public bool AppliesTo(ulong tags) => (tags & Needs) == Needs && (tags & Lacks) == 0;
+    /// <summary>The node to go on to when done (or when the step's targets can't be reached); −1 = leave by the rule's sinks.</summary>
+    public int Next { get; init; } = -1;
+
+    /// <summary>Device steps: the node on the "gave up" output (D-306); −1 = leave.</summary>
+    public int GaveUpNext { get; init; } = -1;
+
+    /// <summary>How one of <see cref="Targets"/> is picked (D-319).</summary>
+    public JourneyChooseBy ChooseBy { get; init; } = JourneyChooseBy.Quickest;
+
+    /// <summary>Weight per target (D-321), parallel to <see cref="Targets"/>; empty = all 1.</summary>
+    public double[] Weights { get; init; } = [];
+
+    /// <summary>Device steps: mid-queue switching (D-322).</summary>
+    public JourneyBalk Balk { get; init; } = JourneyBalk.Default;
+
+    /// <summary>Device steps: patience in seconds instead of the profile's (D-322); NaN = the profile's.</summary>
+    public double PatienceS { get; init; } = double.NaN;
+
+    /// <summary>The weight of target <paramref name="k"/> (index into <see cref="Targets"/>).</summary>
+    public double WeightAt(int k) => k >= 0 && k < Weights.Length ? Weights[k] : 1;
+
+    /// <summary>True for exits and board-train steps (sinks, D-303).</summary>
+    public bool IsSink => Kind is JourneyStepKind.Exit or JourneyStepKind.BoardTrain;
 }
 
-/// <summary>A journey ready to run: its steps, always ending in an exit.</summary>
+/// <summary>What a compiled journey node does (D-302, D-305, D-314).</summary>
+public enum SimNodeKind
+{
+    /// <summary>An action: <see cref="SimNode.Step"/> says which.</summary>
+    Step,
+
+    /// <summary>Pick an output by weight.</summary>
+    Chance,
+
+    /// <summary>Output 0 when the person holds <see cref="SimNode.Bit"/>, else output 1.</summary>
+    TagCheck,
+
+    /// <summary>Grant (or remove) <see cref="SimNode.Bit"/>, then output 0.</summary>
+    SetTag,
+}
+
+/// <summary>One node of a compiled journey graph: an action step, or a branch passed through instantly.</summary>
+public sealed class SimNode
+{
+    /// <summary>What it does.</summary>
+    public required SimNodeKind Kind { get; init; }
+
+    /// <summary>Step nodes: index into <see cref="SimJourney.Steps"/>; −1 otherwise.</summary>
+    public int Step { get; init; } = -1;
+
+    /// <summary>The node on each output (−1 = unwired: leave by the rule's sinks).</summary>
+    public required int[] Next { get; init; }
+
+    /// <summary>Chance nodes: running totals of the output shares, ending at 1.</summary>
+    public double[] Cumulative { get; init; } = [];
+
+    /// <summary>Tag check and Set tag nodes: the tag bit (0 when the tag couldn't be given a bit).</summary>
+    public ulong Bit { get; init; }
+
+    /// <summary>Set tag nodes: true to remove the tag.</summary>
+    public bool Remove { get; init; }
+
+    /// <summary>Chance nodes: the output for a uniform draw in [0, 1).</summary>
+    public int Pick(double u)
+    {
+        int port = PickPort(u);
+        return port >= 0 ? Next[port] : -1;
+    }
+
+    /// <summary>Chance nodes: the output port for a uniform draw in [0, 1), or −1 when the node has no outputs (D-332 counts it).</summary>
+    public int PickPort(double u)
+    {
+        for (int port = 0; port < Cumulative.Length && port < Next.Length; port++)
+        {
+            if (u < Cumulative[port])
+            {
+                return port;
+            }
+        }
+
+        return Next.Length > 0 ? Next.Length - 1 : -1;
+    }
+}
+
+/// <summary>A journey ready to run (D-302): its nodes from Spawn's output on, and the action steps among them.</summary>
 public sealed class SimJourney
 {
     /// <summary>Position in <see cref="SimModel.Journeys"/>.</summary>
@@ -52,8 +126,29 @@ public sealed class SimJourney
     /// <summary>Display name.</summary>
     public required string Name { get; init; }
 
-    /// <summary>The steps; the last one is an exit.</summary>
+    /// <summary>The action steps (devices, zones, sinks), in the order they're reached from Spawn.</summary>
     public required SimStep[] Steps { get; init; }
+
+    /// <summary>Every node reachable from Spawn (Spawn itself left out).</summary>
+    public SimNode[] Nodes { get; init; } = [];
+
+    /// <summary>The node Spawn is wired to; −1 = straight to the rule's sinks.</summary>
+    public int Start { get; init; } = -1;
+
+    /// <summary>The journey template's id (round 019: the run overlay finds its journey by it).</summary>
+    public Guid JourneyId { get; init; }
+
+    /// <summary>The model node (<c>JourneyNode.Id</c>) of each compiled node, parallel to <see cref="Nodes"/> (D-332).</summary>
+    public Guid[] NodeIds { get; init; } = [];
+
+    /// <summary>The Spawn node's id (its one output is the wire into <see cref="Start"/>).</summary>
+    public Guid SpawnId { get; init; }
+
+    /// <summary>The model node id of compiled node <paramref name="node"/>; <see cref="Guid.Empty"/> for −1 (the rule's sinks).</summary>
+    public Guid NodeIdAt(int node) => node >= 0 && node < NodeIds.Length ? NodeIds[node] : Guid.Empty;
+
+    /// <summary>Indices of the sink steps (D-312), in order.</summary>
+    public int[] SinkSteps => [.. Enumerable.Range(0, Steps.Length).Where(k => Steps[k].IsSink)];
 }
 
 /// <summary>One line of an emitter's mix ready to run (D-151).</summary>

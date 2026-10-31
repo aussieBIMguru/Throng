@@ -58,6 +58,34 @@ public interface IDialogService
     /// item, or null when cancelled.
     /// </summary>
     IReadOnlyList<Throng.Core.Library.ReconcileChoice>? Reconcile(string profileName, IReadOnlyList<Throng.Core.Library.ReconcileItem> items);
+
+    /// <summary>Picks a .throngdevice to import (round 017, D-290); null when cancelled.</summary>
+    string? PickDeviceOpenPath();
+
+    /// <summary>Picks where to export a .throngdevice (D-290); null when cancelled.</summary>
+    string? PickDeviceSavePath(string suggestedFileName);
+
+    /// <summary>Asks keep / map for an imported device definition's type tag the study doesn't use (D-290); null when cancelled.</summary>
+    IReadOnlyList<Throng.Core.Library.ReconcileChoice>? ReconcileDevice(string deviceName, IReadOnlyList<Throng.Core.Library.ReconcileItem> items);
+
+    /// <summary>A themed checklist of items (round 020: what to EXPORT from your library); the ticked ids, or null when cancelled.</summary>
+    /// <param name="title">Dialog title.</param>
+    /// <param name="message">Explanation above the checklist.</param>
+    /// <param name="items">Items to offer, in display order.</param>
+    /// <param name="okText">Label of the confirming button.</param>
+    IReadOnlyList<Guid>? PickItems(string title, string message, IReadOnlyList<LevelOption> items, string okText);
+
+    /// <summary>Asks for one line of text (round 020: RENAME, D-345); null when cancelled.</summary>
+    string? AskText(string title, string message, string initial, string okText);
+
+    /// <summary>Picks where to export a .thronglib (D-347); null when cancelled.</summary>
+    string? PickLibrarySavePath(string suggestedFileName);
+
+    /// <summary>Picks a .thronglib to import into your library (D-347); null when cancelled.</summary>
+    string? PickLibraryOpenPath();
+
+    /// <summary>Asks keep both / skip / replace for each .thronglib item your library holds differently (D-347); null when cancelled.</summary>
+    IReadOnlyList<Throng.Core.Library.ReconcileChoice>? ReconcileLibrary(string fileName, IReadOnlyList<Throng.Core.Library.ReconcileItem> items);
 }
 
 /// <summary>
@@ -192,5 +220,67 @@ public sealed class DialogService : IDialogService
     public IReadOnlyList<Throng.Core.Library.ReconcileChoice>? Reconcile(string profileName, IReadOnlyList<Throng.Core.Library.ReconcileItem> items) =>
         ReconcileDialog.Show(_owner, profileName, items);
 
+    /// <inheritdoc />
+    public string? PickDeviceOpenPath()
+    {
+        var dialog = new OpenFileDialog { Filter = DeviceFilter, Title = "Import device", CheckFileExists = true };
+        return dialog.ShowDialog(_owner) == true ? dialog.FileName : null;
+    }
+
+    /// <inheritdoc />
+    public string? PickDeviceSavePath(string suggestedFileName)
+    {
+        var dialog = new SaveFileDialog
+        {
+            Filter = DeviceFilter,
+            Title = "Export device",
+            FileName = suggestedFileName,
+            DefaultExt = DeviceFile.Extension,
+            AddExtension = true,
+            OverwritePrompt = true,
+        };
+        return dialog.ShowDialog(_owner) == true ? dialog.FileName : null;
+    }
+
+    /// <inheritdoc />
+    public IReadOnlyList<Throng.Core.Library.ReconcileChoice>? ReconcileDevice(string deviceName, IReadOnlyList<Throng.Core.Library.ReconcileItem> items) =>
+        ReconcileDialog.Show(_owner, deviceName, items, isDevice: true);
+
+    /// <inheritdoc />
+    public IReadOnlyList<Guid>? PickItems(string title, string message, IReadOnlyList<LevelOption> items, string okText) =>
+        LevelPickerDialog.Show(_owner, title, message, items, okText);
+
+    /// <inheritdoc />
+    public string? AskText(string title, string message, string initial, string okText) =>
+        TextPromptDialog.Show(_owner, title, message, initial, okText);
+
+    /// <inheritdoc />
+    public string? PickLibrarySavePath(string suggestedFileName)
+    {
+        var dialog = new SaveFileDialog
+        {
+            Filter = LibraryFilter,
+            Title = "Export my library",
+            FileName = suggestedFileName,
+            DefaultExt = LibraryFile.Extension,
+            AddExtension = true,
+            OverwritePrompt = true,
+        };
+        return dialog.ShowDialog(_owner) == true ? dialog.FileName : null;
+    }
+
+    /// <inheritdoc />
+    public string? PickLibraryOpenPath()
+    {
+        var dialog = new OpenFileDialog { Filter = LibraryFilter, Title = "Import into my library", CheckFileExists = true };
+        return dialog.ShowDialog(_owner) == true ? dialog.FileName : null;
+    }
+
+    /// <inheritdoc />
+    public IReadOnlyList<Throng.Core.Library.ReconcileChoice>? ReconcileLibrary(string fileName, IReadOnlyList<Throng.Core.Library.ReconcileItem> items) =>
+        ReconcileDialog.Show(_owner, fileName, items);
+
+    private const string LibraryFilter = "Throng library (*.thronglib)|*.thronglib|All files (*.*)|*.*";
     private const string ProfileFilter = "Throng profile (*.throngprofile)|*.throngprofile|All files (*.*)|*.*";
+    private const string DeviceFilter = "Throng device (*.throngdevice)|*.throngdevice|All files (*.*)|*.*";
 }

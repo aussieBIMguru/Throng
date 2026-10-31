@@ -86,9 +86,9 @@ public sealed class Round009FileTests
         CollectionAssert.AreEqual(machine.QueuePath, machineLoaded.QueuePath);
 
         JourneyTemplate journey = loaded.Library.Journeys.Single(j => j.Key == "journey.ticket-gates");
-        Assert.AreEqual(3, journey.Steps.Count);
-        Assert.AreEqual("ticket", journey.Steps[0].LacksTag);
-        Assert.AreEqual("ticket", journey.Steps[0].GrantsTag);
+        Assert.AreEqual("ticket", journey.Nodes.Single(n => n.Kind == JourneyNodeKind.TagCheck).TargetTag, "The lacks condition is a tag check (D-305).");
+        Assert.AreEqual("ticket", journey.Nodes.Single(n => n.TargetTag == "TicketMachine").GrantsTag);
+        Assert.AreEqual(3, JourneyGraph.Reachable(journey).Count(n => n.StepKind is not null), "Machine, gate, exit.");
         Assert.AreEqual(0, StudyValidator.Validate(loaded).Count, "Reloaded demo still validates clean.");
     }
 

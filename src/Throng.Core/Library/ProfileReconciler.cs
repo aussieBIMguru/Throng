@@ -1,4 +1,3 @@
-using System.Globalization;
 using Throng.Core.Model;
 
 namespace Throng.Core.Library;
@@ -7,7 +6,9 @@ namespace Throng.Core.Library;
 /// Profile exchange (BRIEF §8.6, round 016, D-275): builds the <see cref="ProfileBundle"/> for a study's profile,
 /// finds what an incoming bundle refers to that a study lacks (device types, zone tags, train tags, person tags), and
 /// applies the user's keep / map / drop answers, giving fresh copies to add to the study library. Pinned zones
-/// (<see cref="JourneyStep.ZoneId"/>) belong to the study they came from and are always unpinned on import.
+/// (<see cref="JourneyNode.ZoneId"/>) belong to the study they came from and are always unpinned on import. Journeys
+/// are graphs (D-302): a dropped node is taken out and whatever was wired into it carries on along its first output
+/// (a Tag check along "hasn't", since no one holds a tag the study doesn't use).
 /// </summary>
 public static class ProfileReconciler
 {
@@ -18,11 +19,21 @@ public static class ProfileReconciler
     {
         var journeys = new List<JourneyTemplate>();
         var seen = new HashSet<Guid>();
-        foreach (MixLine line in study.Regions.SelectMany(r => r.EmissionRules).SelectMany(rule => rule.Mix ?? []))
+        void Take(Guid? id)
         {
-            if (line?.ProfileId == profile.Id && line.JourneyId is { } id && seen.Add(id) && StudyTemplates.FindJourney(study, id) is { } journey)
+            if (id is { } journeyId && seen.Add(journeyId) && StudyTemplates.FindJourney(study, journeyId) is { } journey)
             {
                 journeys.Add((JourneyTemplate)TemplateCloner.Clone(journey));
+            }
+        }
+
+        // The profile's default journey (D-304) first, then each journey its mix lines follow.
+        Take(profile.DefaultJourneyId);
+        foreach (MixLine line in study.Regions.SelectMany(r => r.EmissionRules).SelectMany(rule => rule.Mix ?? []))
+        {
+            if (line?.ProfileId == profile.Id)
+            {
+                Take(StudyTemplates.JourneyIdFor(study, line));
             }
         }
 
@@ -32,6 +43,11 @@ public static class ProfileReconciler
     /// <summary>Every reference in <paramref name="bundle"/> the study can't satisfy, one item per distinct value.</summary>
     public static List<ReconcileItem> Find(Study study, ProfileBundle bundle)
     {
+        foreach (JourneyTemplate journey in bundle.Journeys)
+        {
+            JourneyGraph.Ensure(journey);
+        }
+
         Known known = Known.Of(study, bundle);
         var items = new List<ReconcileItem>();
         var seen = new HashSet<(ReconcileKind, string)>();
@@ -54,25 +70,13 @@ public static class ProfileReconciler
 
         foreach (JourneyTemplate journey in bundle.Journeys)
         {
-            for (int s = 0; s < journey.Steps.Count; s++)
+            foreach (JourneyNode node in journey.Nodes)
             {
-                JourneyStep step = journey.Steps[s];
-                string at = string.Create(CultureInfo.InvariantCulture, $"journey '{journey.Name}', step {s + 1}");
-                switch (step.Kind)
+                string at = $"journey '{journey.Name}', node '{node.Title}'";
+                if (TargetKind(node) is { } kind)
                 {
-                    case JourneyStepKind.GoToDevice:
-                        Need(ReconcileKind.DeviceType, step.TargetTag, at);
-                        break;
-                    case JourneyStepKind.PassZone or JourneyStepKind.Dwell:
-                        Need(ReconcileKind.ZoneTag, step.TargetTag, at);
-                        break;
-                    case JourneyStepKind.BoardTrain:
-                        Need(ReconcileKind.TrainTag, step.TargetTag, at);
-                        break;
+                    Need(kind, node.TargetTag, at);
                 }
-
-                Need(ReconcileKind.Tag, step.NeedsTag, at + " (needs)");
-                Need(ReconcileKind.Tag, step.LacksTag, at + " (lacks)");
             }
         }
 
@@ -115,53 +119,107 @@ public static class ProfileReconciler
         Rehome(study, profile, "agent");
 
         var journeys = new List<JourneyTemplate>();
+        var newIds = new Dictionary<Guid, Guid>();
         foreach (JourneyTemplate source in bundle.Journeys)
         {
             var journey = (JourneyTemplate)TemplateCloner.Clone(source);
-            var steps = new List<JourneyStep>();
-            foreach (JourneyStep original in journey.Steps.Where(s => s is not null))
+            JourneyGraph.Ensure(journey);
+            var kept = new List<JourneyNode>();
+            var dropped = new Dictionary<Guid, int>();
+            foreach (JourneyNode original in journey.Nodes)
             {
-                ReconcileKind? targetKind = original.Kind switch
+                JourneyNode node = original with { ZoneId = null };
+                if (TargetKind(node) is { } kind)
                 {
-                    JourneyStepKind.GoToDevice => ReconcileKind.DeviceType,
-                    JourneyStepKind.PassZone or JourneyStepKind.Dwell => ReconcileKind.ZoneTag,
-                    JourneyStepKind.BoardTrain => ReconcileKind.TrainTag,
-                    _ => null,
-                };
-                JourneyStep step = original with { ZoneId = null };
-                if (targetKind is { } kind)
-                {
-                    ReconcileChoice answer = Answer(kind, step.TargetTag);
-                    if (answer.Action == ReconcileAction.Drop)
+                    ReconcileChoice answer = Answer(kind, node.TargetTag);
+                    if (answer.Action == ReconcileAction.Drop && node.Kind != JourneyNodeKind.Spawn)
                     {
+                        // Carry on along the first output; a Tag check along "hasn't".
+                        dropped[node.Id] = node.Kind == JourneyNodeKind.TagCheck ? 1 : 0;
                         continue;
                     }
 
                     if (answer.Action == ReconcileAction.Map && answer.MapTo is { } to)
                     {
-                        step = step with { TargetTag = to };
+                        node = node with { TargetTag = to };
                     }
                 }
 
-                step = step with { NeedsTag = MapTag(Answer(ReconcileKind.Tag, step.NeedsTag), step.NeedsTag), LacksTag = MapTag(Answer(ReconcileKind.Tag, step.LacksTag), step.LacksTag) };
-                steps.Add(step);
+                kept.Add(node);
             }
 
-            // Give-up targets point at step indices; drop any that no longer exist.
-            journey.Steps = [.. steps.Select(s => s.GiveUpStep >= steps.Count ? s with { GiveUpStep = 0, OnGiveUp = JourneyGiveUp.KeepWaiting } : s)];
+            journey.Nodes = kept;
+            journey.Wires = Bypass(journey.Wires, dropped);
+            Guid oldId = journey.Id;
             Rehome(study, journey, "journey");
+            newIds[oldId] = journey.Id;
             journeys.Add(journey);
+        }
+
+        // The default journey follows its copy's new id.
+        if (profile.DefaultJourneyId is { } defaultId && newIds.TryGetValue(defaultId, out Guid moved))
+        {
+            profile.DefaultJourneyId = moved;
         }
 
         return (profile, journeys);
     }
 
-    private static string MapTag(ReconcileChoice answer, string tag) => answer.Action switch
+    /// <summary>What a node's <see cref="JourneyNode.TargetTag"/> refers to, or null when it refers to nothing to reconcile.</summary>
+    private static ReconcileKind? TargetKind(JourneyNode node) => node.Kind switch
     {
-        ReconcileAction.Drop => string.Empty,
-        ReconcileAction.Map when answer.MapTo is { } to => to,
-        _ => tag,
+        JourneyNodeKind.Device => ReconcileKind.DeviceType,
+        JourneyNodeKind.PassZone or JourneyNodeKind.Dwell => ReconcileKind.ZoneTag,
+        JourneyNodeKind.Sink when node.SinkKind == JourneySinkKind.Zone => ReconcileKind.ZoneTag,
+        JourneyNodeKind.Sink when node.SinkKind == JourneySinkKind.BoardTrain => ReconcileKind.TrainTag,
+        JourneyNodeKind.TagCheck => ReconcileKind.Tag,
+        _ => null,
     };
+
+    /// <summary>
+    /// The wires with <paramref name="dropped"/> nodes taken out: a wire into a dropped node goes on to whatever the
+    /// dropped node's carry-on output led to (through further dropped nodes), or is removed when that's nothing.
+    /// </summary>
+    private static List<JourneyWire> Bypass(List<JourneyWire> wires, Dictionary<Guid, int> dropped)
+    {
+        if (dropped.Count == 0)
+        {
+            return [.. wires];
+        }
+
+        Guid? Onward(Guid to)
+        {
+            var visited = new HashSet<Guid>();
+            Guid current = to;
+            while (dropped.TryGetValue(current, out int port))
+            {
+                if (!visited.Add(current) || wires.FirstOrDefault(w => w.From == current && w.Port == port) is not { } next)
+                {
+                    return null;
+                }
+
+                current = next.To;
+            }
+
+            return current;
+        }
+
+        var result = new List<JourneyWire>();
+        foreach (JourneyWire wire in wires)
+        {
+            if (dropped.ContainsKey(wire.From))
+            {
+                continue;
+            }
+
+            if (Onward(wire.To) is { } to)
+            {
+                result.Add(wire with { To = to });
+            }
+        }
+
+        return result;
+    }
 
     /// <summary>Imported, and a new id, key and name when the study or the built-ins already hold this id.</summary>
     private static void Rehome(Study study, TemplateBase template, string prefix)
@@ -193,7 +251,8 @@ public static class ProfileReconciler
             IEnumerable<string> trainTags = study.TrainServices.Select(t => t.Tag);
             known.Add(ReconcileKind.TrainTag, trainTags, trainTags);
             IEnumerable<string> granted = StudyTemplates.AvailableJourneys(study).Concat(bundle.Journeys)
-                .SelectMany(j => j.Steps.Where(s => s is not null).Select(s => s.GrantsTag))
+                .SelectMany(j => (j.Nodes ?? []).Where(n => n is not null)
+                    .Select(n => n.Kind == JourneyNodeKind.SetTag && !n.RemoveTag ? n.TargetTag : n.GrantsTag))
                 .Concat(study.Regions.SelectMany(r => r.EmissionRules).SelectMany(rule => rule.Mix ?? []).SelectMany(m => m?.SpawnTags ?? []).Select(t => t.Tag));
             known.Add(ReconcileKind.Tag, granted, granted);
             return known;

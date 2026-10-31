@@ -133,6 +133,13 @@ public sealed record SimTuning
     /// runs as Collective (r013b).
     /// </summary>
     public bool DestinationDispatch { get; init; } = true;
+
+    /// <summary>
+    /// Two-way stair and ramp ends (round 017b, D-300): people heading on steer through a point 2 m out in front of
+    /// their own (keep-side) half and walk straight on; people stepping off walk straight out 2 m before turning.
+    /// Off = the field's direct line to the edge, and turning as soon as they step off.
+    /// </summary>
+    public bool StairEndLanes { get; init; } = true;
 }
 
 /// <summary>Where and how an agent was removed as stuck (D-106), for diagnostics.</summary>

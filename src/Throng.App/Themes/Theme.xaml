@@ -699,6 +699,21 @@
         </Setter>
     </Style>
 
+    <!-- Context menus (round 017b, D-299): the panel look of the menu popups. -->
+    <Style TargetType="ContextMenu">
+        <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+        <Setter Property="OverridesDefaultStyle" Value="True" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ContextMenu">
+                    <Border Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Padding="0,4" MinWidth="160">
+                        <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Cycle" />
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <!-- RESULTS table (round 011c, D-219): dark, compact, sortable by header click. -->
     <Style x:Key="ResultsGridHeader" TargetType="DataGridColumnHeader">
         <Setter Property="Background" Value="{StaticResource PanelAltBrush}" />

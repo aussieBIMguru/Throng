@@ -35,8 +35,11 @@ public static class ThrongFile
     /// v9: lift banks in shafts (round 013, D-236–D-244): <c>Shaft.Lift</c> with cars, front edge, landing depth,
     /// lobby, dispatch, schedule and per-level doors; drawn train shapes (round 013b, D-249, additive:
     /// <c>TrainService.Shape</c>, empty = the automatic box).
+    /// v10: saved named views and ignored CHECK findings (round 016, D-272, D-276).
+    /// v11: journeys as graphs of nodes and wires (round 018, D-302), profile default journeys and the mix line
+    /// "(profile default)" flag (D-304).
     /// </summary>
-    public const int CurrentFormatVersion = 10;
+    public const int CurrentFormatVersion = 11;
 
     /// <summary>Zip folder holding underlay images (§14.2, D-083).</summary>
     public const string UnderlayFolder = "underlays/";
@@ -62,6 +65,9 @@ public static class ThrongFile
             {
                 Directory.CreateDirectory(directory);
             }
+
+            // Journeys are written as graphs (v11, D-302); one still holding a legacy step list is converted first.
+            EnsureJourneyGraphs(study);
 
             DateTime now = DateTime.UtcNow;
             var manifest = new ThrongManifest
@@ -132,6 +138,7 @@ public static class ThrongFile
 
             study.Library = ReadEntry<TemplateLibrary>(zip, LibraryEntry) ?? new TemplateLibrary();
             FormatMigrations.Apply(study, manifest.FormatVersion);
+            EnsureJourneyGraphs(study);
             study.UnderlayImages = new Dictionary<Guid, byte[]>();
             foreach (Underlay underlay in study.Underlays)
             {
@@ -149,6 +156,17 @@ public static class ThrongFile
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or JsonException or NotSupportedException)
         {
             return Result<Study>.Fail($"Couldn't open '{Path.GetFileName(path)}': {ex.Message}");
+        }
+    }
+
+    /// <summary>Every journey in the study library as a graph (D-302): legacy step lists converted, null entries dropped.</summary>
+    private static void EnsureJourneyGraphs(Study study)
+    {
+        study.Library.Journeys ??= [];
+        study.Library.Journeys.RemoveAll(j => j is null);
+        foreach (JourneyTemplate journey in study.Library.Journeys)
+        {
+            JourneyGraph.Ensure(journey);
         }
     }
 

@@ -21,7 +21,8 @@ public sealed class Round009bTests
         Assert.AreNotEqual(builtIn.Id, copy.Id);
         Assert.AreNotEqual(builtIn.Key, copy.Key);
         Assert.AreEqual("Ticket then gates (copy)", copy.Name);
-        CollectionAssert.AreEqual(builtIn.Steps, copy.Steps, "Same steps (records compare by value).");
+        CollectionAssert.AreEqual(builtIn.Nodes, copy.Nodes, "Same nodes (records compare by value, D-302).");
+        CollectionAssert.AreEqual(builtIn.Wires, copy.Wires, "Same wires.");
         Assert.IsFalse(StudyTemplates.IsEditableJourney(study, copy), "Not editable until it's in the study library.");
 
         study.Library.Add(copy);
@@ -34,7 +35,7 @@ public sealed class Round009bTests
     }
 
     [TestMethod]
-    public void GiveUpJump_OutsideTheJourney_IsAnError()
+    public void GiveUpLoop_IsAnError_AndAForwardGaveUpWireIsFine()
     {
         var study = new Study();
         var level = new Level { Name = "Ground" };
@@ -44,18 +45,19 @@ public sealed class Round009bTests
         var sink = new Region { LevelId = level.Id, Name = "Out", Kind = RegionKind.Zone, ZoneKind = ZoneKind.Sink, Outline = ShapeFactory.Rectangle(new(18, 0), new(20, 10)) };
         study.Regions.AddRange([spawn, sink]);
         study.Devices.Add(new Device { LevelId = level.Id, TypeTag = "TicketMachine", Position = new(10, 5) });
-        var journey = new JourneyTemplate
-        {
-            Key = "journey.t", Name = "Jumpy", Category = "Journeys",
-            Steps = [JourneyStep.Device("TicketMachine") with { OnGiveUp = JourneyGiveUp.JumpTo, GiveUpStep = 5 }, JourneyStep.ExitStep()],
-        };
+        var journey = new JourneyTemplate { Key = "journey.t", Name = "Jumpy", Category = "Journeys" };
+        var graph = new JourneyGraph.Builder(journey.Id);
+        Guid machine = graph.Add(JourneyGraph.DeviceNode("TicketMachine", onGiveUp: JourneyGiveUp.Branch), 1);
+        Guid exit = graph.Add(JourneyGraph.ExitNode(), 2);
+        graph.Wire(graph.Start, machine).Wire(machine, exit).Wire(machine, 1, machine);
+        graph.Apply(journey);
         study.Library.Add(journey);
         spawn.EmissionRules.Add(new EmissionRule { Mix = [MixLine.Of(Commuter, journey.Id)], DestinationMode = DestinationMode.ChosenSinks, Destinations = [new SinkWeight { SinkId = sink.Id }] });
 
-        Assert.IsTrue(StudyValidator.Validate(study).Any(m => m.Severity == ValidationSeverity.Error && m.Message.Contains("jumps to step 6", StringComparison.Ordinal)));
+        Assert.IsTrue(StudyValidator.Validate(study).Any(m => m.Severity == ValidationSeverity.Error && m.Message.Contains("loops back", StringComparison.Ordinal)), "Gave up back into itself is a loop (D-306).");
 
-        journey.Steps = [journey.Steps[0] with { GiveUpStep = 1 }, journey.Steps[1]];
-        Assert.IsFalse(StudyValidator.Validate(study).Any(m => m.Severity == ValidationSeverity.Error), "Jumping to the exit step is fine.");
+        journey.Wires = [.. journey.Wires.Where(w => w.Port != 1), JourneyWire.Of(machine, 1, exit)];
+        Assert.IsFalse(StudyValidator.Validate(study).Any(m => m.Severity == ValidationSeverity.Error), "Gave up into the exit is fine.");
     }
 
     [TestMethod]

@@ -9,8 +9,9 @@ namespace Throng.Sim.Engine;
 /// device step picks the device of the asked-for type with the lowest walk + expected queue wait (with the profile's
 /// decisiveness noise on the walk), joins the shortest line on its side once close, waits to be served, then walks
 /// through (gates) or steps aside (machines) and moves on; a zone step walks into the zone and, for dwell steps,
-/// strolls about it for the drawn time. Steps are skipped when the agent's tags don't meet their conditions, and
-/// completed steps can grant tags (D-150).
+/// strolls about it for the drawn time. Completed steps can grant tags (D-150). Since round 018 a journey is a graph
+/// (D-302): between steps people pass instantly through Chance (a seeded roll), Tag check and Set tag nodes (D-305,
+/// D-314); a step whose targets can't be reached is passed by along its first output, as steps were skipped before.
 /// Round 009b adds give-up pathways (D-165), profile device preferences (D-166), the shared snake of a drawn queue
 /// (D-163) and hold points for people waiting for a lane (D-167).
 /// </summary>
@@ -168,8 +169,10 @@ public sealed partial class SimEngine
 
     private void StartJourney(int i, DeterministicRandom random)
     {
+        int j = _agents.Journey[i];
         _agents.Step[i] = -1;
-        AdvanceStep(i, random);
+        CountSpawnWire(i);
+        GoToNode(i, j >= 0 ? _model.Journeys[j].Start : -1, random);
     }
 
     /// <summary>The kind of the agent's current step (exit once past the last step or without a journey).</summary>
@@ -188,11 +191,32 @@ public sealed partial class SimEngine
         return k >= 0 && k < steps.Length ? steps[k] : null;
     }
 
+    /// <summary>Most branch nodes passed through in one go; a guard only, since validation refuses loops (D-306).</summary>
+    private const int MaxNodeHops = 256;
+
     /// <summary>
-    /// Moves to the next step that applies (D-150) and sets the target: a device (D-152), a zone, or the exit. Steps
-    /// whose targets can't be reached from here are skipped.
+    /// Carries on from the current step along its "done" output (or "gave up", D-306), through any branch nodes, to
+    /// the next step or the exit.
     /// </summary>
-    private void AdvanceStep(int i, DeterministicRandom random)
+    private void AdvanceStep(int i, DeterministicRandom random, bool gaveUp = false)
+    {
+        SimStep? step = CurrentStep(i);
+        if (step is not null)
+        {
+            // The run overlay (D-332): done = port 0, gave up = port 1.
+            CountWire(FlowRow(i), _agents.Journey[i], step.Node, gaveUp ? 1 : 0);
+        }
+
+        GoToNode(i, step is null ? -1 : gaveUp ? step.GaveUpNext : step.Next, random);
+    }
+
+    /// <summary>
+    /// Goes to a journey node (D-302): Chance picks an output with a seeded roll, Tag check by the agent's tags, Set
+    /// tag changes them; a step sets its target: a device (D-152), a zone, a train door or a sink. A step whose
+    /// targets can't be reached from here is passed by along its first output. −1 (an unwired output) heads for the
+    /// rule's sinks.
+    /// </summary>
+    private void GoToNode(int i, int node, DeterministicRandom random)
     {
         AgentStore a = _agents;
         a.Phase[i] = AgentPhase.Walk;
@@ -205,26 +229,50 @@ public sealed partial class SimEngine
             return;
         }
 
-        SimStep[] steps = _model.Journeys[j].Steps;
-        while (true)
+        SimJourney journey = _model.Journeys[j];
+        int row = FlowRow(i);
+        for (int hops = 0; hops < MaxNodeHops; hops++)
         {
-            int k = ++a.Step[i];
-            if (k >= steps.Length)
+            if (node < 0 || node >= journey.Nodes.Length)
             {
                 BeginExit(i, random);
                 return;
             }
 
-            SimStep step = steps[k];
-            if (!step.AppliesTo(a.Tags[i]))
+            SimNode n = journey.Nodes[node];
+            CountReached(row, node);
+            switch (n.Kind)
             {
-                continue;
+                case SimNodeKind.Chance:
+                {
+                    // The same single draw as before round 019 (Pick), so seeded runs don't change.
+                    int port = n.PickPort(random.NextDouble());
+                    CountWire(row, j, node, port);
+                    node = port >= 0 ? n.Next[port] : -1;
+                    continue;
+                }
+
+                case SimNodeKind.TagCheck:
+                {
+                    int port = n.Next.Length < 2 ? -1 : (a.Tags[i] & n.Bit) != 0 && n.Bit != 0 ? 0 : 1;
+                    CountWire(row, j, node, port);
+                    node = port >= 0 ? n.Next[port] : -1;
+                    continue;
+                }
+
+                case SimNodeKind.SetTag:
+                    a.Tags[i] = n.Remove ? a.Tags[i] & ~n.Bit : a.Tags[i] | n.Bit;
+                    CountWire(row, j, node, 0);
+                    node = n.Next.Length > 0 ? n.Next[0] : -1;
+                    continue;
             }
 
+            SimStep step = journey.Steps[n.Step];
+            a.Step[i] = n.Step;
             switch (step.Kind)
             {
                 case JourneyStepKind.Exit:
-                    BeginExit(i, random);
+                    BeginExit(i, random, n.Step);
                     return;
 
                 case JourneyStepKind.BoardTrain:
@@ -233,9 +281,13 @@ public sealed partial class SimEngine
                     int door = ChooseTrainDoor(i, step, random);
                     if (door < 0)
                     {
+                        // Passed by: no one can reach it (counted on its first output, like a skip).
+                        CountWire(row, j, node, 0);
+                        node = step.Next;
                         continue;
                     }
 
+                    CountCandidate(i, step, door);
                     a.Sink[i] = door;
                     Decide(i, random);
                     return;
@@ -243,12 +295,15 @@ public sealed partial class SimEngine
 
                 case JourneyStepKind.GoToDevice:
                 {
-                    int d = ChooseDevice(i, step, -1, random, out _);
+                    int d = ChooseDevice(i, step, -1, random, out _, step.ChooseBy);
                     if (d < 0)
                     {
+                        CountWire(row, j, node, 0);
+                        node = step.Next;
                         continue;
                     }
 
+                    CountCandidate(i, step, d);
                     a.QDevice[i] = d;
                     a.Sink[i] = _model.Devices[d].Target;
                     Decide(i, random);
@@ -260,15 +315,20 @@ public sealed partial class SimEngine
                     int target = ChooseZone(i, step, random);
                     if (target < 0)
                     {
+                        CountWire(row, j, node, 0);
+                        node = step.Next;
                         continue;
                     }
 
+                    CountCandidate(i, step, target);
                     a.Sink[i] = target;
                     Decide(i, random);
                     return;
                 }
             }
         }
+
+        BeginExit(i, random);
     }
 
     /// <summary>Grants the step's tags and moves on.</summary>
@@ -277,41 +337,68 @@ public sealed partial class SimEngine
         if (CurrentStep(i) is { } step)
         {
             _agents.Tags[i] |= step.Grants;
+            CountFinished(i);
         }
 
         AdvanceStep(i, _random);
     }
 
-    /// <summary>Heads for a sink: the emitter's destinations, nearest from here or by weight (D-096).</summary>
-    private void BeginExit(int i, DeterministicRandom random)
+    /// <summary>
+    /// Heads for a sink (D-303): a zone sink's own sink zones, quickest first; otherwise (or when none can be
+    /// reached) the emitter's destinations, nearest from here or by weight (D-096). <paramref name="sinkStep"/> is the
+    /// sink step (kept for per-sink results, D-312), or −1 for the rule's sinks without a sink node.
+    /// </summary>
+    private void BeginExit(int i, DeterministicRandom random, int sinkStep = -1)
     {
         AgentStore a = _agents;
         int j = a.Journey[i];
-        a.Step[i] = j >= 0 ? _model.Journeys[j].Steps.Length : 0;
+        SimStep? sink = j >= 0 && sinkStep >= 0 && sinkStep < _model.Journeys[j].Steps.Length ? _model.Journeys[j].Steps[sinkStep] : null;
+        a.Step[i] = sink is not null ? sinkStep : j >= 0 ? _model.Journeys[j].Steps.Length : 0;
         a.Phase[i] = AgentPhase.Walk;
         a.QDevice[i] = -1;
-        SimEmitter emitter = _model.Emitters[a.Emitter[i]];
-        a.Sink[i] = PickSink(i, emitter, _model.Profiles[a.Profile[i]], random);
+        int target = sink is { Targets.Length: > 0 } ? ChooseZone(i, sink, random) : -1;
+        if (sink is not null && target >= 0)
+        {
+            CountCandidate(i, sink, target);
+        }
+
+        if (target < 0)
+        {
+            SimEmitter emitter = _model.Emitters[a.Emitter[i]];
+            target = PickSink(i, emitter, _model.Profiles[a.Profile[i]], random);
+        }
+
+        a.Sink[i] = target;
         Decide(i, random);
     }
 
     /// <summary>
-    /// The device of the step's type with the lowest walk (with decisiveness noise when <paramref name="random"/> is
-    /// set) + expected wait + choice penalty (D-152), skipping <paramref name="exclude"/>; −1 when none can be reached.
+    /// The device of the step to use (D-152, D-319), skipping <paramref name="exclude"/>; −1 when none can be reached.
+    /// Every rule first drops devices the person can't use (wrong side of a one-way gate, the accessible rule) or
+    /// reach. Quickest: lowest walk (with decisiveness noise when <paramref name="random"/> is set) + expected wait +
+    /// choice weight and preferences. Along the way: the same plus the walk on from the device to the next node's
+    /// targets (D-320). Nearest: walk only. First free: the shortest expected wait, walk breaking ties. Random by
+    /// weight: a draw by the step's weights (Quickest when there's no random source, e.g. for balking).
+    /// <paramref name="bestTotal"/> is the chosen device's walk + wait + adjustments, for balking.
     /// </summary>
-    private int ChooseDevice(int i, SimStep step, int exclude, DeterministicRandom? random, out double bestTotal)
+    private int ChooseDevice(int i, SimStep step, int exclude, DeterministicRandom? random, out double bestTotal, JourneyChooseBy rule = JourneyChooseBy.Quickest)
     {
         AgentStore a = _agents;
         SimProfile profile = _model.Profiles[a.Profile[i]];
         int best = -1;
         bestTotal = double.PositiveInfinity;
+        double bestScore = double.PositiveInfinity;
         if (_world.Surfaces[a.Surface[i]].Kind != NavSurfaceKind.Floor)
         {
             return -1;
         }
 
-        foreach (int d in step.Targets)
+        bool weighted = rule == JourneyChooseBy.RandomWeighted && random is not null;
+        double weightSum = 0;
+        _choiceDevices.Clear();
+        for (int k = 0; k < step.Targets.Length; k++)
         {
+            int d = step.Targets[k];
             if (d == exclude)
             {
                 continue;
@@ -329,22 +416,154 @@ public sealed partial class SimEngine
                 continue;
             }
 
-            double walk = RoutePlanner.Choose(_routes, a.Surface[i], a.X[i], a.Y[i], device.Target, profile.Mobility, profile.Template, random, out _, out _, _wait, BeltWalkSpeed(i), stairEffort: _tuning.StairEffort, standingRest: _tuning.StandingRest, sightRadius: Sight(i), priorityPenaltyS: _liftPriorityS, barredConnector: Barred(i));
+            double walk = RoutePlanner.Choose(_routes, a.Surface[i], a.X[i], a.Y[i], device.Target, profile.Mobility, profile.Template, weighted ? null : random, out _, out _, _wait, BeltWalkSpeed(i), stairEffort: _tuning.StairEffort, standingRest: _tuning.StandingRest, sightRadius: Sight(i), priorityPenaltyS: _liftPriorityS, barredConnector: Barred(i));
             if (!double.IsFinite(walk))
             {
                 continue;
             }
 
             // Preset choice weight and the profile's device preferences (D-166) are seconds on or off the cost.
-            double total = walk + ExpectedWait(device) + device.ChoicePenaltyS - profile.BonusFor(d) + AccessAvoidS(profile, device);
-            if (total < bestTotal)
+            double wait = ExpectedWait(device);
+            double total = walk + wait + device.ChoicePenaltyS - profile.BonusFor(d) + AccessAvoidS(profile, device);
+            double score = rule switch
             {
+                JourneyChooseBy.Nearest => walk,
+                JourneyChooseBy.FirstFree => (wait * 1000) + walk,
+                JourneyChooseBy.AlongTheWay => total + OnwardS(i, step, device.Floor, device.Centre),
+                _ => total,
+            };
+
+            if (weighted)
+            {
+                double w = step.WeightAt(k);
+                if (w > 0)
+                {
+                    _choiceDevices.Add((d, w, total));
+                    weightSum += w;
+                }
+
+                continue;
+            }
+
+            if (score < bestScore)
+            {
+                bestScore = score;
                 bestTotal = total;
                 best = d;
             }
         }
 
+        if (weighted && weightSum > 0)
+        {
+            double pick = random!.NextDouble() * weightSum;
+            foreach ((int d, double w, double total) in _choiceDevices)
+            {
+                best = d;
+                bestTotal = total;
+                pick -= w;
+                if (pick < 0)
+                {
+                    break;
+                }
+            }
+        }
+
         return best;
+    }
+
+    // Scratch list for random-by-weight device choices (one agent decides at a time).
+    private readonly List<(int Device, double Weight, double Total)> _choiceDevices = [];
+
+    /// <summary>
+    /// Along the way (D-320): the walk on from a candidate's position to the nearest target of the next step the
+    /// person would reach after this one (through branch nodes: Chance by its biggest share, Tag check by their tags),
+    /// or to the rule's sinks when that's the exit. Zero when there's nothing to measure.
+    /// </summary>
+    private double OnwardS(int i, SimStep step, int floor, Point2 from)
+    {
+        AgentStore a = _agents;
+        int j = a.Journey[i];
+        if (j < 0)
+        {
+            return 0;
+        }
+
+        SimJourney journey = _model.Journeys[j];
+        ulong tags = a.Tags[i] | step.Grants;
+        int node = step.Next;
+        SimStep? next = null;
+        for (int hops = 0; hops < MaxNodeHops && node >= 0 && node < journey.Nodes.Length; hops++)
+        {
+            SimNode n = journey.Nodes[node];
+            if (n.Kind == SimNodeKind.Step)
+            {
+                next = journey.Steps[n.Step];
+                break;
+            }
+
+            if (n.Kind == SimNodeKind.SetTag)
+            {
+                tags = n.Remove ? tags & ~n.Bit : tags | n.Bit;
+                node = n.Next.Length > 0 ? n.Next[0] : -1;
+            }
+            else if (n.Kind == SimNodeKind.TagCheck)
+            {
+                node = n.Next.Length < 2 ? -1 : (tags & n.Bit) != 0 && n.Bit != 0 ? n.Next[0] : n.Next[1];
+            }
+            else
+            {
+                int bestPort = 0;
+                double previous = 0, bestShare = -1;
+                for (int port = 0; port < n.Cumulative.Length; port++)
+                {
+                    double share = n.Cumulative[port] - previous;
+                    previous = n.Cumulative[port];
+                    if (share > bestShare)
+                    {
+                        bestShare = share;
+                        bestPort = port;
+                    }
+                }
+
+                node = bestPort < n.Next.Length ? n.Next[bestPort] : -1;
+            }
+        }
+
+        SimProfile profile = _model.Profiles[a.Profile[i]];
+        double best = double.PositiveInfinity;
+        if (next is { Targets.Length: > 0 })
+        {
+            foreach (int t in next.Targets)
+            {
+                int target = next.Kind == JourneyStepKind.GoToDevice ? _model.Devices[t].Target : t;
+                best = Math.Min(best, RoutePlanner.Choose(_routes, floor, from.X, from.Y, target, profile.Mobility, profile.Template, null, out _, out _));
+            }
+        }
+        else
+        {
+            foreach ((int sink, double _) in _model.Emitters[a.Emitter[i]].Destinations)
+            {
+                best = Math.Min(best, RoutePlanner.Choose(_routes, floor, from.X, from.Y, sink, profile.Mobility, profile.Template, null, out _, out _));
+            }
+        }
+
+        return double.IsFinite(best) ? best : 0;
+    }
+
+    /// <summary>People heading for or in a zone target now (First free for zones, D-319): a scan, as choices are rare.</summary>
+    private int ZoneLoad(int target)
+    {
+        AgentStore a = _agents;
+        int load = 0;
+        for (int k = 0; k < a.Count; k++)
+        {
+            if (a.Sink[k] == target && CurrentKind(k) is JourneyStepKind.PassZone or JourneyStepKind.Dwell)
+            {
+                load++;
+            }
+        }
+
+        return load;
     }
 
     /// <summary>
@@ -383,7 +602,12 @@ public sealed partial class SimEngine
             ? AccessibleAvoidS
             : 0;
 
-    /// <summary>The quickest zone of the step to reach from here; −1 when none can be reached.</summary>
+    /// <summary>
+    /// The zone target of the step to head for (D-319); −1 when none can be reached. Quickest and Nearest: the
+    /// shortest walk. Along the way: walk + the walk on to the next node's targets (D-320). First free: the fewest
+    /// people heading for or in it, walk breaking ties. Random by weight: a draw by the step's weights among those
+    /// that can be reached.
+    /// </summary>
     private int ChooseZone(int i, SimStep step, DeterministicRandom random)
     {
         AgentStore a = _agents;
@@ -393,11 +617,42 @@ public sealed partial class SimEngine
         }
 
         SimProfile profile = _model.Profiles[a.Profile[i]];
+        JourneyChooseBy rule = step.ChooseBy;
+        bool weighted = rule == JourneyChooseBy.RandomWeighted;
         int best = -1;
-        double bestCost = double.PositiveInfinity;
-        foreach (int target in step.Targets)
+        double bestCost = double.PositiveInfinity, weightSum = 0;
+        _choiceZones.Clear();
+        for (int k = 0; k < step.Targets.Length; k++)
         {
-            double c = RoutePlanner.Choose(_routes, a.Surface[i], a.X[i], a.Y[i], target, profile.Mobility, profile.Template, random, out _, out _, _wait, BeltWalkSpeed(i), stairEffort: _tuning.StairEffort, standingRest: _tuning.StandingRest, sightRadius: Sight(i), priorityPenaltyS: _liftPriorityS, barredConnector: Barred(i));
+            int target = step.Targets[k];
+            double c = RoutePlanner.Choose(_routes, a.Surface[i], a.X[i], a.Y[i], target, profile.Mobility, profile.Template, weighted ? null : random, out _, out _, _wait, BeltWalkSpeed(i), stairEffort: _tuning.StairEffort, standingRest: _tuning.StandingRest, sightRadius: Sight(i), priorityPenaltyS: _liftPriorityS, barredConnector: Barred(i));
+            if (!double.IsFinite(c))
+            {
+                continue;
+            }
+
+            if (weighted)
+            {
+                double w = step.WeightAt(k);
+                if (w > 0)
+                {
+                    _choiceZones.Add((target, w));
+                    weightSum += w;
+                }
+
+                continue;
+            }
+
+            if (rule == JourneyChooseBy.AlongTheWay)
+            {
+                NavSink zone = _world.Sinks[target];
+                c += OnwardS(i, step, zone.Floor, _world.Surfaces[zone.Floor].CellCentre(zone.Cells[zone.Cells.Length / 2]));
+            }
+            else if (rule == JourneyChooseBy.FirstFree)
+            {
+                c += ZoneLoad(target) * 1000.0;
+            }
+
             if (c < bestCost)
             {
                 bestCost = c;
@@ -405,8 +660,25 @@ public sealed partial class SimEngine
             }
         }
 
+        if (weighted && weightSum > 0)
+        {
+            double pick = random.NextDouble() * weightSum;
+            foreach ((int target, double w) in _choiceZones)
+            {
+                best = target;
+                pick -= w;
+                if (pick < 0)
+                {
+                    break;
+                }
+            }
+        }
+
         return best;
     }
+
+    // Scratch list for random-by-weight zone choices.
+    private readonly List<(int Target, double Weight)> _choiceZones = [];
 
     /// <summary>
     /// Expected wait at a device: its least loaded lane's people × mean service time (D-152); with a shared snake,
@@ -655,6 +927,8 @@ public sealed partial class SimEngine
                 double dx = a.AimX[i] - a.X[i], dy = a.AimY[i] - a.Y[i];
                 if (TimeS >= a.Timer[i])
                 {
+                    // JoinTime holds the dwell's start (set when dwelling began, round 019).
+                    CountDwell(i, TimeS - a.JoinTime[i]);
                     CompleteStep(i);
                 }
                 else if ((dx * dx) + (dy * dy) < DwellReachM * DwellReachM)
@@ -843,9 +1117,10 @@ public sealed partial class SimEngine
     }
 
     /// <summary>
-    /// Patience (D-165): once a queuer has waited longer than the profile's patience at a device step whose give-up
-    /// is Leave or JumpTo, they leave the line and either head for an exit (counted in <see cref="GaveUp"/>) or carry
-    /// on from the step it names (no tag granted). Returns true when they gave up.
+    /// Patience (D-165, D-306): once a queuer has waited longer than the profile's patience at a device step whose
+    /// give-up is Leave or Branch, they leave the line and either carry on along the node's gave-up output (no tag
+    /// granted) or, with nothing wired there or for Leave, head for an exit (counted in <see cref="GaveUp"/>). Returns
+    /// true when they gave up.
     /// </summary>
     private bool TryGiveUp(int i)
     {
@@ -855,13 +1130,15 @@ public sealed partial class SimEngine
         }
 
         AgentStore a = _agents;
-        double patience = _model.Profiles[a.Profile[i]].Template.PatienceS;
+        // The node's patience override (D-322), else the profile's.
+        double patience = double.IsNaN(step.PatienceS) ? _model.Profiles[a.Profile[i]].Template.PatienceS : step.PatienceS;
         if (!(TimeS - a.JoinTime[i] >= patience))
         {
             return false;
         }
 
         RecordGaveUp(a.QDevice[i]);
+        CountGaveUp(i);
         NoteWait(i, TimeS - a.JoinTime[i]);
         if (a.Phase[i] == AgentPhase.Queue)
         {
@@ -870,10 +1147,10 @@ public sealed partial class SimEngine
 
         a.Phase[i] = AgentPhase.Walk;
         a.QDevice[i] = -1;
-        if (step.OnGiveUp == JourneyGiveUp.JumpTo && step.GiveUpStep >= 0)
+        if (step.OnGiveUp is JourneyGiveUp.Branch or JourneyGiveUp.JumpTo && step.GaveUpNext >= 0)
         {
-            a.Step[i] = step.GiveUpStep - 1;
-            AdvanceStep(i, _random);
+            // Carry on along the gave-up output (D-306), no tag granted.
+            AdvanceStep(i, _random, gaveUp: true);
             return true;
         }
 
@@ -890,7 +1167,9 @@ public sealed partial class SimEngine
     /// </summary>
     private bool TryBalk(int i, SimDevice device, double waitHere)
     {
-        if (!_tuning.Balk || CurrentStep(i) is not { } step || step.Targets.Length < 2)
+        // The node's balk setting (D-322): default follows the run setting.
+        if (CurrentStep(i) is not { } step || step.Targets.Length < 2
+            || !(step.Balk switch { JourneyBalk.On => true, JourneyBalk.Off => false, _ => _tuning.Balk }))
         {
             return false;
         }
@@ -908,6 +1187,7 @@ public sealed partial class SimEngine
 
         LeaveLine(i);
         RecordBalk(device.Index);
+        CountBalk(i, step, device.Index, other);
         a.Phase[i] = AgentPhase.Walk;
         a.QDevice[i] = other;
         a.Sink[i] = _model.Devices[other].Target;
@@ -964,6 +1244,7 @@ public sealed partial class SimEngine
             _queueWaitSum[device.Index] += TimeS - a.JoinTime[i];
             _queueWaitCount[device.Index]++;
             RecordServed(device.Index, TimeS - a.JoinTime[i]);
+            CountServed(i, device.Index, TimeS - a.JoinTime[i]);
             NoteWait(i, TimeS - a.JoinTime[i]);
             return;
         }
@@ -1208,6 +1489,7 @@ public sealed partial class SimEngine
                 SimStep step = CurrentStep(i)!;
                 a.Phase[i] = AgentPhase.Dwell;
                 a.Timer[i] = TimeS + Math.Max(0, DistributionSampler.Sample(step.Dwell, _random));
+                a.JoinTime[i] = TimeS;
                 NewDwellAim(i);
                 return false;
             }

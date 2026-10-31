@@ -90,6 +90,7 @@ public sealed class Round007Tests
             ("no exit crowd (D-182)", new SimTuning { ExitCrowd = false }),
             ("speed stress, not progress (D-191)", new SimTuning { ProgressStress = false }),
             ("no landing waypoints (D-192)", new SimTuning { LandingWaypoints = false }),
+            ("no stair end lanes (D-300)", new SimTuning { StairEndLanes = false }),
             ("stress from half patience (D-145)", new SimTuning { EarlyStress = false }),
             ("no crowd stress (D-194)", new SimTuning { CrowdStress = false }),
             ("no lane clear (D-209)", new SimTuning { LaneClear = false }),

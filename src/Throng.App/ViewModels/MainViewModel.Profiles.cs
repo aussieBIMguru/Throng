@@ -31,7 +31,7 @@ public sealed partial class MainViewModel
     {
         _libraryProfile = profile;
         Library.MarkSelected(profile.Id);
-        Ticker = $"{profile.Name} ▸ EXPORT writes it (and the journeys it's used with) to a .throngprofile.";
+        Ticker = $"{profile.Name} ▸ edit it in SELECTION; EXPORT writes it (and the journeys it's used with) to a .throngprofile.";
     }
 
     private void ExportProfile()

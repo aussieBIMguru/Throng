@@ -79,6 +79,26 @@ public sealed class RunResults
     /// <summary>One row per lift bank, in <see cref="SimModel.Lifts"/> order (round 015, D-260).</summary>
     public IReadOnlyList<LiftResult> Lifts { get; init; } = [];
 
+    /// <summary>
+    /// The run overlay (round 019, D-331–D-338): per journey in use, a row for everyone on it (profile −1) then one per
+    /// profile, with people per wire and per-node stats.
+    /// </summary>
+    public IReadOnlyList<JourneyFlowResult> Flows { get; init; } = [];
+
+    /// <summary>The overlay row of a journey (by template id) for a profile name, or for everyone when <paramref name="profile"/> is null.</summary>
+    public JourneyFlowResult? FlowFor(Guid journeyId, string? profile)
+    {
+        foreach (JourneyFlowResult flow in Flows)
+        {
+            if (flow.JourneyId == journeyId && (profile is null ? flow.IsAllProfiles : !flow.IsAllProfiles && string.Equals(flow.Profile, profile, StringComparison.Ordinal)))
+            {
+                return flow;
+            }
+        }
+
+        return null;
+    }
+
     /// <summary>Number of time-series samples.</summary>
     public int SampleCount => Times.Length;
 

@@ -270,11 +270,12 @@ public sealed class RegionViewModel : ObservableObject
     {
         get
         {
-            List<IdOption> profiles = [.. StudyTemplates.AvailableProfiles(_owner.Study).Select(p => new IdOption(p.Id, p.Name))];
+            List<IdOption> profiles = [.. StudyTemplates.AvailableProfiles(_owner.Study, _owner.Mine).Select(p => new IdOption(p.Id, p.Name))];
             List<IdOption> journeys =
             [
+                new IdOption(MixLineViewModel.ProfileDefaultId, "(profile default)"),
                 new IdOption(Guid.Empty, "None: straight to a sink"),
-                .. StudyTemplates.AvailableJourneys(_owner.Study).Select(j => new IdOption(j.Id, j.Name)),
+                .. StudyTemplates.AvailableJourneys(_owner.Study, _owner.Mine).Select(j => new IdOption(j.Id, j.Name)),
             ];
             return [.. Model.EmissionRules.Select((rule, i) => new EmissionRuleViewModel(this, i, rule, profiles, journeys))];
         }
@@ -312,21 +313,21 @@ public sealed class RegionViewModel : ObservableObject
         _owner.Apply($"Remove emission rule ({Model.Name})", () => Model.EmissionRules, v => Model.EmissionRules = v, next);
     }
 
-    /// <summary>Embeds a built-in profile in the study library when a rule first uses it, so the file stays self-contained.</summary>
-    internal void EmbedProfile(Guid profileId)
-    {
-        if (_owner.Study.Library.Find(profileId) is null && BuiltInLibrary.Instance.Find(profileId) is AgentProfileTemplate builtIn)
-        {
-            _owner.Study.Library.AddCopy(builtIn, TemplateSource.Embedded);
-        }
-    }
+    /// <summary>
+    /// Embeds a profile in the study library when a rule first uses it, so the file stays self-contained: yours (MINE,
+    /// with its default journey, D-346) or the built-in.
+    /// </summary>
+    internal void EmbedProfile(Guid profileId) => _owner.EmbedForUse(profileId);
 
-    /// <summary>Embeds a built-in journey in the study library when a mix line first uses it (D-154).</summary>
-    internal void EmbedJourney(Guid journeyId)
+    /// <summary>Embeds a journey in the study library when a mix line first uses it (D-154): yours (D-346) or the built-in.</summary>
+    internal void EmbedJourney(Guid journeyId) => _owner.EmbedForUse(journeyId);
+
+    /// <summary>Embeds a profile's default journey (D-304) when a mix line starts following it.</summary>
+    internal void EmbedDefaultJourney(Guid profileId)
     {
-        if (_owner.Study.Library.Find(journeyId) is null && BuiltInLibrary.Instance.Find(journeyId) is JourneyTemplate builtIn)
+        if (StudyTemplates.ProfileOrFallback(_owner.Study, profileId).DefaultJourneyId is { } journeyId)
         {
-            _owner.Study.Library.AddCopy(builtIn, TemplateSource.Embedded);
+            EmbedJourney(journeyId);
         }
     }
 

@@ -339,7 +339,8 @@ public sealed partial class PlanEditor
         {
             case DeviceTemplate template:
             {
-                Device device = DeviceFactory.FromTemplate(study, template, level.Id, _points[0], _placeAngle);
+                // The study's copy wins (a built-in edited for this study, D-287), so the new device starts from it.
+                Device device = DeviceFactory.FromTemplate(study, embedded as DeviceTemplate ?? template, level.Id, _points[0], _placeAngle);
                 device.TemplateId = embedded.Id;
                 _host.Execute(new AddItemsAction<Device>($"Place {device.Name}", study.Devices, [device], _host.NotifyModelChanged));
                 SetSelection([device.Id]);

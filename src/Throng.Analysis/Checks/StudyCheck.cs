@@ -14,7 +14,14 @@ namespace Throng.Analysis.Checks;
 public static class StudyCheck
 {
     /// <summary>Runs every rule over <paramref name="study"/>; findings come back errors first.</summary>
-    public static IReadOnlyList<ValidationMessage> Run(Study study, IPolygonOps? ops = null, CancellationToken cancel = default)
+    public static IReadOnlyList<ValidationMessage> Run(Study study, IPolygonOps? ops = null, CancellationToken cancel = default) =>
+        RunWithModel(study, ops, cancel).Findings;
+
+    /// <summary>
+    /// <see cref="Run"/>, also returning the compiled model (null when the study doesn't compile), e.g. for the
+    /// JOURNEY overlay's predicted shares (round 019, D-334).
+    /// </summary>
+    public static (IReadOnlyList<ValidationMessage> Findings, SimModel? Model) RunWithModel(Study study, IPolygonOps? ops = null, CancellationToken cancel = default)
     {
         ops ??= ClipperPolygonOps.Instance;
         SimSetupResult setup = SimSetup.Build(study, ops, cancel);
@@ -28,7 +35,7 @@ public static class StudyCheck
         cancel.ThrowIfCancellationRequested();
         double radius = setup.Model is { } m && m.Profiles.Count > 0 ? m.Profiles.Max(p => p.Template.RadiusM) : 0.25;
         findings.AddRange(NarrowGapCheck.Run(study, ops, radius));
-        return Sorted(findings);
+        return (Sorted(findings), setup.Model);
     }
 
     /// <summary>Gives compile findings no rule claimed the <see cref="ValidationRules.Setup"/> rule.</summary>

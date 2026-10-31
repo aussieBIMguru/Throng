@@ -92,6 +92,12 @@ public interface IEditorHost
     void SetTrainShape(Guid serviceId, IReadOnlyList<Point2> outline)
     {
     }
+
+    /// <summary>
+    /// Makes another level the active one (round 017, D-293: a click on its floor in 3D). True when it's now active.
+    /// The editor is reset by the switch, so callers pick after it.
+    /// </summary>
+    bool ActivateLevel(Guid levelId) => false;
 }
 
 /// <summary>A train drawn in the plan while it's in (D-190).</summary>

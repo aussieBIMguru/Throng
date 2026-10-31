@@ -221,6 +221,9 @@ public sealed class EmissionRuleViewModel : ObservableObject
     /// <summary>Embeds a built-in journey in the study library.</summary>
     internal void EmbedJourney(Guid journeyId) => _region.EmbedJourney(journeyId);
 
+    /// <summary>Embeds a profile's default journey (D-304) when it's a built-in the study doesn't hold yet.</summary>
+    internal void EmbedDefaultJourney(Guid profileId) => _region.EmbedDefaultJourney(profileId);
+
     /// <summary>Shows a validation message.</summary>
     internal void Reject(string message) => _region.Reject(message);
 
@@ -449,6 +452,9 @@ public sealed class MixLineViewModel : ObservableObject
     /// <summary>Journey choices ("none" first).</summary>
     public IReadOnlyList<IdOption> JourneyOptions => _rule.JourneyOptions;
 
+    /// <summary>The journey choice that stands for "(profile default)" (D-304).</summary>
+    public static readonly Guid ProfileDefaultId = new("00000000-0000-0000-0000-0000000000d1");
+
     /// <summary>Profile id.</summary>
     public Guid ProfileId
     {
@@ -458,26 +464,45 @@ public sealed class MixLineViewModel : ObservableObject
             if (value != _line.ProfileId && value != Guid.Empty)
             {
                 _rule.EmbedProfile(value);
+                if (_line.UseProfileJourney)
+                {
+                    _rule.EmbedDefaultJourney(value);
+                }
+
                 _rule.SetLine(_index, _line with { ProfileId = value }, "Change mix line profile");
             }
         }
     }
 
-    /// <summary>Journey id, <see cref="Guid.Empty"/> for none (straight to a sink).</summary>
+    /// <summary>
+    /// Journey id: <see cref="ProfileDefaultId"/> for "(profile default)" (D-304), <see cref="Guid.Empty"/> for none
+    /// (straight to a sink), else the journey's id.
+    /// </summary>
     public Guid JourneyId
     {
-        get => _line.JourneyId ?? Guid.Empty;
+        get => _line.UseProfileJourney ? ProfileDefaultId : _line.JourneyId ?? Guid.Empty;
         set
         {
+            if (value == ProfileDefaultId)
+            {
+                if (!_line.UseProfileJourney)
+                {
+                    _rule.EmbedDefaultJourney(_line.ProfileId);
+                    _rule.SetLine(_index, _line with { UseProfileJourney = true }, "Mix line follows the profile's default journey");
+                }
+
+                return;
+            }
+
             Guid? next = value == Guid.Empty ? null : value;
-            if (next != _line.JourneyId)
+            if (next != _line.JourneyId || _line.UseProfileJourney)
             {
                 if (next is { } id)
                 {
                     _rule.EmbedJourney(id);
                 }
 
-                _rule.SetLine(_index, _line with { JourneyId = next }, "Change mix line journey");
+                _rule.SetLine(_index, _line with { JourneyId = next, UseProfileJourney = false }, "Change mix line journey");
             }
         }
     }

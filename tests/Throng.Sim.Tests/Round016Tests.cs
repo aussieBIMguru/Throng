@@ -52,22 +52,29 @@ public sealed class Round016Tests
     }
 
     [TestMethod]
-    public void StepShare_FollowsTags()
+    public void NodeShares_FollowTags_AndMergesAddUp()
     {
-        var ticket = new SimStep
+        // Has ticket? → (hasn't) machine → gate; (has) → gate. Since round 018 the share is per node (D-311).
+        var ticket = new SimStep { Kind = JourneyStepKind.GoToDevice, Targets = [0], Grants = 1, Dwell = Distribution.Uniform(1, 2), Label = "Ticket", Node = 1, Next = 2 };
+        var gate = new SimStep { Kind = JourneyStepKind.GoToDevice, Targets = [0], Grants = 0, Dwell = Distribution.Uniform(1, 2), Label = "Gate", Node = 2, Next = -1 };
+        var journey = new SimJourney
         {
-            Kind = JourneyStepKind.GoToDevice,
-            Targets = [0],
-            Needs = 0,
-            Lacks = 1,
-            Grants = 1,
-            Dwell = Distribution.Uniform(1, 2),
-            Label = "Ticket",
+            Index = 0,
+            Name = "Ticket then gates",
+            Steps = [ticket, gate],
+            Nodes =
+            [
+                new SimNode { Kind = SimNodeKind.TagCheck, Bit = 1, Next = [2, 1] },
+                new SimNode { Kind = SimNodeKind.Step, Step = 0, Next = [2, -1] },
+                new SimNode { Kind = SimNodeKind.Step, Step = 1, Next = [-1, -1] },
+            ],
+            Start = 0,
         };
-        var held = new Dictionary<ulong, double> { [1] = 0.8 };
-        Assert.AreEqual(0.2, CapacityCheck.AppliesShare(ticket, held), 1e-9, "Only people without a ticket buy one.");
-        var gate = new SimStep { Kind = JourneyStepKind.GoToDevice, Targets = [0], Needs = 2, Lacks = 0, Grants = 0, Dwell = Distribution.Uniform(1, 2), Label = "Gate" };
-        Assert.AreEqual(0, CapacityCheck.AppliesShare(gate, held), 1e-9, "Nobody holds bit 2.");
+        double[] shares = CapacityCheck.NodeShares(journey, new Dictionary<ulong, double> { [1] = 0.8 });
+        Assert.AreEqual(1, shares[0], 1e-9);
+        Assert.AreEqual(0.2, shares[1], 1e-9, "Only people without a ticket buy one.");
+        Assert.AreEqual(1, shares[2], 1e-9, "Both branches merge at the gate.");
+        Assert.AreEqual(1, CapacityCheck.NodeShares(journey, new Dictionary<ulong, double> { [2] = 1 })[1], 1e-9, "Nobody holds bit 1: everyone buys.");
     }
 
     [TestMethod]

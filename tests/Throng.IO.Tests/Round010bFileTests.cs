@@ -81,8 +81,9 @@ public sealed class Round010bFileTests
         CollectionAssert.AreEqual(before.RateCurve, after.RateCurve);
 
         var loadedJourney = (JourneyTemplate)loaded.Library.Find(journey.Id)!;
-        Assert.AreEqual(JourneyStepKind.BoardTrain, loadedJourney.Steps[1].Kind);
-        Assert.AreEqual("Southbound", loadedJourney.Steps[1].TargetTag);
+        JourneyNode sink = JourneyGraph.Sinks(loadedJourney).Single();
+        Assert.AreEqual(JourneySinkKind.BoardTrain, sink.SinkKind, "A board-train step is a sink since round 018 (D-303).");
+        Assert.AreEqual("Southbound", sink.TargetTag);
     }
 
     [TestMethod]

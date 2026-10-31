@@ -82,6 +82,12 @@ public sealed class AgentProfileTemplate : TemplateBase
     public double DensityTolerance { get; set; } = 0.5;
 
     /// <summary>
+    /// The journey this profile follows on mix lines set to "(profile default)" (D-304); null = straight to a sink.
+    /// Profiles saved before format v11 have none (the built-in profiles' embedded copies get theirs on load).
+    /// </summary>
+    public Guid? DefaultJourneyId { get; set; }
+
+    /// <summary>
     /// Device presets or types this profile favours (or avoids) when choosing which device to use (D-166). Profiles
     /// saved before round 009b have none.
     /// </summary>

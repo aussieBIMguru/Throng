@@ -324,12 +324,40 @@ public sealed partial class MainViewModel : IEditorHost
 
     // ------------------------------------------------------------------ PLACE tool (D-089, D-090)
 
-    /// <summary>Point-device presets plus travelators, for the PLACE tool.</summary>
-    public IReadOnlyList<TemplateBase> PlacePresetOptions { get; } =
+    private IReadOnlyList<TemplateBase> _placePresetOptions =
     [
         .. BuiltInLibrary.Instance.Devices.Where(d => d.Kind == DeviceKind.Point),
         .. BuiltInLibrary.Instance.Connectors.Where(c => c.Kind == ConnectorKind.Travelator),
     ];
+
+    /// <summary>
+    /// Point-device definitions the study can use (its own and modified ones first, round 017) plus travelators,
+    /// for the PLACE tool.
+    /// </summary>
+    public IReadOnlyList<TemplateBase> PlacePresetOptions => _placePresetOptions;
+
+    /// <summary>Rebuilds <see cref="PlacePresetOptions"/> from the study's device definitions, keeping the pick by id.</summary>
+    private void RefreshPlacePresets(IReadOnlyList<DeviceTemplate> devices)
+    {
+        List<TemplateBase> next =
+        [
+            .. devices.Where(d => d.Kind == DeviceKind.Point),
+            .. BuiltInLibrary.Instance.Connectors.Where(c => c.Kind == ConnectorKind.Travelator),
+        ];
+        if (next.Count == _placePresetOptions.Count && next.Zip(_placePresetOptions).All(pair => ReferenceEquals(pair.First, pair.Second)))
+        {
+            return;
+        }
+
+        Guid? picked = Editor.PlacePreset?.Id;
+        _placePresetOptions = next;
+        OnPropertyChanged(nameof(PlacePresetOptions));
+        if (picked is { } id)
+        {
+            Editor.PlacePreset = next.FirstOrDefault(p => p.Id == id) ?? next.FirstOrDefault();
+            OnPropertyChanged(nameof(SelectedPlacePreset));
+        }
+    }
 
     /// <summary>Preset the PLACE tool places.</summary>
     public TemplateBase? SelectedPlacePreset
@@ -537,7 +565,7 @@ public sealed partial class MainViewModel : IEditorHost
     public bool HasUnderlaySelection => _selectedUnderlay is not null;
 
     /// <summary>Selection summary for the properties panel.</summary>
-    public string SelectionText => _selectedJourney is not null ? string.Empty : Editor.SelectionCount switch
+    public string SelectionText => HasLibrarySelection ? string.Empty : Editor.SelectionCount switch
     {
         0 => _activeLevel?.IsLocked == true
             ? "Level locked. Unlock it to select or draw."
@@ -584,7 +612,16 @@ public sealed partial class MainViewModel : IEditorHost
     {
         Editor = new PlanEditor(this);
         Editor.SelectionChanged += (_, _) => OnEditorSelectionChanged();
-        Editor.ToolChanged += (_, _) => OnToolChanged();
+        Editor.ToolChanged += (_, _) =>
+        {
+            // 3D and ISO select, move and drop only (D-292): a drawing tool picked by its key goes back to plan.
+            if (Editor.Tool != EditorTool.Select && ViewMode != ViewMode.Plan && !_droppingIn3D)
+            {
+                ViewMode = ViewMode.Plan;
+            }
+
+            OnToolChanged();
+        };
 
         CopyCommand = new RelayCommand(Editor.Copy);
         CutCommand = new RelayCommand(Editor.Cut);
@@ -631,13 +668,29 @@ public sealed partial class MainViewModel : IEditorHost
         OnPropertyChanged(nameof(SelectionText));
     }
 
+    /// <inheritdoc />
+    public bool ActivateLevel(Guid levelId)
+    {
+        if (Levels.FirstOrDefault(l => l.Id == levelId) is not { } level)
+        {
+            return false;
+        }
+
+        if (!ReferenceEquals(level, ActiveLevel))
+        {
+            ActiveLevel = level;
+        }
+
+        return ReferenceEquals(level, ActiveLevel);
+    }
+
     private void SetTool(EditorTool tool, bool on)
     {
         if (on)
         {
             Editor.Tool = tool;
 
-            // Editing is plan-only (D-026); picking a drawing tool switches to plan.
+            // Drawing is plan-only (D-292); picking a drawing tool switches to plan (SELECT works in 3D, D-291).
             if (tool != EditorTool.Select && ViewMode != ViewMode.Plan)
             {
                 ViewMode = ViewMode.Plan;
@@ -686,6 +739,13 @@ public sealed partial class MainViewModel : IEditorHost
 
     private void OnEditorSelectionChanged()
     {
+        // PICK IN PLAN (D-324): clicks go into the journey node's pick list instead.
+        if (HandleJourneyPick())
+        {
+            OnPropertyChanged(nameof(SelectionText));
+            return;
+        }
+
         bool one = Editor.SelectionCount == 1;
         Region? region = one ? Editor.SelectedRegions.FirstOrDefault() : null;
         if (!ReferenceEquals(region, _selectedRegion?.Model))
@@ -732,6 +792,7 @@ public sealed partial class MainViewModel : IEditorHost
         if (Editor.SelectionCount > 0)
         {
             ClearJourneySelection();
+            ClearDefinitionSelection();
             if (_propertiesTabIndex is not PropertiesTabResults and not PropertiesTabCheck)
             {
                 PropertiesTabIndex = PropertiesTabSelection;

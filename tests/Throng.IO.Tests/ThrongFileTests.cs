@@ -91,11 +91,11 @@ public sealed class ThrongFileTests
     }
 
     [TestMethod]
-    public void Save_WritesFormatV10()
+    public void Save_WritesFormatV11()
     {
-        string path = Path.Combine(_folder, "v10" + ThrongFile.Extension);
+        string path = Path.Combine(_folder, "v11" + ThrongFile.Extension);
         Assert.IsTrue(ThrongFile.Save(DemoStudyBuilder.Build(), path).IsSuccess);
-        Assert.AreEqual(10, ThrongFile.ReadManifest(path).Value!.FormatVersion);
+        Assert.AreEqual(11, ThrongFile.ReadManifest(path).Value!.FormatVersion, "Journey graphs (round 018a, D-302).");
     }
 
     [TestMethod]

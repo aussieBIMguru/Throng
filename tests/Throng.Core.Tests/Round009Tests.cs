@@ -95,10 +95,15 @@ public sealed class Round009Tests
     {
         TemplateLibrary lib = BuiltInLibrary.Build();
         JourneyTemplate ticket = lib.Journeys.Single(j => j.Key == "journey.ticket-gates");
-        Assert.AreEqual(JourneyStepKind.GoToDevice, ticket.Steps[0].Kind);
-        Assert.AreEqual("TicketMachine", ticket.Steps[0].TargetTag);
-        Assert.AreEqual("ticket", ticket.Steps[0].LacksTag);
-        Assert.AreEqual(JourneyStepKind.Exit, ticket.Steps[^1].Kind);
+        // Since round 018 (D-302, D-305): Spawn → Has ticket? → (hasn't) TicketMachine → Gate → Exit, (has) → Gate.
+        JourneyNode check = ticket.Nodes.Single(n => n.Kind == JourneyNodeKind.TagCheck);
+        JourneyNode machine = ticket.Nodes.Single(n => n.Kind == JourneyNodeKind.Device && n.TargetTag == "TicketMachine");
+        Assert.AreEqual("ticket", check.TargetTag);
+        Assert.AreEqual("ticket", machine.GrantsTag);
+        Assert.AreEqual(machine.Id, JourneyGraph.Next(ticket, check.Id, 1)?.Id, "Without a ticket: the machine.");
+        Assert.AreEqual("Gate", JourneyGraph.Next(ticket, check.Id, 0)?.TargetTag, "With one: straight to the gate.");
+        Assert.AreEqual(JourneyNodeKind.Sink, JourneyGraph.Sinks(ticket).Single().Kind);
+        Assert.IsNull(ticket.Steps, "No legacy steps left.");
         Assert.IsTrue(ticket.Summarise().Contains("TicketMachine", StringComparison.Ordinal));
     }
 }

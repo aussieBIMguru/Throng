@@ -65,6 +65,8 @@ public sealed class DeviceViewModel : ObservableObject
         _owner = owner;
         DrawQueueCommand = new RelayCommand(() => _owner.StartQueuePath(Model.Id));
         ClearQueueCommand = new RelayCommand(() => _owner.Editor.ClearQueuePath(Model.Id));
+        EditDefinitionCommand = new RelayCommand(EditDefinition);
+        MakeUniqueCommand = new RelayCommand(() => _owner.MakeDeviceUnique(Model));
     }
 
     /// <summary>Starts DRAW QUEUE in the plan editor (D-153, D-163).</summary>
@@ -72,6 +74,32 @@ public sealed class DeviceViewModel : ObservableObject
 
     /// <summary>Removes the drawn queue path, back to the automatic lines.</summary>
     public RelayCommand ClearQueueCommand { get; }
+
+    /// <summary>Opens this device's definition in SELECTION (round 017, D-286).</summary>
+    public RelayCommand EditDefinitionCommand { get; }
+
+    /// <summary>Gives this device its own copy of its definition (D-288).</summary>
+    public RelayCommand MakeUniqueCommand { get; }
+
+    /// <summary>How many placed devices share this one's definition (MAKE UNIQUE is offered when others do).</summary>
+    public string DefinitionText
+    {
+        get
+        {
+            if (StudyTemplates.FindDeviceTemplate(_owner.Study, Model) is not { } template)
+            {
+                return "No definition found: neutral defaults (5 s service). MAKE UNIQUE gives it one.";
+            }
+
+            int others = _owner.DeviceDefinitionUseCount(template) - 1;
+            return others switch
+            {
+                <= 0 => $"Follows '{template.Name}' (service {template.ServiceTime.Describe()} s).",
+                1 => $"Follows '{template.Name}' with 1 other device (service {template.ServiceTime.Describe()} s).",
+                _ => string.Create(CultureInfo.InvariantCulture, $"Follows '{template.Name}' with {others} other devices (service {template.ServiceTime.Describe()} s)."),
+            };
+        }
+    }
 
     /// <summary>The wrapped device.</summary>
     public Device Model { get; }
@@ -98,8 +126,7 @@ public sealed class DeviceViewModel : ObservableObject
     {
         get
         {
-            TemplateBase? template = Model.TemplateId is { } id ? _owner.Study.Library.Find(id) : null;
-            template ??= BuiltInLibrary.Instance.FindByKey(Model.PresetKey);
+            TemplateBase? template = StudyTemplates.FindDeviceTemplate(_owner.Study, Model);
             return $"{template?.Name ?? Model.PresetKey} · {Model.TypeTag}";
         }
     }
@@ -290,6 +317,18 @@ public sealed class DeviceViewModel : ObservableObject
 
     /// <summary>Re-reads every property from the model.</summary>
     public void Refresh() => OnPropertyChanged(string.Empty);
+
+    private void EditDefinition()
+    {
+        if (StudyTemplates.FindDeviceTemplate(_owner.Study, Model) is { } template)
+        {
+            _owner.SelectDefinition(template);
+        }
+        else
+        {
+            _owner.Ticker = $"{Model.Name} has no definition: MAKE UNIQUE gives it one.";
+        }
+    }
 
     private void SetSize(double value, double current, string what, Action<double> setter, double max = 30)
     {

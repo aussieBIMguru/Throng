@@ -44,10 +44,17 @@ public sealed class LibraryBrowserViewModel : ObservableObject
         {
             if (value is not null && SetProperty(ref _selectedTab, value))
             {
+                OnPropertyChanged(nameof(IsJourneysTabSelected));
                 RefreshVisible();
             }
         }
     }
+
+    /// <summary>
+    /// True while JOURNEYS is showing: its rows stay clickable during a run, so a journey's graph (and its run overlay,
+    /// round 019) can be opened read-only.
+    /// </summary>
+    public bool IsJourneysTabSelected => ReferenceEquals(_selectedTab, JourneysTab);
 
     /// <summary>Search text: every word must appear in the name, summary or description (case-insensitive).</summary>
     public string SearchText
@@ -67,12 +74,37 @@ public sealed class LibraryBrowserViewModel : ObservableObject
     public LibraryTabViewModel JourneysTab => Tabs[^1];
 
     /// <summary>Replaces the AGENTS tab's rows with the study's profiles (embedded and imported, then built-ins; D-275).</summary>
-    public void SetProfiles(IEnumerable<AgentProfileTemplate> profiles)
+    public void SetProfiles(IEnumerable<AgentProfileTemplate> profiles) => SetTab(Tabs[0], profiles);
+
+    /// <summary>Replaces the DEVICES tab's rows with the study's device definitions (its own and copies first; round 017).</summary>
+    public void SetDevices(IEnumerable<DeviceTemplate> devices) => SetTab(Tabs[1], devices);
+
+    /// <summary>
+    /// Sets the small note after each row's name (round 017): MODIFIED, YOURS, IMPORTED or nothing, from
+    /// <paramref name="note"/>.
+    /// </summary>
+    public void RefreshNotes(Func<TemplateBase, string?> note)
     {
-        LibraryTabViewModel tab = Tabs[0];
-        List<AgentProfileTemplate> next = [.. profiles];
+        foreach (LibraryTabViewModel tab in Tabs)
+        {
+            foreach (TemplateItemViewModel item in tab.Items)
+            {
+                item.Note = note(item.Template);
+            }
+        }
+    }
+
+    private void SetTab(LibraryTabViewModel tab, IEnumerable<TemplateBase> templates)
+    {
+        List<TemplateBase> next = [.. templates];
         if (next.Count == tab.Items.Count && next.Zip(tab.Items).All(pair => ReferenceEquals(pair.First, pair.Second.Template)))
         {
+            // Same definitions: re-read names, summaries and swatches (one was edited in place).
+            foreach (TemplateItemViewModel item in tab.Items)
+            {
+                item.Refresh();
+            }
+
             return;
         }
 
@@ -142,6 +174,7 @@ public sealed class LibraryBrowserViewModel : ObservableObject
         {
             _selectedTab = withMatches;
             OnPropertyChanged(nameof(SelectedTab));
+            OnPropertyChanged(nameof(IsJourneysTabSelected));
         }
 
         RefreshVisible();
@@ -209,12 +242,14 @@ public sealed class LibraryTabViewModel : ObservableObject
 public sealed class TemplateItemViewModel : ObservableObject
 {
     private bool _isSelected;
+    private string? _note;
+    private Brush? _swatch;
+    private string _swatchHex = string.Empty;
 
     /// <summary>Wraps a template.</summary>
     public TemplateItemViewModel(TemplateBase template)
     {
         Template = template;
-        Swatch = CreateBrush(template.ColorHex);
     }
 
     /// <summary>The template.</summary>
@@ -230,9 +265,39 @@ public sealed class TemplateItemViewModel : ObservableObject
     public string Description => Template.Description;
 
     /// <summary>Where the template came from (embedded copies of built-ins count as built-in).</summary>
-    public string SourceText => Template.Source == TemplateSource.BuiltIn || BuiltInLibrary.Instance.Find(Template.Id) is not null
-        ? "Built-in · read-only"
-        : Template is JourneyTemplate ? "Your journey (in this study) · click to edit" : Template.Source.ToString();
+    public string SourceText => Template switch
+    {
+        _ when Note == "MINE" => "In your library (MINE) · click to see it; using it copies it into this study · right-click to rename or delete",
+        _ when Note == "DIFFERS" => "In your library, and this study's copy differs · click for UPDATE FROM MY LIBRARY · right-click to rename or delete",
+        JourneyTemplate when BuiltInLibrary.Instance.Find(Template.Id) is not null || Template.Source == TemplateSource.BuiltIn => "Built-in · read-only",
+        JourneyTemplate => "Your journey (in this study) · click to edit",
+        DeviceTemplate or AgentProfileTemplate when Note == "MODIFIED" => "Built-in, modified in this study · click to edit",
+        DeviceTemplate or AgentProfileTemplate when BuiltInLibrary.Instance.Find(Template.Id) is not null => "Built-in · click to edit for this study",
+        DeviceTemplate or AgentProfileTemplate => $"{(Template.Source == TemplateSource.Imported ? "Imported" : "Yours")} (in this study) · click to edit",
+        _ when Template.Source == TemplateSource.BuiltIn || BuiltInLibrary.Instance.Find(Template.Id) is not null => "Built-in · read-only",
+        _ => Template.Source.ToString(),
+    };
+
+    /// <summary>Small note after the name (round 017; round 020): MINE, DIFFERS, MODIFIED, YOURS, IMPORTED, or null.</summary>
+    public string? Note
+    {
+        get => _note;
+        set
+        {
+            if (SetProperty(ref _note, value))
+            {
+                OnPropertyChanged(nameof(HasNote));
+                OnPropertyChanged(nameof(IsMine));
+                OnPropertyChanged(nameof(SourceText));
+            }
+        }
+    }
+
+    /// <summary>True when <see cref="Note"/> is shown.</summary>
+    public bool HasNote => !string.IsNullOrEmpty(_note);
+
+    /// <summary>True for your library's items (and the study's copies of them): the row's right-click menu (round 020, D-345).</summary>
+    public bool IsMine => _note is "MINE" or "DIFFERS";
 
     /// <summary>Re-reads the name, summary and description (after an edit).</summary>
     public void Refresh() => OnPropertyChanged(string.Empty);
@@ -244,8 +309,20 @@ public sealed class TemplateItemViewModel : ObservableObject
         set => SetProperty(ref _isSelected, value);
     }
 
-    /// <summary>Colour swatch.</summary>
-    public Brush Swatch { get; }
+    /// <summary>Colour swatch (follows colour edits).</summary>
+    public Brush Swatch
+    {
+        get
+        {
+            if (_swatch is null || !string.Equals(_swatchHex, Template.ColorHex, StringComparison.OrdinalIgnoreCase))
+            {
+                _swatchHex = Template.ColorHex;
+                _swatch = CreateBrush(Template.ColorHex);
+            }
+
+            return _swatch;
+        }
+    }
 
     /// <summary>True when every word appears in the name, summary or description.</summary>
     public bool Matches(IReadOnlyList<string> words)

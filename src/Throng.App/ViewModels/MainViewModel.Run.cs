@@ -27,6 +27,9 @@ public sealed partial class MainViewModel
     private SimRunner? _runner;
     private CancellationTokenSource? _setupCancel;
     private bool _isRunActive;
+
+    /// <summary>True while a LIBRARY drop places a device in 3D (D-291): the PLACE tool mustn't switch to plan.</summary>
+    private bool _droppingIn3D;
     private AgentColoring _agentColoring = AgentColoring.Profile;
     private bool _isPreparing;
     private RunSpeed _speed = RunSpeed.RealTime;
@@ -241,13 +244,32 @@ public sealed partial class MainViewModel
         return count;
     }
 
-    /// <summary>A LIBRARY row dropped on the viewport (D-098): picks the tool and preset, then drops at the point.</summary>
-    public void DropTemplate(TemplateItemViewModel item, Point2? planPoint, double metresPerDip)
+    /// <summary>
+    /// A LIBRARY row dropped on the viewport (D-098): picks the tool and preset, then drops at the point. In 3D and
+    /// ISO (round 017, D-291, D-293) the drop comes with the level whose floor is under the cursor: that level
+    /// becomes active, a device is placed there without leaving 3D, and anything that needs aiming (stairs,
+    /// travelators) carries on in plan from the drop point.
+    /// </summary>
+    public void DropTemplate(TemplateItemViewModel item, Point2? planPoint, double metresPerDip, Guid? levelId = null)
     {
         if (_isRunActive)
         {
             Ticker = "RUNNING ▸ RESET TO EDIT";
             return;
+        }
+
+        if (levelId is { } dropLevel && ViewMode != ViewMode.Plan)
+        {
+            if (!ActivateLevel(dropLevel))
+            {
+                return;
+            }
+
+            if (item.Template is Throng.Core.Library.DeviceTemplate { Kind: Throng.Core.Library.DeviceKind.Point } device && planPoint is { } at3D)
+            {
+                DropDeviceIn3D(device, at3D, metresPerDip);
+                return;
+            }
         }
 
         // A lift dropped onto a shaft goes into that shaft (round 013b, D-245). Dropped anywhere else it goes nowhere,
@@ -278,6 +300,23 @@ public sealed partial class MainViewModel
         if (Editor.Tool is EditorTool.Place or EditorTool.Connect)
         {
             Editor.DropAt(point, metresPerDip);
+        }
+    }
+
+    /// <summary>Places a device at a floor point in 3D (D-291) and goes back to SELECT, staying in 3D.</summary>
+    private void DropDeviceIn3D(Throng.Core.Library.DeviceTemplate device, Point2 point, double metresPerDip)
+    {
+        _droppingIn3D = true;
+        try
+        {
+            SelectedPlacePreset = PlacePresetOptions.FirstOrDefault(p => p.Id == device.Id) ?? device;
+            Editor.Tool = EditorTool.Place;
+            Editor.DropAt(point, metresPerDip);
+        }
+        finally
+        {
+            Editor.Tool = EditorTool.Select;
+            _droppingIn3D = false;
         }
     }
 
@@ -355,6 +394,7 @@ public sealed partial class MainViewModel
 
         var cancel = new CancellationTokenSource();
         _setupCancel = cancel;
+        EmbedReferencedFromMine();
         Study study = _study;
         SimSetupResult? result = null;
         try
@@ -395,6 +435,8 @@ public sealed partial class MainViewModel
             return;
         }
 
+        // The run's model gives the overlay's predicted shares too (D-334).
+        SetPredictionModel(model, "PLAY");
         var runner = new SimRunner(model) { Speed = _speed };
         runner.Faulted += ex => _dispatcher.InvokeAsync(() =>
         {
@@ -552,6 +594,7 @@ public sealed partial class MainViewModel
         Editor?.RefreshRunHover();
         RefreshHeatTicker();
         RefreshResults();
+        RefreshJourneyOverlay();
         OnPropertyChanged(nameof(RunStatusText));
         OnPropertyChanged(nameof(ClockText));
         OnPropertyChanged(nameof(IsPlaying));

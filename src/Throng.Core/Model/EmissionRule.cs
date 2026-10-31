@@ -71,8 +71,17 @@ public sealed record MixLine
     /// <summary>Agent profile template id (study library first, then the built-in catalogue).</summary>
     public Guid ProfileId { get; init; }
 
-    /// <summary>Journey template id, or null to walk straight to a sink (as before round 009).</summary>
+    /// <summary>
+    /// Journey template id, or null to walk straight to a sink (as before round 009). Ignored when
+    /// <see cref="UseProfileJourney"/> is set.
+    /// </summary>
     public Guid? JourneyId { get; init; }
+
+    /// <summary>
+    /// "(profile default)" (D-304): follow the profile's <c>DefaultJourneyId</c> instead of <see cref="JourneyId"/>.
+    /// Lines saved before format v11 keep their explicit journey (false).
+    /// </summary>
+    public bool UseProfileJourney { get; init; }
 
     /// <summary>Relative share of the rule's arrivals; zero or less means none.</summary>
     public double Share { get; init; } = 1;

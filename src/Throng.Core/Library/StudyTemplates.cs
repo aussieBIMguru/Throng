@@ -4,16 +4,18 @@ namespace Throng.Core.Library;
 
 /// <summary>
 /// Resolves the templates a study's objects refer to: the study's embedded library first, then the built-in
-/// catalogue (§22.6). Used by validation and by the simulation set-up.
+/// catalogue (§22.6). Used by validation and by the simulation set-up. The app also passes your library (MINE,
+/// round 020, D-343, D-346), looked up between the two; the simulation never does, because a MINE item is embedded in
+/// the study when it's first used.
 /// </summary>
 public static class StudyTemplates
 {
     /// <summary>Key of the profile used when a rule's profile can't be found (D-099).</summary>
     public const string FallbackProfileKey = "agent.commuter";
 
-    /// <summary>The agent profile with this id, or null when neither library has it.</summary>
-    public static AgentProfileTemplate? FindProfile(Study study, Guid id) =>
-        study.Library.Find(id) as AgentProfileTemplate ?? BuiltInLibrary.Instance.Find(id) as AgentProfileTemplate;
+    /// <summary>The agent profile with this id (the study's, then <paramref name="mine"/>'s, then the built-in), or null.</summary>
+    public static AgentProfileTemplate? FindProfile(Study study, Guid id, TemplateLibrary? mine = null) =>
+        study.Library.Find(id) as AgentProfileTemplate ?? mine?.Find(id) as AgentProfileTemplate ?? BuiltInLibrary.Instance.Find(id) as AgentProfileTemplate;
 
     /// <summary>The profile with this id, or the built-in Commuter when it can't be found.</summary>
     public static AgentProfileTemplate ProfileOrFallback(Study study, Guid id) =>
@@ -38,17 +40,49 @@ public static class StudyTemplates
             : study.Library.FindByKey(connector.PresetKey) as ConnectorTemplate ?? BuiltInLibrary.Instance.FindByKey(connector.PresetKey) as ConnectorTemplate;
     }
 
-    /// <summary>The journey with this id (study library first, then the built-ins), or null.</summary>
-    public static JourneyTemplate? FindJourney(Study study, Guid id) =>
+    /// <summary>The journey with this id (study library first, then <paramref name="mine"/>, then the built-ins), or null.</summary>
+    public static JourneyTemplate? FindJourney(Study study, Guid id, TemplateLibrary? mine = null) =>
+        study.Library.Find(id) as JourneyTemplate ?? mine?.Find(id) as JourneyTemplate ?? FindJourneyCore(study, id);
+
+    /// <summary>
+    /// The journey a mix line follows (D-304): the profile's default journey when the line says "(profile default)",
+    /// else the line's own; null = straight to a sink (also when the id isn't in either library).
+    /// </summary>
+    public static JourneyTemplate? JourneyFor(Study study, MixLine line) =>
+        JourneyIdFor(study, line) is { } id ? FindJourney(study, id) : null;
+
+    /// <summary>The journey id a mix line follows (D-304), before looking it up; null = none.</summary>
+    public static Guid? JourneyIdFor(Study study, MixLine line) =>
+        line.UseProfileJourney ? ProfileOrFallback(study, line.ProfileId).DefaultJourneyId : line.JourneyId;
+
+    private static JourneyTemplate? FindJourneyCore(Study study, Guid id) =>
         study.Library.Find(id) as JourneyTemplate ?? BuiltInLibrary.Instance.Find(id) as JourneyTemplate;
 
-    /// <summary>All journeys a study can use: its embedded ones, then built-ins not already embedded.</summary>
-    public static IReadOnlyList<JourneyTemplate> AvailableJourneys(Study study)
+    /// <summary>
+    /// All journeys a study can use: its embedded ones, then <paramref name="mine"/>'s not embedded (D-343), then
+    /// built-ins not in either.
+    /// </summary>
+    public static IReadOnlyList<JourneyTemplate> AvailableJourneys(Study study, TemplateLibrary? mine = null) =>
+        Layered(study.Library.Journeys ?? [], mine?.Journeys, BuiltInLibrary.Instance.Journeys);
+
+    /// <summary>
+    /// The study's items, then <paramref name="mine"/>'s with ids the study doesn't hold, then built-ins with ids neither
+    /// holds (D-343): one row per id, the nearest copy winning.
+    /// </summary>
+    public static List<T> Layered<T>(IEnumerable<T> study, IEnumerable<T>? mine, IEnumerable<T> builtIns)
+        where T : TemplateBase
     {
-        var journeys = new List<JourneyTemplate>(study.Library.Journeys ?? []);
-        var seen = journeys.Select(j => j.Id).ToHashSet();
-        journeys.AddRange(BuiltInLibrary.Instance.Journeys.Where(j => !seen.Contains(j.Id)));
-        return journeys;
+        var items = new List<T>(study.Where(t => t is not null));
+        var seen = items.Select(t => t.Id).ToHashSet();
+        foreach (T item in (mine ?? []).Concat(builtIns))
+        {
+            if (item is not null && seen.Add(item.Id))
+            {
+                items.Add(item);
+            }
+        }
+
+        return items;
     }
 
     /// <summary>
@@ -59,6 +93,14 @@ public static class StudyTemplates
         journey.Source != TemplateSource.BuiltIn
         && BuiltInLibrary.Instance.Find(journey.Id) is null
         && (study.Library.Journeys ?? []).Contains(journey);
+
+    /// <summary>
+    /// True when a journey can be edited here (D-328): the study's own and imported ones, and built-ins, whose first
+    /// edit makes the study's copy under the built-in's id (an override, like devices and profiles, D-287).
+    /// </summary>
+    public static bool CanEditJourney(Study study, JourneyTemplate journey, TemplateLibrary? mine = null) =>
+        (study.Library.Journeys ?? []).Any(j => j.Id == journey.Id) || BuiltInLibrary.Instance.Find(journey.Id) is JourneyTemplate
+        || mine?.Find(journey.Id) is JourneyTemplate;
 
     /// <summary>
     /// An editable copy of a journey (D-161): new id and key, the same steps, a name not used by another journey
@@ -86,7 +128,9 @@ public static class StudyTemplates
             ColorHex = source.ColorHex,
             Source = TemplateSource.User,
             Version = 1,
-            Steps = [.. source.Steps.Where(s => s is not null)],
+            Nodes = [.. (source.Nodes ?? []).Where(n => n is not null)],
+            Wires = [.. (source.Wires ?? []).Where(w => w is not null)],
+            Steps = source.Steps is { Count: > 0 } && source.Nodes is not { Count: > 0 } ? new List<JourneyStep>(source.Steps.Where(s => s is not null)) : null,
         };
     }
 
@@ -139,12 +183,10 @@ public static class StudyTemplates
     public static bool IsAccessible(Study study, Device device) =>
         device.AccessibleOverride ?? FindDeviceTemplate(study, device)?.Accessible ?? false;
 
-    /// <summary>All agent profiles a study can use: its embedded ones, then built-ins not already embedded.</summary>
-    public static IReadOnlyList<AgentProfileTemplate> AvailableProfiles(Study study)
-    {
-        var profiles = new List<AgentProfileTemplate>(study.Library.AgentProfiles);
-        var seen = profiles.Select(p => p.Id).ToHashSet();
-        profiles.AddRange(BuiltInLibrary.Instance.AgentProfiles.Where(p => !seen.Contains(p.Id)));
-        return profiles;
-    }
+    /// <summary>
+    /// All agent profiles a study can use: its embedded ones, then <paramref name="mine"/>'s not embedded (D-343), then
+    /// built-ins not in either.
+    /// </summary>
+    public static IReadOnlyList<AgentProfileTemplate> AvailableProfiles(Study study, TemplateLibrary? mine = null) =>
+        Layered(study.Library.AgentProfiles, mine?.AgentProfiles, BuiltInLibrary.Instance.AgentProfiles);
 }

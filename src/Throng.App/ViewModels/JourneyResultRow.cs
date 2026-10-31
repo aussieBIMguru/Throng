@@ -23,13 +23,21 @@ public sealed class JourneyResultRow : ObservableObject
     /// <param name="journey">Journey name, "(no journey)" or "ALL".</param>
     /// <param name="isAll">True for a profile's ALL row.</param>
     /// <param name="acceptableS">The profile's acceptable journey time, seconds.</param>
-    public JourneyResultRow(string profile, string journey, bool isAll, double acceptableS)
+    /// <param name="sink">Per-sink rows (D-312): the sink; empty otherwise.</param>
+    public JourneyResultRow(string profile, string journey, bool isAll, double acceptableS, string sink = "")
     {
         Profile = profile;
         Journey = journey;
         IsAll = isAll;
+        Sink = sink ?? string.Empty;
         AcceptableS = Math.Round(acceptableS);
     }
+
+    /// <summary>The sink of a per-sink row (D-312), empty otherwise.</summary>
+    public string Sink { get; }
+
+    /// <summary>True for a per-sink row (shown dim, under its journey).</summary>
+    public bool IsSink => Sink.Length > 0;
 
     /// <summary>Profile name.</summary>
     public string Profile { get; }
@@ -69,7 +77,8 @@ public sealed class JourneyResultRow : ObservableObject
 
     /// <summary>True when this row is the same profile and journey as <paramref name="result"/>.</summary>
     public bool Matches(JourneyResult result) =>
-        result.IsAll == IsAll && string.Equals(result.Profile, Profile, StringComparison.Ordinal) && string.Equals(result.Journey, Journey, StringComparison.Ordinal);
+        result.IsAll == IsAll && string.Equals(result.Profile, Profile, StringComparison.Ordinal) && string.Equals(result.Journey, Journey, StringComparison.Ordinal)
+        && string.Equals(result.Sink, Sink, StringComparison.Ordinal);
 
     /// <summary>Copies the latest stats in.</summary>
     public void Update(JourneyResult result)

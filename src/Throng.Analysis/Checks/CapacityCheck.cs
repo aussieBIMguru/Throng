@@ -39,6 +39,9 @@ public static class CapacityCheck
     /// <summary>Resources busier than this share of capacity at the peak, without a real queue, get an Info line.</summary>
     private const double BusyShare = 0.8;
 
+    /// <summary>Capacity Info lines kept per level, the busiest first (round 017, D-296); warnings are all kept.</summary>
+    private const int InfoPerLevel = 5;
+
     /// <summary>Most legs a route walk follows (connectors chained floor to floor).</summary>
     private const int MaxLegs = 16;
 
@@ -94,13 +97,13 @@ public static class CapacityCheck
             }
         }
 
-        var findings = new List<ValidationMessage>();
+        var findings = new CapacityFindings();
         DeviceFindings(model, load, findings);
         ConnectorFindings(study, model, load, findings);
         TrainFindings(model, load, findings);
         EscalatorFindings(study, model, load, findings);
         UnusedDeviceFindings(study, model, load, findings);
-        return findings;
+        return findings.Trimmed(study, InfoPerLevel);
     }
 
     /// <summary>People per minute for each minute of the study: the rule's rate × its rate curve (flat without one).</summary>
@@ -179,115 +182,418 @@ public static class CapacityCheck
 
             var flow = new Flow(Scale(series, line.Share / total), burst is { } b ? (b.Train, b.People * line.Share / total) : null);
             SimProfile profile = model.Profiles[line.Profile];
-            int floor = emitter.Floor;
-            Point2 at = start;
-            bool boarded = false;
-            if (line.Journey >= 0 && line.Journey < model.Journeys.Count)
+            if (line.Journey < 0 || line.Journey >= model.Journeys.Count)
             {
-                // Chance each tag bit is held, from the spawn tags; earlier steps' grants add to it.
+                ToRuleSinks(model, load, emitter, profile, emitter.Floor, start, flow);
+                continue;
+            }
+
+            // Chance each tag bit is held, from the spawn tags; the journey's checks and grants change it per path.
+            var held = new Dictionary<ulong, double>();
+            foreach ((ulong bit, double probability) in line.SpawnTags)
+            {
+                held[bit] = Math.Clamp(probability, 0, 1);
+            }
+
+            SimJourney journey = model.Journeys[line.Journey];
+            int paths = 0;
+            WalkNode(model, load, emitter, profile, journey, journey.Start, flow, emitter.Floor, start, held, ref paths, 0);
+        }
+    }
+
+    /// <summary>Most paths followed through one journey per mix line; past it, the rest go straight to the rule's sinks.</summary>
+    private const int MaxPaths = 512;
+
+    /// <summary>Most nodes along one path (a guard only: validation refuses loops, D-306).</summary>
+    private const int MaxDepth = 256;
+
+    /// <summary>
+    /// Follows a journey graph from <paramref name="node"/> (D-311): steps walk to their nearest target, like an
+    /// arriving person with an empty building, and load devices; Chance splits the flow by its shares, Tag check by
+    /// the chance the tag is held (then held, or not, on each side), Set tag and grants set it; merges simply carry
+    /// on. Sinks walk to their targets; unwired outputs to the rule's sinks.
+    /// </summary>
+    private static void WalkNode(
+        SimModel model, Load load, SimEmitter emitter, SimProfile profile, SimJourney journey, int node, Flow flow, int floor, Point2 at,
+        Dictionary<ulong, double> held, ref int paths, int depth)
+    {
+        while (true)
+        {
+            if (node < 0 || node >= journey.Nodes.Length || depth++ > MaxDepth || paths > MaxPaths)
+            {
+                ToRuleSinks(model, load, emitter, profile, floor, at, flow);
+                return;
+            }
+
+            SimNode n = journey.Nodes[node];
+            switch (n.Kind)
+            {
+                case SimNodeKind.Chance:
+                {
+                    double previous = 0;
+                    for (int port = 0; port < n.Cumulative.Length && port < n.Next.Length; port++)
+                    {
+                        double share = n.Cumulative[port] - previous;
+                        previous = n.Cumulative[port];
+                        if (share > 1e-9)
+                        {
+                            paths++;
+                            WalkNode(model, load, emitter, profile, journey, n.Next[port], flow.Scaled(share), floor, at, new Dictionary<ulong, double>(held), ref paths, depth);
+                        }
+                    }
+
+                    return;
+                }
+
+                case SimNodeKind.TagCheck:
+                {
+                    double p = n.Bit == 0 ? 0 : held.GetValueOrDefault(n.Bit);
+                    if (n.Next.Length < 2)
+                    {
+                        node = -1;
+                        continue;
+                    }
+
+                    if (p > 1e-9)
+                    {
+                        paths++;
+                        var has = new Dictionary<ulong, double>(held) { [n.Bit] = 1 };
+                        WalkNode(model, load, emitter, profile, journey, n.Next[0], flow.Scaled(p), floor, at, has, ref paths, depth);
+                    }
+
+                    if (1 - p > 1e-9)
+                    {
+                        paths++;
+                        var hasNot = new Dictionary<ulong, double>(held);
+                        if (n.Bit != 0)
+                        {
+                            hasNot[n.Bit] = 0;
+                        }
+
+                        WalkNode(model, load, emitter, profile, journey, n.Next[1], flow.Scaled(1 - p), floor, at, hasNot, ref paths, depth);
+                    }
+
+                    return;
+                }
+
+                case SimNodeKind.SetTag:
+                    if (n.Bit != 0)
+                    {
+                        held[n.Bit] = n.Remove ? 0 : 1;
+                    }
+
+                    node = n.Next.Length > 0 ? n.Next[0] : -1;
+                    continue;
+            }
+
+            SimStep step = journey.Steps[n.Step];
+            int[] targets = step.Kind == JourneyStepKind.GoToDevice ? [.. step.Targets.Select(t => model.Devices[t].Target)] : step.Targets;
+            if (step.ChooseBy == JourneyChooseBy.RandomWeighted && targets.Length > 1 && step.Kind != JourneyStepKind.BoardTrain)
+            {
+                // Random by weight (D-321): the flow splits over the reachable candidates by weight, each a path.
+                SplitByWeight(model, load, emitter, profile, journey, step, targets, flow, floor, at, held, ref paths, depth);
+                return;
+            }
+
+            int best = targets.Length > 0 ? Nearest(model, floor, at, targets, profile) : -1;
+            if (step.Kind == JourneyStepKind.Exit)
+            {
+                if (best >= 0)
+                {
+                    Walk(model, load, ref floor, ref at, targets[best], profile, flow);
+                }
+                else
+                {
+                    ToRuleSinks(model, load, emitter, profile, floor, at, flow);
+                }
+
+                return;
+            }
+
+            if (best >= 0)
+            {
+                Walk(model, load, ref floor, ref at, targets[best], profile, flow);
+                if (step.Kind == JourneyStepKind.GoToDevice)
+                {
+                    load.AddDeviceGroup(step.Targets, flow);
+                }
+                else if (step.Kind == JourneyStepKind.BoardTrain)
+                {
+                    // They leave on the train, not through a sink.
+                    return;
+                }
+
+                for (int k = 0; k < 64; k++)
+                {
+                    ulong bit = 1UL << k;
+                    if ((step.Grants & bit) != 0)
+                    {
+                        held[bit] = 1;
+                    }
+                }
+            }
+
+            // Steps no one can reach are passed by, as in the run.
+            node = step.Next;
+        }
+    }
+
+    /// <summary>
+    /// Random by weight (D-321): each reachable candidate with a weight above zero takes its share of the flow, walks
+    /// there, loads the device group, takes the step's grants and carries on along the step's output as its own path.
+    /// </summary>
+    private static void SplitByWeight(
+        SimModel model, Load load, SimEmitter emitter, SimProfile profile, SimJourney journey, SimStep step, int[] targets, Flow flow, int floor, Point2 at,
+        Dictionary<ulong, double> held, ref int paths, int depth)
+    {
+        var reachable = new List<(int Index, double Weight)>();
+        for (int k = 0; k < targets.Length; k++)
+        {
+            double w = step.WeightAt(k);
+            if (w > 0 && double.IsFinite(RoutePlanner.Choose(model.Routes, floor, at.X, at.Y, targets[k], profile.Mobility, profile.Template, null, out _, out _)))
+            {
+                reachable.Add((k, w));
+            }
+        }
+
+        double total = reachable.Sum(r => r.Weight);
+        if (total <= 0)
+        {
+            // No one can reach any of them: passed by, as in the run.
+            WalkNode(model, load, emitter, profile, journey, step.IsSink ? -1 : step.Next, flow, floor, at, held, ref paths, depth);
+            return;
+        }
+
+        foreach ((int k, double w) in reachable)
+        {
+            Flow part = flow.Scaled(w / total);
+            int f = floor;
+            Point2 p = at;
+            Walk(model, load, ref f, ref p, targets[k], profile, part);
+            if (step.IsSink)
+            {
+                continue;
+            }
+
+            if (step.Kind == JourneyStepKind.GoToDevice)
+            {
+                load.AddDeviceGroup(step.Targets, part);
+            }
+
+            var branch = new Dictionary<ulong, double>(held);
+            for (int b = 0; b < 64; b++)
+            {
+                ulong bit = 1UL << b;
+                if ((step.Grants & bit) != 0)
+                {
+                    branch[bit] = 1;
+                }
+            }
+
+            paths++;
+            WalkNode(model, load, emitter, profile, journey, step.Next, part, f, p, branch, ref paths, depth);
+        }
+    }
+
+    /// <summary>On to the rule's sinks, split by weight (nearest sink: the nearest one).</summary>
+    private static void ToRuleSinks(SimModel model, Load load, SimEmitter emitter, SimProfile profile, int floor, Point2 at, Flow flow)
+    {
+        IReadOnlyList<(int Sink, double Weight)> sinks = emitter.Nearest
+            ? NearestSink(model, floor, at, emitter.Destinations, profile)
+            : emitter.Destinations;
+        double weights = sinks.Sum(s => Math.Max(0, s.Weight));
+        foreach ((int sink, double weight) in sinks)
+        {
+            if (weight > 0 && weights > 0)
+            {
+                int f = floor;
+                Point2 p = at;
+                Walk(model, load, ref f, ref p, sink, profile, flow.Scaled(weight / weights));
+            }
+        }
+    }
+
+    /// <summary>
+    /// The share of a mix line's people who reach each node of a journey (D-311), with <paramref name="held"/> the
+    /// chance each tag bit is held at spawn (bits taken as independent): Chance splits by share, Tag check by the
+    /// chance the tag is held, merges add up. Index = <see cref="SimJourney.Nodes"/>.
+    /// </summary>
+    public static double[] NodeShares(SimJourney journey, IReadOnlyDictionary<ulong, double> held) => FlowShares(journey, held).Nodes;
+
+    /// <summary>
+    /// Node shares as <see cref="NodeShares"/>, plus the share leaving each output port (round 019, D-334): Chance
+    /// ports by their shares, Tag check by the chance the tag is held, everything else along its first output (a
+    /// device's "gave up" is predicted at 0: the model has no patience).
+    /// </summary>
+    public static JourneyShares FlowShares(SimJourney journey, IReadOnlyDictionary<ulong, double> held)
+    {
+        var shares = new double[journey.Nodes.Length];
+        var wires = new double[journey.Nodes.Length][];
+        for (int n = 0; n < wires.Length; n++)
+        {
+            wires[n] = new double[journey.Nodes[n].Next.Length];
+        }
+
+        int paths = 0;
+        Share(journey, journey.Start, 1, new Dictionary<ulong, double>(held), shares, wires, ref paths, 0);
+        return new JourneyShares(shares, wires);
+    }
+
+    /// <summary>
+    /// Predicted shares of a journey for everyone on it (<paramref name="profile"/> &lt; 0) or one profile (D-334):
+    /// each mix line on the journey weighted by its share of its emitter's base rate; null when no line uses it.
+    /// </summary>
+    public static JourneyShares? PredictedShares(SimModel model, int journey, int profile)
+    {
+        if (journey < 0 || journey >= model.Journeys.Count)
+        {
+            return null;
+        }
+
+        SimJourney sim = model.Journeys[journey];
+        var nodes = new double[sim.Nodes.Length];
+        var wires = new double[sim.Nodes.Length][];
+        for (int n = 0; n < wires.Length; n++)
+        {
+            wires[n] = new double[sim.Nodes[n].Next.Length];
+        }
+
+        double weights = 0;
+        foreach (SimEmitter emitter in model.Emitters)
+        {
+            double total = emitter.TotalShare;
+            foreach (SimMixLine line in emitter.Lines)
+            {
+                if (line.Journey != journey || (profile >= 0 && line.Profile != profile) || !(line.Share > 0) || !(total > 0))
+                {
+                    continue;
+                }
+
+                double weight = Math.Max(0, emitter.Rule.RatePerMinute) * line.Share / total;
+                if (!(weight > 0))
+                {
+                    continue;
+                }
+
                 var held = new Dictionary<ulong, double>();
                 foreach ((ulong bit, double probability) in line.SpawnTags)
                 {
                     held[bit] = Math.Clamp(probability, 0, 1);
                 }
 
-                foreach (SimStep step in model.Journeys[line.Journey].Steps)
+                JourneyShares one = FlowShares(sim, held);
+                for (int n = 0; n < nodes.Length; n++)
                 {
-                    if (step.Kind == JourneyStepKind.Exit)
+                    nodes[n] += weight * one.Nodes[n];
+                    for (int port = 0; port < wires[n].Length; port++)
                     {
-                        break;
+                        wires[n][port] += weight * one.Wires[n][port];
+                    }
+                }
+
+                weights += weight;
+            }
+        }
+
+        if (!(weights > 0))
+        {
+            return null;
+        }
+
+        for (int n = 0; n < nodes.Length; n++)
+        {
+            nodes[n] /= weights;
+            for (int port = 0; port < wires[n].Length; port++)
+            {
+                wires[n][port] /= weights;
+            }
+        }
+
+        return new JourneyShares(nodes, wires);
+    }
+
+    private static void Share(SimJourney journey, int node, double share, Dictionary<ulong, double> held, double[] shares, double[][] wires, ref int paths, int depth)
+    {
+        while (node >= 0 && node < journey.Nodes.Length && depth++ <= MaxDepth && paths <= MaxPaths && share > 1e-12)
+        {
+            shares[node] += share;
+            SimNode n = journey.Nodes[node];
+            switch (n.Kind)
+            {
+                case SimNodeKind.Chance:
+                {
+                    double previous = 0;
+                    for (int port = 0; port < n.Cumulative.Length && port < n.Next.Length; port++)
+                    {
+                        double part = n.Cumulative[port] - previous;
+                        previous = n.Cumulative[port];
+                        wires[node][port] += share * part;
+                        paths++;
+                        Share(journey, n.Next[port], share * part, new Dictionary<ulong, double>(held), shares, wires, ref paths, depth);
                     }
 
-                    double applies = AppliesShare(step, held);
-                    if (applies > 1e-9 && step.Targets.Length > 0)
+                    return;
+                }
+
+                case SimNodeKind.TagCheck when n.Next.Length >= 2:
+                {
+                    double p = n.Bit == 0 ? 0 : held.GetValueOrDefault(n.Bit);
+                    paths += 2;
+                    wires[node][0] += share * p;
+                    wires[node][1] += share * (1 - p);
+                    Share(journey, n.Next[0], share * p, new Dictionary<ulong, double>(held) { [n.Bit] = 1 }, shares, wires, ref paths, depth);
+                    var hasNot = new Dictionary<ulong, double>(held);
+                    if (n.Bit != 0)
                     {
-                        // The nearest target by the planner's cost, like an arriving person with an empty building.
-                        int[] targets = step.Kind == JourneyStepKind.GoToDevice
-                            ? [.. step.Targets.Select(t => model.Devices[t].Target)]
-                            : step.Targets;
-                        int best = Nearest(model, floor, at, targets, profile);
-                        if (best >= 0)
+                        hasNot[n.Bit] = 0;
+                    }
+
+                    Share(journey, n.Next[1], share * (1 - p), hasNot, shares, wires, ref paths, depth);
+                    return;
+                }
+
+                case SimNodeKind.SetTag:
+                    if (n.Bit != 0)
+                    {
+                        held[n.Bit] = n.Remove ? 0 : 1;
+                    }
+
+                    if (wires[node].Length > 0)
+                    {
+                        wires[node][0] += share;
+                    }
+
+                    node = n.Next.Length > 0 ? n.Next[0] : -1;
+                    continue;
+
+                case SimNodeKind.Step:
+                {
+                    SimStep step = journey.Steps[n.Step];
+                    if (step.IsSink)
+                    {
+                        return;
+                    }
+
+                    for (int k = 0; k < 64; k++)
+                    {
+                        ulong bit = 1UL << k;
+                        if ((step.Grants & bit) != 0)
                         {
-                            Flow stepFlow = flow.Scaled(applies);
-                            Walk(model, load, ref floor, ref at, targets[best], profile, stepFlow);
-                            if (step.Kind == JourneyStepKind.GoToDevice)
-                            {
-                                load.AddDeviceGroup(step.Targets, stepFlow);
-                            }
-                            else if (step.Kind == JourneyStepKind.BoardTrain && applies > 0.999)
-                            {
-                                // They leave on the train, not through a sink.
-                                boarded = true;
-                                break;
-                            }
+                            held[bit] = 1;
                         }
                     }
 
-                    Grant(step.Grants, applies, held);
+                    if (wires[node].Length > 0)
+                    {
+                        wires[node][0] += share;
+                    }
+
+                    node = step.Next;
+                    continue;
                 }
-            }
 
-            if (boarded)
-            {
-                continue;
-            }
-
-            // On to the sinks, split by weight (nearest sink: the nearest one).
-            IReadOnlyList<(int Sink, double Weight)> sinks = emitter.Nearest
-                ? NearestSink(model, floor, at, emitter.Destinations, profile)
-                : emitter.Destinations;
-            double weights = sinks.Sum(s => Math.Max(0, s.Weight));
-            foreach ((int sink, double weight) in sinks)
-            {
-                if (weight > 0 && weights > 0)
-                {
-                    int f = floor;
-                    Point2 p = at;
-                    Walk(model, load, ref f, ref p, sink, profile, flow.Scaled(weight / weights));
-                }
-            }
-        }
-    }
-
-    /// <summary>
-    /// Share of people a step applies to: every needed bit held, no lacked bit held (bits taken as independent).
-    /// </summary>
-    public static double AppliesShare(SimStep step, IReadOnlyDictionary<ulong, double> held)
-    {
-        double share = 1;
-        for (int k = 0; k < 64; k++)
-        {
-            ulong bit = 1UL << k;
-            double p = held.TryGetValue(bit, out double v) ? v : 0;
-            if ((step.Needs & bit) != 0)
-            {
-                share *= p;
-            }
-
-            if ((step.Lacks & bit) != 0)
-            {
-                share *= 1 - p;
-            }
-        }
-
-        return Math.Clamp(share, 0, 1);
-    }
-
-    /// <summary>The step's grants reach the share it applied to.</summary>
-    private static void Grant(ulong grants, double applies, Dictionary<ulong, double> held)
-    {
-        if (grants == 0 || applies <= 0)
-        {
-            return;
-        }
-
-        for (int k = 0; k < 64; k++)
-        {
-            ulong bit = 1UL << k;
-            if ((grants & bit) != 0)
-            {
-                double p = held.TryGetValue(bit, out double v) ? v : 0;
-                held[bit] = p + ((1 - p) * applies);
+                default:
+                    return;
             }
         }
     }
@@ -349,7 +655,7 @@ public static class CapacityCheck
         }
     }
 
-    private static void DeviceFindings(SimModel model, Load load, List<ValidationMessage> findings)
+    private static void DeviceFindings(SimModel model, Load load, CapacityFindings findings)
     {
         foreach ((string key, double[] demand) in load.Groups)
         {
@@ -363,7 +669,7 @@ public static class CapacityCheck
         }
     }
 
-    private static void ConnectorFindings(Study study, SimModel model, Load load, List<ValidationMessage> findings)
+    private static void ConnectorFindings(Study study, SimModel model, Load load, CapacityFindings findings)
     {
         foreach ((int index, double[] demand) in load.Connectors)
         {
@@ -384,7 +690,7 @@ public static class CapacityCheck
                 bool stair = connector.Kind == ConnectorKind.Stair;
                 double density = perMetre / (stair ? StairSpeedMpm : WalkSpeedMpm);
                 LevelOfService los = FruinLevelOfService.FromDensity(density, stair ? LosAreaType.Stair : LosAreaType.Walkway);
-                findings.Add(new ValidationMessage(ValidationSeverity.Info, string.Create(C,
+                findings.AddInfo(peak, new ValidationMessage(ValidationSeverity.Info, string.Create(C,
                     $"Capacity: {kind} '{connector.Name}': up to about {peak:0} people a minute (minute {peakMinute + 1}), {perMetre:0} per metre of width: expect Level of Service {los} (Fruin {(stair ? "stair" : "walkway")})."), id)
                 { Rule = ValidationRules.Capacity });
             }
@@ -395,7 +701,7 @@ public static class CapacityCheck
     /// Runs the queue and adds a Warning when it builds past a minute's service, or an Info when the peak is busy but
     /// the queue stays short. True when a finding was added.
     /// </summary>
-    private static bool QueueFinding(List<ValidationMessage> findings, string what, string pronoun, string serves, double[] demand, double capacity, Guid id)
+    private static bool QueueFinding(CapacityFindings findings, string what, string pronoun, string serves, double[] demand, double capacity, Guid id)
     {
         if (!(capacity > 0) || double.IsPositiveInfinity(capacity))
         {
@@ -417,7 +723,7 @@ public static class CapacityCheck
 
         if (peakDemand >= capacity * BusyShare)
         {
-            findings.Add(new ValidationMessage(ValidationSeverity.Info, string.Create(C,
+            findings.AddInfo(peakDemand, new ValidationMessage(ValidationSeverity.Info, string.Create(C,
                 $"Capacity: {what} run at up to about {100 * peakDemand / capacity:0} % of capacity (minute {peakDemandMinute + 1}, {peakDemand:0} of {capacity:0.#} a minute); expect short queues in surges."), id)
             { Rule = ValidationRules.Capacity });
             return true;
@@ -443,7 +749,7 @@ public static class CapacityCheck
         return (peak, at);
     }
 
-    private static void TrainFindings(SimModel model, Load load, List<ValidationMessage> findings)
+    private static void TrainFindings(SimModel model, Load load, CapacityFindings findings)
     {
         foreach ((string key, Dictionary<int, double> bursts) in load.Bursts)
         {
@@ -466,7 +772,7 @@ public static class CapacityCheck
                 }
                 else if (clearMin >= 1)
                 {
-                    findings.Add(new ValidationMessage(ValidationSeverity.Info, string.Create(C,
+                    findings.AddInfo(people / Math.Max(1, train.HeadwayS / 60), new ValidationMessage(ValidationSeverity.Info, string.Create(C,
                         $"Capacity: each '{train.Name}' train's ~{people:0} people take ~{clearMin:0.#} min to get through {what} ({capacity:0.#} a minute): expect a ~{clearMin:0} min queue after each train."), id)
                     { Rule = ValidationRules.Capacity });
                 }
@@ -474,7 +780,7 @@ public static class CapacityCheck
         }
     }
 
-    private static void EscalatorFindings(Study study, SimModel model, Load load, List<ValidationMessage> findings)
+    private static void EscalatorFindings(Study study, SimModel model, Load load, CapacityFindings findings)
     {
         foreach (Connector escalator in study.Connectors.Where(c => c.Kind == ConnectorKind.Escalator && c.Direction != ConnectorDirection.Bidirectional))
         {
@@ -521,7 +827,7 @@ public static class CapacityCheck
     /// Every placed device no walked journey step sends people to. The model only holds devices some journey asks for by
     /// type (r016 fix), so this goes over the study's devices.
     /// </summary>
-    private static void UnusedDeviceFindings(Study study, SimModel model, Load load, List<ValidationMessage> findings)
+    private static void UnusedDeviceFindings(Study study, SimModel model, Load load, CapacityFindings findings)
     {
         var used = new HashSet<Guid>(load.UsedDevices.Select(d => model.Devices[d].DeviceId));
         foreach (Device device in study.Devices)

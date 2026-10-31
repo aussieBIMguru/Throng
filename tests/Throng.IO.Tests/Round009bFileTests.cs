@@ -38,7 +38,12 @@ public sealed class Round009bFileTests
         study.Levels.Add(level);
         var builtIn = (JourneyTemplate)BuiltInLibrary.Instance.FindByKey("journey.ticket-gates")!;
         JourneyTemplate copy = StudyTemplates.CreateJourneyCopy(study, builtIn);
-        copy.Steps = [copy.Steps[0] with { OnGiveUp = JourneyGiveUp.JumpTo, GiveUpStep = 2 }, copy.Steps[1] with { OnGiveUp = JourneyGiveUp.Leave }, copy.Steps[2]];
+        // Gave up at the machine: carry on to the exit (D-306); at the gate: leave.
+        JourneyNode machine = copy.Nodes.Single(n => n.TargetTag == "TicketMachine");
+        JourneyNode gate = copy.Nodes.Single(n => n.TargetTag == "Gate");
+        JourneyNode exit = copy.Nodes.Single(n => n.Kind == JourneyNodeKind.Sink);
+        copy.Nodes = [.. copy.Nodes.Select(n => n.Id == machine.Id ? n with { OnGiveUp = JourneyGiveUp.Branch } : n.Id == gate.Id ? n with { OnGiveUp = JourneyGiveUp.Leave } : n)];
+        copy.Wires = [.. copy.Wires, JourneyWire.Of(machine.Id, 1, exit.Id)];
         study.Library.Add(copy);
         var profile = new AgentProfileTemplate
         {
@@ -56,10 +61,10 @@ public sealed class Round009bFileTests
         var journey = (JourneyTemplate)loaded.Library.Find(copy.Id)!;
         Assert.AreEqual(copy.Name, journey.Name);
         Assert.AreEqual(copy.Key, journey.Key);
-        Assert.AreEqual(JourneyGiveUp.JumpTo, journey.Steps[0].OnGiveUp);
-        Assert.AreEqual(2, journey.Steps[0].GiveUpStep);
-        Assert.AreEqual(JourneyGiveUp.Leave, journey.Steps[1].OnGiveUp);
-        Assert.AreEqual(JourneyGiveUp.KeepWaiting, journey.Steps[2].OnGiveUp, "The default for steps saved without it.");
+        Assert.AreEqual(JourneyGiveUp.Branch, JourneyGraph.Find(journey, machine.Id)!.OnGiveUp);
+        Assert.AreEqual(exit.Id, JourneyGraph.Next(journey, machine.Id, 1)?.Id, "The gave-up wire round-trips.");
+        Assert.AreEqual(JourneyGiveUp.Leave, JourneyGraph.Find(journey, gate.Id)!.OnGiveUp);
+        Assert.IsNull(journey.Steps, "Saved as a graph (v11).");
         Assert.IsTrue(StudyTemplates.IsEditableJourney(loaded, journey), "A duplicate stays editable after reopening.");
 
         var loadedProfile = (AgentProfileTemplate)loaded.Library.Find(profile.Id)!;

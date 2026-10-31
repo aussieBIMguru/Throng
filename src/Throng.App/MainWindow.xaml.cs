@@ -31,6 +31,7 @@ public partial class MainWindow : Window
         Viewport.LiftCars = _viewModel.FetchLiftCars3D;
         _viewModel.CaptureViewport = Viewport.CaptureAsync;
         Viewport.TemplateDropped += OnTemplateDropped;
+        Viewport.ViewInPlanRequested += (_, id) => _viewModel.ViewInPlan(id);
         Viewport.IsoRotateRequested += (_, step) => _viewModel.RotateIso(step);
         Viewport.BoxFaceDragged += (_, drag) => _viewModel.DragBoxFace(drag.Face, drag.Share);
         _viewModel.WriteCamera = Viewport.WriteCamera;
@@ -119,6 +120,13 @@ public partial class MainWindow : Window
         if (e.ClickCount == 2 && sender is FrameworkElement { DataContext: TemplateItemViewModel item })
         {
             _libraryPress = null;
+            if (!_viewModel.IsEditable)
+            {
+                // JOURNEYS stays clickable while running (round 019); using a template is still an edit.
+                e.Handled = true;
+                return;
+            }
+
             _viewModel.UseTemplateCommand.Execute(item);
             Viewport.FocusInput();
             e.Handled = true;
@@ -127,11 +135,34 @@ public partial class MainWindow : Window
 
         _libraryPress = e.ClickCount == 1 && sender is IInputElement element ? e.GetPosition(element) : null;
 
-        // A single click on a journey opens it in SELECTION (D-162); on a profile, picks it for EXPORT (D-275).
-        if (e.ClickCount == 1 && sender is FrameworkElement { DataContext: TemplateItemViewModel { Template: Throng.Core.Library.JourneyTemplate or Throng.Core.Library.AgentProfileTemplate } item2 })
+        // A single click on a journey opens it in SELECTION (D-162); on a profile or a device, opens its definition there
+        // (round 017, D-286) and picks it for EXPORT (D-275, D-290).
+        if (e.ClickCount == 1 && sender is FrameworkElement { DataContext: TemplateItemViewModel { Template: Throng.Core.Library.JourneyTemplate or Throng.Core.Library.AgentProfileTemplate or Throng.Core.Library.DeviceTemplate } item2 })
         {
             _viewModel.SelectLibraryItem(item2);
         }
+    }
+
+    /// <summary>
+    /// Right-click on a LIBRARY row of your library (MINE or DIFFERS, round 020, D-345): RENAME… and DELETE FROM MY
+    /// LIBRARY. They change your library only, never the study.
+    /// </summary>
+    private void OnLibraryItemRightClick(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is not FrameworkElement { DataContext: TemplateItemViewModel { IsMine: true } item } element)
+        {
+            return;
+        }
+
+        var rename = new System.Windows.Controls.MenuItem { Header = "Rename in my library…" };
+        rename.Click += (_, _) => _viewModel.RenameInMyLibrary(item.Template);
+        var delete = new System.Windows.Controls.MenuItem { Header = "Delete from my library…" };
+        delete.Click += (_, _) => _viewModel.DeleteFromMyLibrary(item.Template);
+        var menu = new System.Windows.Controls.ContextMenu { PlacementTarget = element };
+        menu.Items.Add(rename);
+        menu.Items.Add(delete);
+        menu.IsOpen = true;
+        e.Handled = true;
     }
 
     /// <summary>Dragging a library row past the system drag distance starts drag-and-drop to the viewport (D-098).</summary>
@@ -164,7 +195,7 @@ public partial class MainWindow : Window
     {
         if (e.Data is TemplateItemViewModel item)
         {
-            _viewModel.DropTemplate(item, e.PlanPoint, e.MetresPerDip);
+            _viewModel.DropTemplate(item, e.PlanPoint, e.MetresPerDip, e.LevelId);
             Viewport.FocusInput();
         }
     }

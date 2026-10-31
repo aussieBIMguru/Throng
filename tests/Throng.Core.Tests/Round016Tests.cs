@@ -83,10 +83,14 @@ public sealed class Round016Tests
         Assert.AreEqual(TemplateSource.Imported, imported.Source);
         CollectionAssert.AreEqual(new[] { "Gate", "Gate" }, imported.DevicePreferences.Select(p => p.Target).ToArray(), "Turnstile mapped to Gate.");
         JourneyTemplate copy = journeys.Single();
-        Assert.AreEqual(3, copy.Steps.Count, "The Kiosk step was dropped.");
-        Assert.AreEqual("Gate", copy.Steps[0].TargetTag);
-        Assert.AreEqual("Retail", copy.Steps[1].TargetTag, "Kept as is.");
-        Assert.IsNull(copy.Steps[1].ZoneId, "Pinned zones belong to the old study.");
+        // The old step list arrives as a graph (D-302): dropping Kiosk and the Hungry check leaves Gate → Retail → Exit.
+        JourneyNode[] chain = [.. JourneyGraph.Reachable(copy).Where(n => n.Kind != JourneyNodeKind.Spawn)];
+        Assert.AreEqual(3, chain.Length, "The Kiosk node and its tag check were dropped: " + copy.Summarise());
+        Assert.AreEqual("Gate", chain[0].TargetTag);
+        Assert.AreEqual("Retail", chain[1].TargetTag, "Kept as is.");
+        Assert.IsNull(chain[1].ZoneId, "Pinned zones belong to the old study.");
+        Assert.AreEqual(JourneyNodeKind.Sink, chain[2].Kind);
+        Assert.IsFalse(JourneyGraph.Problems(copy).Any(p => p.IsError), "No broken wires left behind.");
         Assert.AreEqual(journey.Id, copy.Id, "No clash, so the id is kept.");
 
         // Importing again: the ids are taken now, so the copies get new ones.
@@ -112,7 +116,8 @@ public sealed class Round016Tests
         ProfileBundle bundle = ProfileReconciler.BuildBundle(study, commuter);
         Assert.AreEqual(commuter.Id, bundle.Profile.Id);
         Assert.AreNotSame(commuter, bundle.Profile, "A copy, not the built-in itself.");
-        CollectionAssert.AreEqual(new[] { builtIn.Id }, bundle.Journeys.Select(j => j.Id).ToArray(), "Only the journeys used with this profile.");
+        CollectionAssert.AreEqual(new[] { commuter.DefaultJourneyId!.Value, builtIn.Id }, bundle.Journeys.Select(j => j.Id).ToArray(),
+            "Its default journey (D-304), then only the journeys used with this profile.");
     }
 
     private static Study StudyWithAGate(out Guid levelId)

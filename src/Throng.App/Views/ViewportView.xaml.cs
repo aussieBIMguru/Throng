@@ -34,9 +34,10 @@ public delegate LiftSceneDraw? LiftCarFeed();
 
 /// <summary>A LIBRARY row dropped on the viewport (D-098).</summary>
 /// <param name="Data">The dragged item.</param>
-/// <param name="PlanPoint">Plan point under the drop in plan view; null when dropped on the 3D view.</param>
-/// <param name="MetresPerDip">Plan zoom at the drop.</param>
-public sealed record TemplateDropEventArgs(object Data, Point2? PlanPoint, double MetresPerDip);
+/// <param name="PlanPoint">Plan point under the drop: on the active level in plan, on <paramref name="LevelId"/>'s floor in 3D; null when nothing is under it.</param>
+/// <param name="MetresPerDip">Zoom at the drop (metres per DIP at that point in 3D).</param>
+/// <param name="LevelId">3D and ISO only (round 017, D-293): the level whose floor is under the drop.</param>
+public sealed record TemplateDropEventArgs(object Data, Point2? PlanPoint, double MetresPerDip, Guid? LevelId = null);
 
 /// <summary>
 /// Hosts the OpenGL viewport (GLWpfControl) plus WPF overlays, owns the cameras and mouse navigation, and routes
@@ -44,7 +45,8 @@ public sealed record TemplateDropEventArgs(object Data, Point2? PlanPoint, doubl
 /// </summary>
 /// <remarks>
 /// Plan: wheel zooms at the cursor, middle/right-drag pans, left button edits.
-/// 3D: wheel zooms, right-drag orbits, middle-drag or Shift+right-drag pans (view only, D-026).
+/// 3D: wheel zooms, right-drag orbits, middle-drag or Shift+right-drag pans; left click selects on the floor under the
+/// cursor and a right click offers VIEW IN PLAN (round 017b, D-298, D-299); editing stays in plan.
 /// ISO (round 015, D-263): wheel zooms, right- or middle-drag pans, [ and ] turn the preset.
 /// </remarks>
 public partial class ViewportView : UserControl
@@ -110,7 +112,7 @@ public partial class ViewportView : UserControl
             FlashText.Visibility = Visibility.Collapsed;
         };
 
-        Overlay.PlanToScreen = PlanToScreen;
+        Overlay.PlanToScreen = MapToOverlay;
 
         InputLayer.MouseDown += OnMouseDown;
         InputLayer.MouseMove += OnMouseMove;
@@ -291,6 +293,11 @@ public partial class ViewportView : UserControl
             _mode = value;
             UpdateModeText();
             Overlay.IsPlanActive = value == ViewMode.Plan;
+            Overlay.Is3D = value != ViewMode.Plan && IsEditing3D;
+            if (_editor is not null)
+            {
+                _editor.Is3D = value != ViewMode.Plan;
+            }
             if (value != ViewMode.Plan)
             {
                 CloseTypedBox(refocus: false);
@@ -484,6 +491,7 @@ public partial class ViewportView : UserControl
                 ? _planCamera.ViewProjection(width, height)
                 : Camera3D.ViewProjection(width, height);
             _lastViewProjection = viewProjection;
+            SyncOverlay3D(viewProjection);
 
             // Agent LOD (D-267): framebuffer pixels per metre near the middle of the view.
             _renderer.AgentPixelsPerMetre = _mode == ViewMode.Plan
@@ -563,6 +571,7 @@ public partial class ViewportView : UserControl
         {
             _dragButton = e.ChangedButton;
             _lastMouse = position;
+            _rightPress = position;
             InputLayer.CaptureMouse();
             e.Handled = true;
             return;
@@ -576,6 +585,14 @@ public partial class ViewportView : UserControl
             _boxDragStart = position;
             _boxDragFrom = FaceCoordinate(face, boxMin, boxMax);
             InputLayer.CaptureMouse();
+            e.Handled = true;
+            return;
+        }
+
+        // Select, move and drop in 3D and ISO (round 017, D-291).
+        if (e.ChangedButton == MouseButton.Left && IsEditing3D && _dragButton is null)
+        {
+            Pointer3DDown(position, e);
             e.Handled = true;
             return;
         }
@@ -629,6 +646,10 @@ public partial class ViewportView : UserControl
         {
             _editor!.PointerMove(ScreenToPlan(position), _planCamera.MetresPerDip, Keyboard.Modifiers.HasFlag(ModifierKeys.Shift));
         }
+        else if (IsEditing3D && (_dragButton is null || _left3D))
+        {
+            Pointer3DMove(position);
+        }
         else if (_dragButton is not null && _mode == ViewMode.Plan)
         {
             Overlay.InvalidateVisual();
@@ -647,7 +668,18 @@ public partial class ViewportView : UserControl
 
         if (_dragButton == e.ChangedButton)
         {
+            // A right click without a drag in 3D opens the object menu (round 017b, D-299).
+            bool menu = e.ChangedButton == MouseButton.Right && IsEditing3D
+                && (e.GetPosition(InputLayer) - _rightPress).Length < SystemParameters.MinimumHorizontalDragDistance;
             _dragButton = null;
+            if (menu)
+            {
+                InputLayer.ReleaseMouseCapture();
+                OpenObjectMenu(e.GetPosition(InputLayer));
+                e.Handled = true;
+                return;
+            }
+
             if (!_leftDown)
             {
                 InputLayer.ReleaseMouseCapture();
@@ -665,7 +697,11 @@ public partial class ViewportView : UserControl
                 InputLayer.ReleaseMouseCapture();
             }
 
-            if (IsEditing)
+            if (_left3D)
+            {
+                Pointer3DUp(e.GetPosition(InputLayer));
+            }
+            else if (IsEditing)
             {
                 _editor!.PointerUp(ScreenToPlan(e.GetPosition(InputLayer)), _planCamera.MetresPerDip, Keyboard.Modifiers);
             }
@@ -679,6 +715,7 @@ public partial class ViewportView : UserControl
         // Capture lost mid-gesture (Alt+Tab, a dialog): abandon the drag rather than leave it half-done.
         _dragButton = null;
         _boxDragFace = -1;
+        _left3D = false;
         if (_leftDown)
         {
             _leftDown = false;
@@ -822,8 +859,17 @@ public partial class ViewportView : UserControl
         // Ghost of what would drop here (D-144).
         if (e.Data.GetData(TemplateDragFormat) is Throng.App.ViewModels.TemplateItemViewModel item)
         {
-            Point2? point = _mode == ViewMode.Plan ? ScreenToPlan(e.GetPosition(InputLayer)) : null;
-            _editor?.DragHover(item.Template, point, _planCamera.MetresPerDip);
+            Point position = e.GetPosition(InputLayer);
+            if (_mode == ViewMode.Plan)
+            {
+                _editor?.DragHover(item.Template, ScreenToPlan(position), _planCamera.MetresPerDip);
+            }
+            else
+            {
+                // 3D (D-291): the ghost shows over the active level's floor; elsewhere the drop picks the floor itself.
+                bool overActive = TryDropTarget3D(position, out FloorHit hit, out double perDip) && hit.LevelId == _editor?.ActiveLevelId;
+                _editor?.DragHover(item.Template, overActive ? hit.Point : null, perDip);
+            }
         }
 
         e.Handled = true;
@@ -840,8 +886,20 @@ public partial class ViewportView : UserControl
         }
 
         InputLayer.Focus();
-        Point2? point = _mode == ViewMode.Plan ? ScreenToPlan(e.GetPosition(InputLayer)) : null;
-        TemplateDropped?.Invoke(this, new TemplateDropEventArgs(data, point, _planCamera.MetresPerDip));
+        Point position = e.GetPosition(InputLayer);
+        if (_mode == ViewMode.Plan)
+        {
+            TemplateDropped?.Invoke(this, new TemplateDropEventArgs(data, ScreenToPlan(position), _planCamera.MetresPerDip));
+        }
+        else if (TryDropTarget3D(position, out FloorHit hit, out double perDip))
+        {
+            TemplateDropped?.Invoke(this, new TemplateDropEventArgs(data, hit.Point, perDip, hit.LevelId));
+        }
+        else
+        {
+            TemplateDropped?.Invoke(this, new TemplateDropEventArgs(data, null, _planCamera.MetresPerDip));
+        }
+
         e.Handled = true;
     }
 
@@ -856,7 +914,9 @@ public partial class ViewportView : UserControl
             return;
         }
 
-        if (IsEditing && _editor!.HandleKey(e.Key, Keyboard.Modifiers))
+        // 3D only picks (D-298): Esc, H (hide) and I (isolate) work there; editing keys stay in plan.
+        bool viewKey = Keyboard.Modifiers == ModifierKeys.None && e.Key is Key.Escape or Key.H or Key.I;
+        if ((IsEditing || (IsEditing3D && viewKey)) && _editor!.HandleKey(e.Key, Keyboard.Modifiers))
         {
             e.Handled = true;
         }
@@ -983,13 +1043,13 @@ public partial class ViewportView : UserControl
     {
         if (_mode == ViewMode.Iso)
         {
-            HintText.Text = "Wheel: zoom   ·   Right or Middle-drag: pan   ·   [ ]: turn   ·   Home: zoom extents   ·   STUDY ▸ VIEW: cutaway, explode   ·   F2: plan to edit";
+            HintText.Text = "Click: select · right-click: view in plan   ·   Wheel: zoom   ·   Right or Middle-drag: pan   ·   [ ]: turn   ·   F2: plan to edit";
             return;
         }
 
         if (_mode != ViewMode.Plan)
         {
-            HintText.Text = "Wheel: zoom   ·   Right-drag: orbit   ·   Middle or Shift+Right-drag: pan   ·   Home: zoom extents   ·   STUDY ▸ VIEW: cutaway, explode   ·   F2: plan to edit";
+            HintText.Text = "Click: select · right-click: view in plan   ·   Wheel: zoom   ·   Right-drag: orbit   ·   Middle or Shift+Right-drag: pan   ·   F2: plan to edit";
             return;
         }
 

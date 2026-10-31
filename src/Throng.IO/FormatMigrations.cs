@@ -24,6 +24,9 @@ namespace Throng.IO;
 /// keeps the old behaviour (not accessible, no need), and placed devices take their preset's flag.</item>
 /// <item>8 → 9 (round 013, D-236): lifts in shafts; older shafts have none.</item>
 /// <item>9 → 10 (round 016, D-272, D-276): saved named views and ignored CHECK findings; older studies have none.</item>
+/// <item>10 → 11 (round 018, D-302, D-304): each journey's step list becomes a graph (Spawn, a node per step, Tag
+/// checks for needs / lacks, sinks), laid out left to right; embedded copies of built-in profiles get the built-in's
+/// default journey; mix lines keep their explicit journey.</item>
 /// </list>
 /// </remarks>
 internal static class FormatMigrations
@@ -40,6 +43,7 @@ internal static class FormatMigrations
         (7, UpgradeV7ToV8),
         (8, UpgradeV8ToV9),
         (9, UpgradeV9ToV10),
+        (10, UpgradeV10ToV11),
     ];
 
     /// <summary>Applies every step needed to bring a study from <paramref name="fileVersion"/> to current.</summary>
@@ -185,6 +189,36 @@ internal static class FormatMigrations
         study.Views.RemoveAll(v => v is null);
         study.IgnoredFindings ??= [];
         study.IgnoredFindings.RemoveAll(string.IsNullOrWhiteSpace);
+    }
+
+    /// <summary>
+    /// v10 → v11 (D-302, D-304): journeys become graphs; anything that couldn't be carried over as it was (a backward
+    /// give-up jump, which would loop) is noted at the end of the journey's description. Embedded built-in profiles
+    /// take the built-in's default journey so they don't show as MODIFIED. Mix lines are untouched (an explicit
+    /// journey, or none).
+    /// </summary>
+    private static void UpgradeV10ToV11(Study study)
+    {
+        study.Library.Journeys ??= [];
+        study.Library.Journeys.RemoveAll(j => j is null);
+        foreach (JourneyTemplate journey in study.Library.Journeys)
+        {
+            journey.Steps?.RemoveAll(s => s is null);
+            IReadOnlyList<string> notes = JourneyGraph.Ensure(journey);
+            if (notes.Count > 0)
+            {
+                journey.Description = $"{journey.Description} (Converted to a graph: {string.Join("; ", notes)}.)".Trim();
+            }
+        }
+
+        foreach (AgentProfileTemplate profile in study.Library.AgentProfiles)
+        {
+            if (profile is { DefaultJourneyId: null } && !string.IsNullOrEmpty(profile.Key)
+                && BuiltInLibrary.Instance.FindByKey(profile.Key) is AgentProfileTemplate builtIn)
+            {
+                profile.DefaultJourneyId = builtIn.DefaultJourneyId;
+            }
+        }
     }
 
     /// <summary>

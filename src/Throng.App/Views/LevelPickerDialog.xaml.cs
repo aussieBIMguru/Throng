@@ -22,10 +22,16 @@ public partial class LevelPickerDialog : Window
     /// <param name="owner">Owner window for centring and modality; may be null.</param>
     /// <param name="title">Title strip text.</param>
     /// <param name="message">Explanation above the list.</param>
-    /// <param name="levels">Levels to offer.</param>
-    public static IReadOnlyList<Guid>? Show(Window? owner, string title, string message, IReadOnlyList<LevelOption> levels)
+    /// <param name="levels">Levels to offer (or any items: the .thronglib export reuses it, round 020).</param>
+    /// <param name="okText">Label of the confirming button (COPY by default).</param>
+    public static IReadOnlyList<Guid>? Show(Window? owner, string title, string message, IReadOnlyList<LevelOption> levels, string? okText = null)
     {
         var dialog = new LevelPickerDialog { Title = title };
+        if (!string.IsNullOrWhiteSpace(okText))
+        {
+            dialog.OkButton.Content = okText;
+        }
+
         if (owner is { IsLoaded: true })
         {
             dialog.Owner = owner;

@@ -1,21 +1,27 @@
 # Throng — Handover to the next chat
 
-**Written:** 2026-10-30, end of the round 016 build. **Brief:** v0.34. **Decisions:** D-001–D-279.
-**State:** 015 confirmed by Gavin (no issues). **Round 016 built, unbuilt in sandbox**: M7: CHECK tab with named rules,
-per-study ignore, full compile + static capacity + escalator / unused device / narrow gap rules (D-271–D-274);
-.throngprofile export/import with reconcile (D-275); saved named views (D-276); section box outline + 3D face handles
-(D-277). **Format v10; 309 tests expected.** If Gavin reports 016 build errors, fix those first (shaders still only
-compile at run time).
-**Start here (next chat):** `ai/PROTOCOL.md` (AFK / manual-approval rule: ask permissions before the build, none
-during it; agreed splits aren't split again), this file, then `ai/rounds/round-016.md`.
-**After 016 (same chat, D-280–D-284):** three build fixes (Vector clash, unused devices judged from the study,
-capacity check now per-minute queues with tag shares) and the lift courtesy system (step aside while riders get off,
-3 s squeeze / 8 s force jam breaker, overflow band behind full landings); see `round-016.md` ▸ "016 fixes". Gavin
-confirmed CHECK on the demo: 0 errors. **Unconfirmed:** the courtesy fix in a real run (ask Gavin first thing).
-**Next: round 017, scope not yet queried.** Ask: (1) did the lift courtesy fix the jam; (2) the demo's staffed ticket
-counters and information desk are flagged unused (correct: no demo journey has a TicketCounter or InfoDesk step) —
-add journeys that use them, or remove them from the demo?; then round 016's open questions (M8 or tuning, auto
-re-CHECK, capacity Info trimming) at the end of `round-016.md`.
+**Written:** 2026-10-31, end of the round 020 build + round 021 queries. **Brief:** v0.42. **Decisions:** D-001–D-365.
+**State:** round 020 built, **unbuilt in the sandbox** (no SDK): your library across studies (D-340–D-351). 019
+confirmed (346 tests). **Next chat = (1) fix any 020 build errors, (2) confirm 020 with its checklist, (3) round 021
+BUILD: seeded batch runs with averages (M8), already decided (D-352–D-365, parallel across cores) in
+`ai/rounds/round-021.md`**. Next free decision: D-366. **Format v11; 362 test methods.**
+020 recap: rules in `Core/Library/MyLibrary.cs` (no IO; `EmbedForUse`, `EmbedReferenced`, `PlanSave`, `Differs`,
+`ApplyImport`), disk in `IO/UserLibraryStore.cs` (folder injected; backup, unreadable → aside, newer → read-only) and
+`IO/LibraryFile.cs` (.thronglib), app in `App/ViewModels/MainViewModel.MyLibrary.cs`. Lookups take an optional
+`TemplateLibrary? mine` (study → MINE → built-in); the sim and CHECK never pass it. D-349 fallback lives in
+`JourneyTargets.UsesPicks` / `JourneyZones.Matching` (CHECK rule `journey-picks-fallback`).
+019 recap: engine counters in `Sim/Engine/SimEngine.JourneyFlow.cs` (per journey row, ports + node stats +
+candidates, post-warm-up only) copied as `RunResults.Flows` (`JourneyFlowResult`); predicted shares
+`CapacityCheck.PredictedShares` (`JourneyShares`); canvas overlay via `IJourneyCanvasHost.Overlay`
+(`Views/JourneyOverlay.cs`), built in `JourneyViewModel.RebuildOverlay`; SELECTION ▸ node ▸ RUN; nodes.csv.
+018 recap: journeys are graphs (`Core/Library/JourneyGraph.cs`, `JourneyEdits`, `JourneyTargets`), compiled to
+`SimNode` / `SimStep` (`SimSetup.CompileJourney`), run by `SimEngine.GoToNode` with choose-by rules
+(`ChooseDevice/ChooseZone/OnwardS/ZoneLoad`); the editable JOURNEY canvas (`App/Views/JourneyCanvas.cs` +
+`IJourneyCanvasHost`, host `JourneyViewModel`, node editor `JourneyNodeEditorViewModel`); built-in overrides
+(`MainViewModel.EditJourney/ResetJourney`); PICK IN PLAN.
+**Start here (next chat):** `ai/PROTOCOL.md` (AFK / manual-approval: ask permissions before the build, none during it;
+docs to the project + zip in one step at the end), this file, then `ai/rounds/round-021.md` (queries to ask), then
+`round-020.md`.
 Open watch items: crowd stress (D-194) barely shows at 2.5 p/m² with 1 m counting; hold points can sit in front of an
 adjacent device's lane mouth; gate throughput with D-209/D-211 (diagnostics row "no lane clear").
 **Quota:** Gavin's weekly quota ran to ~98% in round 010. Keep reads to the files a change touches, batch edits,
@@ -134,6 +140,11 @@ LEVEL / STUDY right.
 - `EmissionRule` is an immutable record: never assign its init-only properties outside an initializer; use `with`.
   Same for `MixLine`, `SpawnTag` and `JourneyStep`.
 - r009a: no NuGet or .NET SDK in the sandbox again; the round was statically reviewed (brace check, CRLF) only.
+- r017: definitions are looked up by id on every read (`StudyDefinitions.FindDevice`, `StudyTemplates.FindProfile`):
+  the first edit of a built-in swaps in the study's copy, so never hold a template reference across an edit. Edits
+  replace values through `StudyDefinitions.CopyValues` (keeps `Id` and `Source`).
+- r017: 3D editing reuses the plan editor on the active level's floor plane; anything new in the editor that is
+  plan-only (grips, drawing, moves) must check `PlanEditor.Is3D` or the tool.
 - r016: CHECK findings need a rule id (`ValidationRules`) and, if they're about a place rather than an object, `LevelId`
   + `At`; new rule ids are stored in studies' ignore lists, so never rename one.
 - r015: every shader shares `Version + Warp` / `Version + Clip` const chunks; a new vertex shader must pass `vWorld`
@@ -203,18 +214,41 @@ served level** (D-068). Shafts already carry "no stop" levels (D-087) for that.
 | CHECK, rules, capacity (016) | `Core/Validation/{StudyValidator (Tag, ValidationMessage.Rule/At/IgnoreKey), ValidationRule, ValidationRules}.cs`, `Analysis/Checks/{StudyCheck, CapacityCheck, NarrowGapCheck}.cs`, `Study.IgnoredFindings`, `App/ViewModels/{MainViewModel.Check, CheckRowViewModel}.cs`, CHECK tab in `MainWindow.xaml`, `ViewportView.ZoomTo` |
 | Profile exchange (016) | `Core/Library/{ProfileBundle, ProfileReconciler, ReconcileKind, ReconcileAction, ReconcileItem, ReconcileChoice}.cs`, `IO/ProfileFile.cs`, `App/ViewModels/MainViewModel.Profiles.cs`, `App/Views/ReconcileDialog.xaml(.cs)`, `LibraryBrowserViewModel.SetProfiles`, LIBRARY ▸ AGENTS buttons |
 | Named views, box handles (016) | `Core/Model/SavedView.cs`, `Study.Views`, `FormatMigrations.UpgradeV9ToV10`, `App/ViewModels/{MainViewModel.NamedViews, SavedViewRowViewModel}.cs`, `ViewportView.{WriteCamera, ReadCamera, HandleAt, DragBoxFace}`, `Render/Scene/SectionBoxMesh.cs`, `SceneRenderer.{DrawSectionBox, TryGetBoxHandles}`, `ExplodeMap.Unwarp` |
+| Definitions (017) | `Core/Library/{StudyDefinitions, DistributionShape, DeviceBundle, DeviceReconciler}.cs`, `IO/DeviceFile.cs`, `App/ViewModels/{MainViewModel.Definitions, DeviceDefinitionViewModel, ProfileDefinitionViewModel, DistributionEditorViewModel}.cs`, `App/Views/DistributionPlot.cs`, `DistributionEditorTemplate` + SELECTION panels in `MainWindow.xaml`, `LibraryBrowserViewModel.{SetDevices, RefreshNotes}`, `MainViewModel.RefreshPlacePresets` |
+| 3D picking (017, 017b) | `App/Views/ViewportView.Edit3D.cs` (ray, floor pick, 3D pointer, `OpenObjectMenu`), `App/Editing/PlanEditor.ThreeD.cs` (`HasFloorAt`, `ActivateLevel`, `ObjectAt`, `Is3D`), `MainViewModel.ViewInPlan`, `SimEngine.StairEndLane` (D-300), `IEditorHost.ActivateLevel`, `EditorOverlay.Is3D`, `MainViewModel.DropDeviceIn3D` |
+| CHECK stale, capacity trim (017) | `MainViewModel.Check` (`IsCheckStale`, `MarkCheckStale`), `Analysis/Checks/CapacityFindings.cs` |
+| Journey editor (018b) | `Core/Library/{JourneyEdits, JourneyTargets}.cs`, `JourneyNode.{Picks, ChooseBy, Balk, PatienceS}`, `SimStep.{ChooseBy, Weights, Balk, PatienceS}`, `SimEngine.{ChooseDevice(rule), ChooseZone, OnwardS, ZoneLoad}`, `CapacityCheck.SplitByWeight`, `App/Views/{IJourneyCanvasHost, JourneyCanvas}.cs`, `App/ViewModels/{JourneyViewModels, JourneyNodeEditorViewModel}.cs`, `MainViewModel.Journeys` (`EditJourney`, `ResetJourney`, PICK IN PLAN), node editor panel in `MainWindow.xaml` |
+| Run overlay (019) | `Sim/Engine/{SimEngine.JourneyFlow, JourneyFlowResult, JourneyFlowWire, JourneyNodeStats, JourneyCandidateStats}.cs`, `RunResults.{Flows, FlowFor}`, `SimJourney.{JourneyId, NodeIds, SpawnId}`, `SimNode.PickPort`, `CapacityCheck.{FlowShares, PredictedShares}`, `Analysis/Checks/JourneyShares.cs`, `StudyCheck.RunWithModel`, `ResultsCsv.NodesCsv`, `App/Views/{JourneyOverlay, JourneyWireLabel}.cs`, `JourneyCanvas` (strip, `DrawWireLabels`, `StatsRow`), `JourneyViewModel.{Overlay, RefreshOverlay, RebuildOverlay, NodeLine}`, `App/ViewModels/{MainViewModel.JourneyFlow, JourneyRunRow}.cs`, `JourneyNodeEditorViewModel.{RunSummary, RunRows}`, `LibraryBrowserViewModel.IsJourneysTabSelected` |
+| Journey graphs (018a) | `Core/Library/{JourneyGraph (JourneyNode, JourneyWire, Problems, FromSteps, Builder), JourneyTemplate (Nodes, Wires, legacy Steps), JourneyZones}.cs`, `StudyTemplates.{JourneyFor, JourneyIdFor}`, `AgentProfileTemplate.DefaultJourneyId`, `MixLine.UseProfileJourney`, `FormatMigrations.UpgradeV10ToV11`, `ThrongFile.EnsureJourneyGraphs`, `Sim/SimJourneys.cs` (`SimNode`, `SimStep.Next/GaveUpNext`, `SimJourney.Start`), `SimSetup.CompileJourney`, `SimEngine.{GoToNode, BeginExit(sinkStep)}`, `SimEngine.JourneyResults` (sink buckets), `StudyValidator.ValidateJourney`, `CapacityCheck.{WalkNode, NodeShares}`, `App/Views/JourneyCanvas.cs`, `App/ViewModels/JourneyViewModels.cs` (node rows), `MainViewModel.Journeys` (`IsJourneyView`) |
+| Your library (020) | `Core/Library/{MyLibrary, LibrarySavePlan, LibraryImportResult}.cs`, `ReconcileKind.LibraryItem`, `ReconcileAction.Replace`, optional `mine` on `StudyTemplates.{FindProfile, FindJourney, AvailableProfiles, AvailableJourneys, CanEditJourney, Layered}` / `StudyDefinitions.{FindDevice, AvailableDevices}`, `JourneyTargets.{UsesPicks, PicksFallBack}`, `JourneyZones.PickedZones`, `ValidationRules.PicksFallback`, `IO/{UserLibraryStore, LibraryFile}.cs`, `App/ViewModels/MainViewModel.MyLibrary.cs`, `App/Views/TextPromptDialog.xaml(.cs)`, `ReconcileDialog` library mode, `LevelPickerDialog` OK label, MY LIBRARY block + SELECTION buttons in `MainWindow.xaml`, `MainWindow.OnLibraryItemRightClick` |
 | Clean script | `clean.bat` (repo root) |
 
 ## 8. Don't regress
 
-- Demo loads clean (0 errors, 0 warnings) and all tests pass (309 on 016; the wheelchair test expects > 95 % at the accessible gate, D-213).
+- Demo loads clean (0 errors, 0 warnings) and all tests pass (362 methods on 020; the wheelchair test expects > 95 % at the accessible gate, D-213).
+- Your library is never needed by a saved study or a run: MINE items are embedded on first use under their id (D-346),
+  with `EmbedReferencedFromMine` after every model change, before save and before a run. Tests never touch the real
+  `%AppData%` (the store's folder is a constructor parameter). Library writes keep `library.bak.json` (D-348).
 - Test helpers live in classes named for what they test, not the file (`VerticalCutTests.TwoLevelsWithStair` is in
   `ConnectorTests.cs`): grep for the class before calling a helper.
 - Demo PLAY runs: people cross all three levels; editing locks until RESET.
-- Older files open with their old behaviour (v1/v2: single-level fixed regions, single-run switchbacks; v1–v3: no emission rules; v1–v4: flat rates; v1–v5: one profile per rule, no journey, straight to a sink; v1–v6: no train services, doors emit continuously; v1–v7: no accessible flags, except the built-in accessible gate and wheelchair profile, upgraded on load; v1–v8: no lifts; v9 before 013b: automatic train boxes; lifts saved with Destination before 014 never existed, the factory mapped it to Collective; v1–v9: no saved views, nothing ignored).
+- Older files open with their old behaviour (v1/v2: single-level fixed regions, single-run switchbacks; v1–v3: no emission rules; v1–v4: flat rates; v1–v5: one profile per rule, no journey, straight to a sink; v1–v6: no train services, doors emit continuously; v1–v7: no accessible flags, except the built-in accessible gate and wheelchair profile, upgraded on load; v1–v8: no lifts; v9 before 013b: automatic train boxes; lifts saved with Destination before 014 never existed, the factory mapped it to Collective; v1–v9: no saved views, nothing ignored; v1–v10: journeys as step lists, converted to graphs on load, no profile default journeys except embedded built-ins).
 - Queuers, people being served and dwellers are never removed as stuck; device line membership is per agent (device, line, slot), never agent indices (the store swap-removes).
-- Built-in journeys (and their embedded copies, same id) stay read-only; only `StudyTemplates.IsEditableJourney` ones are edited. Steps and step lists are replaced, never mutated.
+- Built-in journeys are never changed in place: edits go to the study's copy under the built-in's id (D-328), looked up by id on every read (`JourneyViewModel.Journey`); `IsEditableJourney` = the study's own (DELETE), `CanEditJourney` = editable. Nodes and wires are records; edits go through `MainViewModel.EditJourney` (one undo step) and replace the lists.
+- Journey graphs have no loops (D-306); old step lists keep their behaviour after conversion (results match for the same seed).
+- The run overlay's counters never draw a random number (results match 018b for the same seed); only post-warm-up
+  spawns count (D-338); the overlay redraws through `Revision` only (no layout).
 - Editing shortcuts only fire while the viewport has focus; New from Demo is Ctrl+Shift+D (D-043).
 - Plan view ghosts the level below and ignores STUDY ▸ VIEW (no clip, no warp); 3D and ISO show all visible levels; Home re-frames.
+- 3D and ISO: left click selects only (D-298), right click opens VIEW IN PLAN, right-drag orbits, middle pans; every edit is in plan.
+- Built-in definitions are never changed in place: overrides are the study's copy under the same id.
 - Undo/redo for every edit; dirty marker in the title; save → reopen round-trips.
 - The viewport shows its offline panel (never crashes the app) if OpenGL can't start.
+
+## 9. After round 020
+
+Round 020 is built (`ai/rounds/round-020.md`: as built, test checklist, judgement calls, one open question). First fix
+any build errors Gavin reports. Round 021 is decided (D-352–D-365) in `ai/rounds/round-021.md`: build it next.
+Gavin's backlog (suggested order): seeded batch runs with averages (M8, round 021),
+replay scrubbing (M8), stadium-scale performance pass + stadium demo, one-page PDF report, group movement. Watch:
+overlay counter memory at stadium scale ((profiles × journeys) rows × nodes; fine at demo size).

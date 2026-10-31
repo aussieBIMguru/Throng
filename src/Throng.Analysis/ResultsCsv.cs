@@ -1,6 +1,8 @@
 using System.Globalization;
 using System.Text;
+using Throng.Analysis.Checks;
 using Throng.Core.Common;
+using Throng.Sim;
 using Throng.Sim.Engine;
 
 namespace Throng.Analysis;
@@ -9,7 +11,8 @@ namespace Throng.Analysis;
 /// CSV export of a run's results (round 011c, D-222; round 012, D-233): <c>devices.csv</c> (one row per device, after
 /// the warm-up), <c>zones.csv</c> (one row per measurement zone), <c>journeys.csv</c> (profile × journey rows) and
 /// <c>timeseries.csv</c> (one row per sample from the start, with a queue column per device and an occupancy column
-/// per zone), and <c>lifts.csv</c> (one row per lift bank, round 015, D-260). Invariant culture, comma separated, RFC 4180 quoting, UTF-8 without a byte order mark.
+/// per zone), <c>lifts.csv</c> (one row per lift bank, round 015, D-260) and <c>nodes.csv</c> (one row per journey node
+/// and wire, round 019, D-337). Invariant culture, comma separated, RFC 4180 quoting, UTF-8 without a byte order mark.
 /// </summary>
 public static class ResultsCsv
 {
@@ -27,6 +30,12 @@ public static class ResultsCsv
 
     /// <summary>File name of the lift bank table (D-260).</summary>
     public const string LiftsFileName = "lifts.csv";
+
+    /// <summary>File name of the journey node and wire table (D-337).</summary>
+    public const string NodesFileName = "nodes.csv";
+
+    /// <summary>The header of <see cref="NodesFileName"/>.</summary>
+    public const string NodesHeader = "Journey,Profile,Node,Kind,Port,To,Count,SharePct,PredictedPct,MeanWaitS,P95WaitS,GaveUp,Balked,MeanDwellS";
 
     private static readonly CultureInfo C = CultureInfo.InvariantCulture;
     private static readonly char[] QuoteChars = [',', '"', '\r', '\n'];
@@ -73,15 +82,20 @@ public static class ResultsCsv
         return text.ToString();
     }
 
-    /// <summary>The journey table as CSV text (D-229, D-233); <c>LongWaitS</c> repeats the setting on each row.</summary>
+    /// <summary>
+    /// The journey table as CSV text (D-229, D-233, D-312); <c>LongWaitS</c> repeats the setting on each row; <c>Sink</c>
+    /// is empty on journey and ALL rows.
+    /// </summary>
     public static string JourneysCsv(RunResults results)
     {
         var text = new StringBuilder();
-        text.Append("Profile,Journey,Finished,MeanS,P95S,AcceptableS,WithinAcceptablePct,LongWaitS,LongWaitPct,GaveUp,Stuck,InProgress\r\n");
+        text.Append("Profile,Journey,Sink,Finished,MeanS,P95S,AcceptableS,WithinAcceptablePct,LongWaitS,LongWaitPct,GaveUp,Stuck,InProgress\r\n");
         string longWait = results.LongWaitS.ToString("0", C);
         foreach (JourneyResult j in results.Journeys)
         {
-            text.Append(Quote(j.Profile)).Append(',').Append(Quote(j.Journey)).Append(',')
+            // Per-sink rows (D-312) carry the journey's own name and the sink in its own column.
+            string journey = j.IsSink && j.Journey.EndsWith(" ▸ " + j.Sink, StringComparison.Ordinal) ? j.Journey[..^(" ▸ ".Length + j.Sink.Length)] : j.Journey;
+            text.Append(Quote(j.Profile)).Append(',').Append(Quote(journey)).Append(',').Append(Quote(j.Sink)).Append(',')
                 .Append(j.Finished.ToString(C)).Append(',')
                 .Append(j.MeanS.ToString("0.0", C)).Append(',')
                 .Append(j.P95S.ToString("0.0", C)).Append(',')
@@ -117,6 +131,77 @@ public static class ResultsCsv
 
         return text.ToString();
     }
+
+    /// <summary>
+    /// The journey node and wire table as CSV text (D-337): per journey, the ALL rows then each profile's; per node a
+    /// row (<c>Port</c> empty: <c>Count</c> = reached, shares of the people who started) followed by a row per output
+    /// (<c>Count</c> = people who took it). <c>PredictedPct</c> comes from the capacity model when
+    /// <paramref name="model"/> (the run's) is given, else empty. The first row of each block is Spawn's output.
+    /// </summary>
+    public static string NodesCsv(RunResults results, SimModel? model = null)
+    {
+        var text = new StringBuilder();
+        text.Append(NodesHeader).Append("\r\n");
+        foreach (JourneyFlowResult flow in results.Flows)
+        {
+            JourneyShares? predicted = model is not null && flow.JourneyIndex >= 0 && flow.JourneyIndex < model.Journeys.Count
+                && model.Journeys[flow.JourneyIndex].JourneyId == flow.JourneyId
+                    ? CapacityCheck.PredictedShares(model, flow.JourneyIndex, flow.ProfileIndex)
+                    : null;
+            string journey = Quote(flow.JourneyName), profile = Quote(flow.Profile);
+            double started = flow.Started;
+            string Pct(double count) => started > 0 ? (100.0 * count / started).ToString("0.0", C) : "0.0";
+            string Pred(double share) => predicted is null ? string.Empty : (100.0 * share).ToString("0.0", C);
+
+            // Names: node labels, numbered when two share one ("Gate", "Gate 2").
+            var names = new Dictionary<Guid, string>();
+            var seen = new Dictionary<string, int>(StringComparer.Ordinal);
+            foreach (JourneyNodeStats node in flow.Nodes)
+            {
+                int n = seen.GetValueOrDefault(node.Label) + 1;
+                seen[node.Label] = n;
+                names[node.NodeId] = n > 1 ? $"{node.Label} {n.ToString(C)}" : node.Label;
+            }
+
+            string NameOf(Guid id) => id == Guid.Empty ? SimEngine.RuleSinksName : names.GetValueOrDefault(id, "?");
+            int w = 0;
+            if (flow.Wires.Count > 0)
+            {
+                JourneyFlowWire spawn = flow.Wires[0];
+                WireRow(text, journey, profile, "Spawn", "Spawn", spawn, NameOf(spawn.To), Pct(spawn.Count), Pred(predicted is null ? 0 : 1));
+                w = 1;
+            }
+
+            for (int n = 0; n < flow.Nodes.Count; n++)
+            {
+                JourneyNodeStats node = flow.Nodes[n];
+                bool device = node.Kind == "Device", dwell = node.Kind == "Dwell";
+                text.Append(journey).Append(',').Append(profile).Append(',').Append(Quote(names[node.NodeId])).Append(',').Append(Quote(node.Kind)).Append(",,,")
+                    .Append(node.Reached.ToString(C)).Append(',')
+                    .Append(Pct(node.Reached)).Append(',')
+                    .Append(Pred(predicted is not null && n < predicted.Nodes.Length ? predicted.Nodes[n] : 0)).Append(',')
+                    .Append(device ? node.MeanWaitS.ToString("0.0", C) : string.Empty).Append(',')
+                    .Append(device ? node.P95WaitS.ToString("0.0", C) : string.Empty).Append(',')
+                    .Append(device ? node.GaveUp.ToString(C) : string.Empty).Append(',')
+                    .Append(device ? node.Balked.ToString(C) : string.Empty).Append(',')
+                    .Append(dwell ? node.MeanDwellS.ToString("0.0", C) : string.Empty).Append("\r\n");
+
+                // This node's outputs follow it in the wire list (compiled order).
+                for (; w < flow.Wires.Count && flow.Wires[w].From == node.NodeId; w++)
+                {
+                    JourneyFlowWire wire = flow.Wires[w];
+                    WireRow(text, journey, profile, names[node.NodeId], node.Kind, wire, NameOf(wire.To), Pct(wire.Count), Pred(predicted?.WireAt(n, wire.Port) ?? 0));
+                }
+            }
+        }
+
+        return text.ToString();
+    }
+
+    private static void WireRow(StringBuilder text, string journey, string profile, string node, string kind, JourneyFlowWire wire, string to, string pct, string predicted) =>
+        text.Append(journey).Append(',').Append(profile).Append(',').Append(Quote(node)).Append(',').Append(Quote(kind)).Append(',')
+            .Append(wire.Port.ToString(C)).Append(',').Append(Quote(to)).Append(',')
+            .Append(wire.Count.ToString(C)).Append(',').Append(pct).Append(',').Append(predicted).Append(",,,,,\r\n");
 
     /// <summary>The time series as CSV text; <c>WarmUp</c> is 1 for samples inside the warm-up (D-218).</summary>
     public static string TimeSeriesCsv(RunResults results)
@@ -167,8 +252,11 @@ public static class ResultsCsv
         return text.ToString();
     }
 
-    /// <summary>Writes all five files into <paramref name="folder"/>, replacing any already there.</summary>
-    public static Result Export(RunResults results, string folder)
+    /// <summary>
+    /// Writes all six files into <paramref name="folder"/>, replacing any already there; <paramref name="model"/> (the
+    /// run's) adds the predicted shares to nodes.csv.
+    /// </summary>
+    public static Result Export(RunResults results, string folder, SimModel? model = null)
     {
         try
         {
@@ -179,6 +267,7 @@ public static class ResultsCsv
             File.WriteAllText(Path.Combine(folder, ZonesFileName), ZonesCsv(results), utf8);
             File.WriteAllText(Path.Combine(folder, JourneysFileName), JourneysCsv(results), utf8);
             File.WriteAllText(Path.Combine(folder, LiftsFileName), LiftsCsv(results), utf8);
+            File.WriteAllText(Path.Combine(folder, NodesFileName), NodesCsv(results, model), utf8);
             return Result.Ok();
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)

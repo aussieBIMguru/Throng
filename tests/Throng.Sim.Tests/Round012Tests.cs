@@ -153,8 +153,8 @@ public sealed class Round012Tests
         Assert.AreEqual("\"Gate line, count\",12.0,2.00,5,2.3,0.42,30,30.0,15.0", zones[1]);
 
         string[] journeys = ResultsCsv.JourneysCsv(results).Split("\r\n", StringSplitOptions.RemoveEmptyEntries);
-        Assert.AreEqual("Profile,Journey,Finished,MeanS,P95S,AcceptableS,WithinAcceptablePct,LongWaitS,LongWaitPct,GaveUp,Stuck,InProgress", journeys[0]);
-        Assert.AreEqual("Commuter,Through gates,20,61.2,90.0,600,95.0,120,10.0,1,0,4", journeys[1]);
+        Assert.AreEqual("Profile,Journey,Sink,Finished,MeanS,P95S,AcceptableS,WithinAcceptablePct,LongWaitS,LongWaitPct,GaveUp,Stuck,InProgress", journeys[0]);
+        Assert.AreEqual("Commuter,Through gates,,20,61.2,90.0,600,95.0,120,10.0,1,0,4", journeys[1]);
 
         string[] series = ResultsCsv.TimeSeriesCsv(results).Split("\r\n", StringSplitOptions.RemoveEmptyEntries);
         Assert.AreEqual("TimeS,WarmUp,InModel,ArrivalsPerMin,ExitsPerMin,PeakDensityPm2,\"Zone Gate line, count\"", series[0]);

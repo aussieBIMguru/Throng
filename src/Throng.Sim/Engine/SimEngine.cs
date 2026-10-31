@@ -64,6 +64,9 @@ public sealed partial class SimEngine
     // either one is stalled push each other at this share, so two people locked face to face can slip past.
     private const double StallS = 4.0, StallSocialFactor = 0.3;
 
+    /// <summary>Two-way stair ends (D-300): lane run-in / walk-out length, the range it applies in, and the walk-out time cap.</summary>
+    private const double StairEndLaneM = 2.0, StairEndRangeM = 8.0, StairEndOffS = 4.0;
+
     // Landing carry (D-137): after stepping from a flight onto a landing, keep going straight this far before turning,
     // so people don't cut the inner corner.
     private const double LandingCarryM = 0.6;
@@ -1103,6 +1106,11 @@ public sealed partial class SimEngine
             }
         }
 
+        if (_tuning.StairEndLanes && s.Kind == NavSurfaceKind.Floor && a.Phase[i] == AgentPhase.Walk)
+        {
+            StairEndLane(i, x, y, ref ex, ref ey);
+        }
+
         if (_tuning.WalkClear && s.Kind == NavSurfaceKind.Floor && a.OffPortal[i] >= 0 && TimeS - a.OffTime[i] < WalkClearS
             && !_world.Portals[a.OffPortal[i]].AllowsEntry)
         {
@@ -1329,6 +1337,85 @@ public sealed partial class SimEngine
     private bool IsStairLanding(NavSurface s) =>
         s.Kind == NavSurfaceKind.Piece && s.Motion == NavMotion.Walk && s.ConnectorIndex >= 0
         && _world.Connectors[s.ConnectorIndex].Kind is ConnectorKind.Stair or ConnectorKind.Ramp;
+
+    /// <summary>
+    /// Two-way stair and ramp ends (round 017b, D-300), so people getting on and off don't knot at the edge.
+    /// Stepping off: walk straight out (along the end's outward direction) for <see cref="StairEndLaneM"/> before
+    /// following the field, unless stalled or it's taking too long. Heading on: aim at a point on the line straight
+    /// out from the middle of your own (keep-side) half of the end: up to <see cref="StairEndLaneM"/> out, less when
+    /// already close or only a little to the side, so people merge into their lane at about 45° and walk the last
+    /// stretch straight on rather than cutting in along the edge.
+    /// </summary>
+    private void StairEndLane(int i, double x, double y, ref double ex, ref double ey)
+    {
+        AgentStore a = _agents;
+        if (a.Since[i] >= StallS)
+        {
+            return;
+        }
+
+        if (a.OffPortal[i] >= 0 && TimeS - a.OffTime[i] < StairEndOffS)
+        {
+            NavPortal off = _world.Portals[a.OffPortal[i]];
+            if (IsTwoWay(off) && !off.IsLiftLanding && IsStairOrRamp(off.Connector))
+            {
+                Point2 mid = (off.A + off.B) * 0.5;
+                double gone = ((x - mid.X) * off.Outward.X) + ((y - mid.Y) * off.Outward.Y);
+                if (gone < StairEndLaneM)
+                {
+                    ex = off.Outward.X;
+                    ey = off.Outward.Y;
+                    return;
+                }
+            }
+        }
+
+        int target = a.Target[i];
+        if (target < 0 || a.Mode[i] != AgentMode.ToPortal)
+        {
+            return;
+        }
+
+        NavPortal portal = _world.Portals[target];
+        if (!IsTwoWay(portal) || portal.IsLiftLanding || !IsStairOrRamp(portal.Connector))
+        {
+            return;
+        }
+
+        // The middle of your half of the end: left or right of the way in (−outward) by a quarter of its width.
+        Point2 along = portal.B - portal.A;
+        double width = along.Length;
+        Point2 centre = (portal.A + portal.B) * 0.5;
+        double ix = -portal.Outward.X, iy = -portal.Outward.Y;
+        double side = _model.KeepSide switch { KeepSide.Left => 1, KeepSide.Right => -1, _ => 0 };
+        double lx = -iy * side * width * 0.25, ly = ix * side * width * 0.25;
+        double laneX = centre.X + lx, laneY = centre.Y + ly;
+
+        double rx = x - laneX, ry = y - laneY;
+        double depth = (rx * portal.Outward.X) + (ry * portal.Outward.Y);
+        double lateral = Math.Abs((rx * -portal.Outward.Y) + (ry * portal.Outward.X));
+        if (depth < 0 || (depth * depth) + (lateral * lateral) > StairEndRangeM * StairEndRangeM)
+        {
+            return;
+        }
+
+        // Aim out along the lane by how far to the side you are (merge at ~45°), capped at the lane length and at
+        // your own depth (never walk back out); close and lined up, aim at the edge itself.
+        double aim = Math.Min(StairEndLaneM, Math.Min(lateral, depth));
+        double tx = laneX + (portal.Outward.X * aim) - x, ty = laneY + (portal.Outward.Y * aim) - y;
+        double m = Math.Sqrt((tx * tx) + (ty * ty));
+        if (m < 0.2)
+        {
+            return;
+        }
+
+        ex = tx / m;
+        ey = ty / m;
+    }
+
+    /// <summary>True for a stair or ramp connector (not a belt or a lift).</summary>
+    private bool IsStairOrRamp(int connector) =>
+        connector >= 0 && connector < _world.Connectors.Count && _world.Connectors[connector].Kind is ConnectorKind.Stair or ConnectorKind.Ramp;
 
     /// <summary>True for a connector end people both get on and off at (a two-way stair or ramp end).</summary>
     private static bool IsTwoWay(NavPortal portal) => portal.AllowsEntry && portal.AllowsExit;

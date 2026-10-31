@@ -6,7 +6,7 @@ Throng is a Windows desktop app (WPF, .NET 10) for testing circulation in early-
 stations, lobbies, stadium edges. It favours fast setup and legible, "roughly right" behaviour over scientific
 fidelity. Results are indicative only and are **not** compliance evidence.
 
-> Status: **Round 016 built (unbuilt in sandbox) — M7: CHECK tab with every rule (reachability, capacity, escalator direction, unused devices, narrow gaps), per-study ignore; .throngprofile export/import with reconcile; saved named views; section box handles in 3D; format v10.** Round 015 (M6 views) builds and runs. Next: round 017 (to be queried).
+> Status: **Round 020 built (unbuilt in sandbox, 362 tests) — your library across studies: SAVE TO MY LIBRARY, MINE rows in LIBRARY, embed on first use, DIFFERS / UPDATE FROM MY LIBRARY, rename / delete with a backup, `.thronglib` export / import.** Round 019 confirmed (builds, 346 tests pass).
 > 009c adds stair effort and standing rest so people prefer escalators unless queued. Builds; one test parked (wheelchair gate, D-176). Next: trains (timetables, door flows).
 > Round notes live in `ai/rounds/`, the product brief and roadmap in `ai/BRIEF.md`.
 > **How rounds work:** queries first (with recommendations), then build only what's decided. See `ai/PROTOCOL.md`.

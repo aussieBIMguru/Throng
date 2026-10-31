@@ -50,8 +50,9 @@ public static class ProfileFile
             bundle.Journeys.RemoveAll(j => j is null);
             foreach (JourneyTemplate journey in bundle.Journeys)
             {
-                journey.Steps ??= [];
-                journey.Steps.RemoveAll(s => s is null);
+                // Format 1 bundles hold step lists (D-302).
+                journey.Steps?.RemoveAll(s => s is null);
+                JourneyGraph.Ensure(journey);
             }
 
             bundle.Profile.DevicePreferences ??= [];

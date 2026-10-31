@@ -285,7 +285,8 @@ public sealed partial class PlanEditor
         switch (_gesture)
         {
             case Gesture.Pending:
-                if (Point2.Distance(raw, _pressPoint) / metresPerDip > DragThresholdPx)
+                // 3D and ISO only pick (round 017b, D-298): a press never turns into a move or a box.
+                if (!Is3D && Point2.Distance(raw, _pressPoint) / metresPerDip > DragThresholdPx)
                 {
                     BeginDrag();
                 }
@@ -836,12 +837,13 @@ public sealed partial class PlanEditor
         _dragPoint = raw;
         _pressModifiers = modifiers;
 
-        if (modifiers == ModifierKeys.None && TryStartRotate(raw))
+        if (modifiers == ModifierKeys.None && !Is3D && TryStartRotate(raw))
         {
             return;
         }
 
-        if (modifiers == ModifierKeys.None && GripTarget is { } target && TryHitGrip(target, raw, out int index, out GripKind kind))
+        // Vertex and edge grips are plan-only (D-292); 3D moves and rotates whole objects.
+        if (modifiers == ModifierKeys.None && !Is3D && GripTarget is { } target && TryHitGrip(target, raw, out int index, out GripKind kind))
         {
             if (kind == GripKind.Edge)
             {

@@ -39,6 +39,7 @@ public sealed partial class MainViewModel : ObservableObject
     {
         _dialogs = dialogs;
         _study = Study.CreateDefault();
+        InitialiseMyLibrary();
         Library = new LibraryBrowserViewModel(BuiltInLibrary.Instance);
         InitialiseEditing();
         InitialiseRun();
@@ -122,9 +123,11 @@ public sealed partial class MainViewModel : ObservableObject
         get => _viewMode;
         set
         {
+            // Picking a view (even the one underneath) closes the JOURNEY view (D-308).
+            IsJourneyView = false;
             if (SetProperty(ref _viewMode, value))
             {
-                // Editing is plan-only (D-026): leaving plan drops any shape in progress and returns to select.
+                // Drawing is plan-only (D-292): leaving plan drops any shape in progress and returns to select (3D selects and moves, D-291).
                 if (value != ViewMode.Plan)
                 {
                     Editor.Reset();
@@ -134,6 +137,9 @@ public sealed partial class MainViewModel : ObservableObject
                 OnPropertyChanged(nameof(IsPlanView));
                 OnPropertyChanged(nameof(IsOrbitView));
                 OnPropertyChanged(nameof(IsIsoView));
+                OnPropertyChanged(nameof(IsPlanButtonLit));
+                OnPropertyChanged(nameof(IsOrbitButtonLit));
+                OnPropertyChanged(nameof(IsIsoButtonLit));
                 OnPropertyChanged(nameof(IsViewControlsEnabled));
                 OnPropertyChanged(nameof(HudModeText));
                 if (!_restoringView && _activeViewId is not null)
@@ -145,8 +151,8 @@ public sealed partial class MainViewModel : ObservableObject
                 Ticker = value switch
                 {
                     ViewMode.Plan => "Plan view: editing the active level.",
-                    ViewMode.Iso => "ISO view: 2:1 isometric of every visible level ▸ [ and ] turn it ▸ STUDY ▸ VIEW cuts and explodes.",
-                    _ => "3D view: all visible levels ▸ STUDY ▸ VIEW cuts and explodes.",
+                    ViewMode.Iso => "ISO view: click selects, right-click ▸ VIEW IN PLAN to edit ▸ [ and ] turn it ▸ STUDY ▸ VIEW cuts and explodes.",
+                    _ => "3D view: click selects, right-click ▸ VIEW IN PLAN to edit ▸ STUDY ▸ VIEW cuts and explodes.",
                 };
             }
         }
@@ -368,6 +374,8 @@ public sealed partial class MainViewModel : ObservableObject
 
     private bool SaveTo(string path)
     {
+        // A saved study never depends on your library (D-016, D-346).
+        EmbedReferencedFromMine();
         var result = ThrongFile.Save(_study, path, _createdUtc);
         if (!result.IsSuccess)
         {
@@ -432,6 +440,7 @@ public sealed partial class MainViewModel : ObservableObject
     {
         // A new study ends any run on the old one (D-097).
         ResetRun();
+        SetPredictionModel(null, string.Empty);
         _study = study;
         _filePath = path;
         _createdUtc = createdUtc;
@@ -447,6 +456,7 @@ public sealed partial class MainViewModel : ObservableObject
         _clipLevelId = null;
         _clipEnabled = false;
         ClearCheck();
+        ClearDefinitionSelection();
         _activeViewId = null;
         RefreshViewRows();
 
@@ -464,10 +474,19 @@ public sealed partial class MainViewModel : ObservableObject
     /// <summary>Called after every do/undo/redo of a model change.</summary>
     private void OnModelChanged()
     {
+        // Anything from your library the change started using is embedded first (D-346).
+        EmbedReferencedFromMine();
         RefreshLevels();
         RefreshEditing();
         RefreshTrains();
+        MarkCheckStale();
         SyncCheckIgnored();
+        if (!_isRunActive)
+        {
+            // The graph or the study changed: the overlay's prediction is out of date (D-334).
+            SetPredictionModel(null, string.Empty);
+        }
+
         RefreshViewRows();
         OnPropertyChanged(nameof(StudyName));
         OnPropertyChanged(nameof(StartTimeText));

@@ -66,30 +66,32 @@ public static class BuiltInLibrary
     }
 
     /// <summary>
-    /// Built-in journeys (D-154). Steps ask for device types and zone tags, so they work in any study; the ticket
-    /// step is skipped by anyone already holding a "ticket" tag (D-150).
+    /// Built-in journeys (D-154, D-302). They ask for device types and zone tags, so they work in any study. The four
+    /// from round 009 are built from their old step lists, so they match the graphs older files convert to; the ticket
+    /// machine sits behind a "Has ticket?" check (D-305). "Gates then north or south train" shows branches: a Tag
+    /// check, a merge at the gates and a 50 / 50 Chance between two Board train sinks (the demo's service tags).
     /// </summary>
     private static void AddJourneys(TemplateLibrary lib)
     {
         const string cat = Categories.Journeys;
         const string ticket = "ticket";
 
-        lib.Add(Init(new JourneyTemplate
+        lib.Add(FromSteps(Init(new JourneyTemplate
         {
             Steps = [JourneyStep.ExitStep()],
-        }, "journey.straight-exit", "Straight to exit", cat, "#4ADE80", "Walk straight to a sink. The same as having no journey."));
+        }, "journey.straight-exit", "Straight to exit", cat, "#4ADE80", "Walk straight to a sink. The same as having no journey.")));
 
-        lib.Add(Init(new JourneyTemplate
+        lib.Add(FromSteps(Init(new JourneyTemplate
         {
             Steps = [JourneyStep.Device("Gate"), JourneyStep.ExitStep()],
-        }, "journey.through-gates", "Through gates", cat, "#22D3EE", "Pass a ticket gate (whichever is quickest, queue included), then leave."));
+        }, "journey.through-gates", "Through gates", cat, "#22D3EE", "Pass a ticket gate (whichever is quickest, queue included), then leave.")));
 
-        lib.Add(Init(new JourneyTemplate
+        lib.Add(FromSteps(Init(new JourneyTemplate
         {
             Steps = [JourneyStep.Device("TicketMachine", lacks: ticket, grants: ticket), JourneyStep.Device("Gate"), JourneyStep.ExitStep()],
-        }, "journey.ticket-gates", "Ticket then gates", cat, "#FACC15", "Buy a ticket at a machine unless already holding one, pass a gate, then leave."));
+        }, "journey.ticket-gates", "Ticket then gates", cat, "#FACC15", "Buy a ticket at a machine unless already holding one, pass a gate, then leave.")));
 
-        lib.Add(Init(new JourneyTemplate
+        lib.Add(FromSteps(Init(new JourneyTemplate
         {
             Steps =
             [
@@ -98,7 +100,27 @@ public static class BuiltInLibrary
                 JourneyStep.Device("Gate"),
                 JourneyStep.ExitStep(),
             ],
-        }, "journey.browse-gates", "Browse then gates", cat, "#FBBF24", "Linger 30–180 s in a zone tagged Retail, buy a ticket if needed, pass a gate, then leave."));
+        }, "journey.browse-gates", "Browse then gates", cat, "#FBBF24", "Linger 30–180 s in a zone tagged Retail, buy a ticket if needed, pass a gate, then leave.")));
+
+        JourneyTemplate train = Init(new JourneyTemplate(), "journey.gates-north-south", "Gates then north or south train", cat, "#38BDF8",
+            "Buy a ticket unless holding one, pass a gate, then board a Northbound or Southbound train (50 / 50). Needs train services tagged Northbound and Southbound, as in the demo.");
+        var graph = new JourneyGraph.Builder(train.Id);
+        Guid check = graph.Add(JourneyGraph.TagCheckNode(ticket), 1);
+        Guid machine = graph.Add(JourneyGraph.DeviceNode("TicketMachine", grants: ticket), 2, 1);
+        Guid gate = graph.Add(JourneyGraph.DeviceNode("Gate"), 3);
+        Guid chance = graph.Add(JourneyGraph.ChanceNode(50, 50), 4);
+        Guid north = graph.Add(JourneyGraph.TrainSinkNode("Northbound", "Northbound"), 5);
+        Guid south = graph.Add(JourneyGraph.TrainSinkNode("Southbound", "Southbound"), 5, 1);
+        graph.Wire(graph.Start, check).Wire(check, 0, gate).Wire(check, 1, machine).Wire(machine, gate).Wire(gate, chance)
+            .Wire(chance, 0, north).Wire(chance, 1, south);
+        lib.Add(graph.Apply(train));
+    }
+
+    /// <summary>Converts a built-in written as a step list into its graph (D-302).</summary>
+    private static JourneyTemplate FromSteps(JourneyTemplate journey)
+    {
+        JourneyGraph.Ensure(journey);
+        return journey;
     }
 
     private static void AddAgents(TemplateLibrary lib)
@@ -110,6 +132,7 @@ public static class BuiltInLibrary
             Speed = Distribution.Normal(1.45, 0.20, 0.9, 2.0),
             PatienceS = 180, Decisiveness = 0.9, LiftPreference = -0.6, MechanisedPreference = -0.2, EscalatorWalkProbability = 0.5, AcceptableJourneyS = 600,
             StairUpEffort = 1.5, StairDownEffort = 1.2, SightRadiusM = 40,
+            DefaultJourneyId = TemplateIds.FromKey("journey.through-gates"),
         }, "agent.commuter", "Commuter", cat, "#22D3EE", "Regular traveller. Fast, decisive, low patience; walks on escalators and avoids lifts.", version: 3));
 
         lib.Add(Init(new AgentProfileTemplate
@@ -117,6 +140,7 @@ public static class BuiltInLibrary
             Speed = Distribution.Normal(1.20, 0.22, 0.6, 1.8),
             PatienceS = 420, Decisiveness = 0.4, MechanisedPreference = 0.3, EscalatorWalkProbability = 0.1, AcceptableJourneyS = 900,
             SightRadiusM = 20,
+            DefaultJourneyId = TemplateIds.FromKey("journey.ticket-gates"),
         }, "agent.infrequent", "Infrequent traveller", cat, "#FACC15", "Tourist or occasional user. Slower and less decisive; often needs a ticket and the info desk.", version: 2));
 
         lib.Add(Init(new AgentProfileTemplate
@@ -125,6 +149,7 @@ public static class BuiltInLibrary
             StairUpFactor = 0.45, StairDownFactor = 0.55, PatienceS = 360, LiftPreference = 0.5, MechanisedPreference = 0.8, EscalatorWalkProbability = 0.05, AcceptableJourneyS = 900,
             DevicePreferences = [new DevicePreference { Target = AccessibleGateKey, BonusS = 15 }],
             StairUpEffort = 3.0, StairDownEffort = 2.0,
+            DefaultJourneyId = TemplateIds.FromKey("journey.ticket-gates"),
         }, "agent.luggage", "Luggage traveller", cat, "#FB923C", "Carrying bags or a case. Larger footprint, slower, prefers escalators and lifts over stairs, and the accessible gate.", version: 3));
 
         lib.Add(Init(new AgentProfileTemplate
@@ -132,6 +157,7 @@ public static class BuiltInLibrary
             RadiusM = 0.45, HeightM = 1.35, Speed = Distribution.Normal(0.90, 0.15, 0.5, 1.3),
             PatienceS = 600, LiftPreference = 1.0, MechanisedPreference = 1.0, LiftOnly = true, EscalatorWalkProbability = 0, AcceptableJourneyS = 1200,
             DevicePreferences = [new DevicePreference { Target = AccessibleGateKey, BonusS = 30 }], NeedsAccessibleDevices = true,
+            DefaultJourneyId = TemplateIds.FromKey("journey.through-gates"),
         }, MobilityProfileKey, "Mobility-impaired (wheelchair)", cat, "#A78BFA", "Wheelchair user. Lifts and ramps only; uses only accessible devices where there are any.", version: 3));
 
         lib.Add(Init(new AgentProfileTemplate
@@ -139,6 +165,7 @@ public static class BuiltInLibrary
             Speed = Distribution.Normal(0.95, 0.18, 0.5, 1.4),
             StairUpFactor = 0.45, StairDownFactor = 0.50, PatienceS = 600, Decisiveness = 0.5, LiftPreference = 0.4, MechanisedPreference = 0.6, EscalatorWalkProbability = 0.05, AcceptableJourneyS = 1200,
             StairUpEffort = 3.0, StairDownEffort = 2.0,
+            DefaultJourneyId = TemplateIds.FromKey("journey.ticket-gates"),
         }, "agent.elderly", "Elderly", cat, "#F9A8D4", "Slower walker with a higher stair penalty; more patient in queues.", version: 2));
 
         lib.Add(Init(new AgentProfileTemplate
@@ -146,6 +173,7 @@ public static class BuiltInLibrary
             RadiusM = 0.35, Speed = Distribution.Normal(1.00, 0.20, 0.5, 1.5),
             PatienceS = 300, Decisiveness = 0.5, LiftPreference = 0.2, MechanisedPreference = 0.5, EscalatorWalkProbability = 0.05, AcceptableJourneyS = 900,
             StairUpEffort = 3.0, StairDownEffort = 2.0,
+            DefaultJourneyId = TemplateIds.FromKey("journey.ticket-gates"),
         }, "agent.family", "Family / group", cat, "#86EFAC", "Small group modelled as one wider, slower agent. True group movement comes later.", version: 2));
 
         lib.Add(Init(new AgentProfileTemplate
@@ -153,12 +181,14 @@ public static class BuiltInLibrary
             Speed = Distribution.Normal(1.40, 0.15, 1.0, 1.9),
             PatienceS = 900, Decisiveness = 1.0, EscalatorWalkProbability = 0.5, AcceptableJourneyS = 1800,
             StairUpEffort = 1.5, StairDownEffort = 1.2,
+            DefaultJourneyId = TemplateIds.FromKey("journey.straight-exit"),
         }, "agent.staff", "Staff", cat, "#94A3B8", "Operator staff. Pinned routes and bypasses public queues (from M3).", version: 2));
 
         lib.Add(Init(new AgentProfileTemplate
         {
             Speed = Distribution.Normal(1.30, 0.25, 0.7, 2.0),
             PatienceS = 150, Decisiveness = 0.6, EscalatorWalkProbability = 0.4, AcceptableJourneyS = 1200, DensityTolerance = 0.9,
+            DefaultJourneyId = TemplateIds.FromKey("journey.through-gates"),
         }, "agent.fan", "Event fan", cat, "#F87171", "Stadium or event attendee. Arrives in surges, tolerates density, impatient at exits."));
     }
 

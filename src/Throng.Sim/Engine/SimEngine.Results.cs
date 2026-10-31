@@ -240,6 +240,7 @@ public sealed partial class SimEngine
             ZoneOccupancy = [.. _seriesZones],
             Journeys = CopyJourneyResults(),
             Lifts = CopyLiftResults(),
+            Flows = CopyJourneyFlow(),
         };
     }
 

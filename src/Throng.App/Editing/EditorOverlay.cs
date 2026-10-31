@@ -66,8 +66,15 @@ public sealed class EditorOverlay : FrameworkElement
     /// <summary>Maps plan metres to overlay DIPs (supplied by the viewport's plan camera).</summary>
     public Func<Point2, Point>? PlanToScreen { get; set; }
 
-    /// <summary>True in plan view; the overlay draws nothing in 3D.</summary>
+    /// <summary>True in plan view.</summary>
     public bool IsPlanActive { get; set; }
+
+    /// <summary>
+    /// True in 3D and ISO with SELECT (round 017, D-291, D-294): hover, selection, the rotate grip, the rubber band,
+    /// snaps and the drag ghost are drawn on the active level's floor plane (through <see cref="PlanToScreen"/>);
+    /// labels, trains, lifts and shape previews stay plan-only.
+    /// </summary>
+    public bool Is3D { get; set; }
 
     /// <summary>Text labels for the active level from the scene (connector UP / DN, D-062).</summary>
     public IReadOnlyList<PlanLabel> Labels { get; set; } = [];
@@ -82,7 +89,7 @@ public sealed class EditorOverlay : FrameworkElement
     /// <inheritdoc />
     protected override void OnRender(DrawingContext dc)
     {
-        if (!IsPlanActive || Editor is not { } editor || PlanToScreen is not { } map)
+        if (!(IsPlanActive || Is3D) || Editor is not { } editor || PlanToScreen is not { } map)
         {
             return;
         }
@@ -90,9 +97,12 @@ public sealed class EditorOverlay : FrameworkElement
         // Clip so previews can't spill over the HUD panels outside the viewport.
         dc.PushClip(new RectangleGeometry(new Rect(0, 0, ActualWidth, ActualHeight)));
 
-        DrawSceneLabels(dc, map);
-        DrawTrains(dc, map, editor);
-        DrawLifts(dc, map, editor);
+        if (IsPlanActive)
+        {
+            DrawSceneLabels(dc, map);
+            DrawTrains(dc, map, editor);
+            DrawLifts(dc, map, editor);
+        }
 
         DrawHover(dc, map, editor);
 
@@ -100,7 +110,11 @@ public sealed class EditorOverlay : FrameworkElement
         DrawSelection(dc, map, editor);
         DrawRotateGrip(dc, map, editor);
         DrawRubberBand(dc, map, editor);
-        DrawShapePreview(dc, map, editor);
+        if (IsPlanActive)
+        {
+            DrawShapePreview(dc, map, editor);
+        }
+
         DrawSnapMarker(dc, map, editor);
         DrawDragGhost(dc, map, editor);
 
@@ -276,7 +290,7 @@ public sealed class EditorOverlay : FrameworkElement
             }
         }
 
-        if (delta is null && editor.GripTarget is { } target)
+        if (delta is null && !editor.Is3D && editor.GripTarget is { } target)
         {
             IReadOnlyList<Point2> outline = vertexPreview is { } vp && vp.Id == target.Id ? vp.Outline : target.Outline;
             DrawGrips(dc, map, outline, target.Closed, editor.SelectedVertex, editor.MetresPerDip);
@@ -286,7 +300,7 @@ public sealed class EditorOverlay : FrameworkElement
     /// <summary>The rotate grip of a single selected connector: a stem from its far end and a round handle (D-063).</summary>
     private static void DrawRotateGrip(DrawingContext dc, Func<Point2, Point> map, PlanEditor editor)
     {
-        if (editor.MoveDelta is not null || editor.RotateGrip is not { } grip)
+        if (editor.Is3D || editor.MoveDelta is not null || editor.RotateGrip is not { } grip)
         {
             return;
         }
@@ -391,8 +405,18 @@ public sealed class EditorOverlay : FrameworkElement
             return;
         }
 
-        Rect rect = new(map(new Point2(band.Box.MinX, band.Box.MaxY)), map(new Point2(band.Box.MaxX, band.Box.MinY)));
-        dc.DrawRectangle(band.Crossing ? GreenFill : AccentFill, band.Crossing ? CrossingPen : WindowPen, rect);
+        // Four mapped corners, so the box lies on the floor plane in 3D too (round 017).
+        var geometry = new StreamGeometry();
+        using (StreamGeometryContext g = geometry.Open())
+        {
+            g.BeginFigure(map(new Point2(band.Box.MinX, band.Box.MinY)), isFilled: true, isClosed: true);
+            g.LineTo(map(new Point2(band.Box.MaxX, band.Box.MinY)), isStroked: true, isSmoothJoin: false);
+            g.LineTo(map(new Point2(band.Box.MaxX, band.Box.MaxY)), isStroked: true, isSmoothJoin: false);
+            g.LineTo(map(new Point2(band.Box.MinX, band.Box.MaxY)), isStroked: true, isSmoothJoin: false);
+        }
+
+        geometry.Freeze();
+        dc.DrawGeometry(band.Crossing ? GreenFill : AccentFill, band.Crossing ? CrossingPen : WindowPen, geometry);
     }
 
     private void DrawShapePreview(DrawingContext dc, Func<Point2, Point> map, PlanEditor editor)

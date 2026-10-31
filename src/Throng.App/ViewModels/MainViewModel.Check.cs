@@ -8,6 +8,7 @@ using Throng.Core.Geometry;
 using Throng.Core.Model;
 using Throng.Core.Validation;
 using Throng.Render.Gl;
+using Throng.Sim;
 
 namespace Throng.App.ViewModels;
 
@@ -30,6 +31,8 @@ public sealed partial class MainViewModel
     private bool _showIgnored;
     private bool _isChecking;
     private bool _hasChecked;
+    private bool _checkStale;
+    private bool _togglingIgnore;
     private string _checkSummary = "Press CHECK (F7) to run every rule over the study.";
     private RelayCommand? _runCheckCommand;
 
@@ -48,6 +51,12 @@ public sealed partial class MainViewModel
         get => _checkSummary;
         private set => SetProperty(ref _checkSummary, value);
     }
+
+    /// <summary>
+    /// True when the study changed after the findings shown were made (round 017, D-295): CHECK stays on demand, and
+    /// the tab says so until it runs again.
+    /// </summary>
+    public bool IsCheckStale => _checkStale;
 
     /// <summary>CHECK ▸ ALL chip.</summary>
     public bool IsCheckAll { get => _checkFilter is null; set => SetCheckFilter(null); }
@@ -89,9 +98,10 @@ public sealed partial class MainViewModel
         Ticker = "CHECKING ▸ rules, routes and capacity…";
         Study study = _study;
         IReadOnlyList<ValidationMessage>? findings = null;
+        SimModel? model = null;
         try
         {
-            findings = await Task.Run(() => StudyCheck.Run(study));
+            (findings, model) = await Task.Run(() => StudyCheck.RunWithModel(study));
         }
         catch (Exception ex)
         {
@@ -106,6 +116,12 @@ public sealed partial class MainViewModel
 
         if (findings is not null && ReferenceEquals(study, _study))
         {
+            // CHECK's compiled model gives the JOURNEY overlay's predicted shares (D-334), unless a run has its own.
+            if (model is not null && !_isRunActive)
+            {
+                SetPredictionModel(model, "CHECK");
+            }
+
             ShowCheck(findings, null);
         }
     }
@@ -122,6 +138,7 @@ public sealed partial class MainViewModel
         }
 
         _hasChecked = true;
+        SetCheckStale(false);
         RefreshCheckRows();
         PropertiesTabIndex = PropertiesTabCheck;
         Ticker = ticker ?? (Count(ValidationSeverity.Error) + Count(ValidationSeverity.Warning) == 0
@@ -177,7 +194,26 @@ public sealed partial class MainViewModel
     {
         _allCheckRows.Clear();
         _hasChecked = false;
+        SetCheckStale(false);
         RefreshCheckRows();
+    }
+
+    /// <summary>After a model change: findings already shown are out of date (ignoring one isn't a change to the study's design).</summary>
+    private void MarkCheckStale()
+    {
+        if (_hasChecked && !_togglingIgnore && !_checkStale)
+        {
+            SetCheckStale(true);
+        }
+    }
+
+    private void SetCheckStale(bool stale)
+    {
+        if (_checkStale != stale)
+        {
+            _checkStale = stale;
+            OnPropertyChanged(nameof(IsCheckStale));
+        }
     }
 
     private void ToggleIgnore(CheckRowViewModel row)
@@ -191,7 +227,15 @@ public sealed partial class MainViewModel
         string key = row.Finding.IgnoreKey;
         bool ignore = !_study.IgnoredFindings.Contains(key);
         List<string> next = ignore ? [.. _study.IgnoredFindings, key] : [.. _study.IgnoredFindings.Where(k => k != key)];
-        Apply(ignore ? "Ignore CHECK finding" : "Unignore CHECK finding", () => _study.IgnoredFindings, v => _study.IgnoredFindings = v, next);
+        _togglingIgnore = true;
+        try
+        {
+            Apply(ignore ? "Ignore CHECK finding" : "Unignore CHECK finding", () => _study.IgnoredFindings, v => _study.IgnoredFindings = v, next);
+        }
+        finally
+        {
+            _togglingIgnore = false;
+        }
     }
 
     /// <summary>Plan view on the finding's level, the object selected (when editing is allowed), and the view framed on it.</summary>
@@ -220,6 +264,32 @@ public sealed partial class MainViewModel
         PropertiesTabIndex = PropertiesTabCheck;
         ZoomToRequested?.Invoke(this, bounds);
         Ticker = "CHECK ▸ " + finding.Message;
+    }
+
+    /// <summary>
+    /// 3D right-click ▸ VIEW IN PLAN (round 017b, D-299): plan view on the object's level, the object selected (when
+    /// editing is allowed) and framed.
+    /// </summary>
+    public void ViewInPlan(Guid objectId)
+    {
+        (Guid? levelId, Bounds2 bounds) = Locate(new ValidationMessage(ValidationSeverity.Info, string.Empty, objectId));
+        if (levelId is null || bounds.IsEmpty)
+        {
+            return;
+        }
+
+        ViewMode = ViewMode.Plan;
+        if (Levels.FirstOrDefault(l => l.Id == levelId) is { } level && !ReferenceEquals(level, ActiveLevel))
+        {
+            ActiveLevel = level;
+        }
+
+        if (!_isRunActive)
+        {
+            Editor.Select(objectId);
+        }
+
+        ZoomToRequested?.Invoke(this, bounds);
     }
 
     /// <summary>The level and plan bounds a finding is about, or (null, empty).</summary>

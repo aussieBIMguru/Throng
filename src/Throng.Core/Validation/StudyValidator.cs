@@ -604,22 +604,23 @@ public static class StudyValidator
             {
                 foreach (MixLine line in rule.Mix ?? [])
                 {
-                    if (line is null || !(line.Share > 0) || line.JourneyId is not { } journeyId
+                    if (line is null || !(line.Share > 0)
                         || StudyTemplates.FindProfile(study, line.ProfileId) is not { NeedsAccessibleDevices: true } profile
-                        || StudyTemplates.FindJourney(study, journeyId) is not { } journey)
+                        || StudyTemplates.JourneyFor(study, line) is not { } journey)
                     {
                         continue;
                     }
 
-                    foreach (JourneyStep step in journey.Steps)
+                    JourneyGraph.Ensure(journey);
+                    foreach (JourneyNode node in JourneyGraph.Reachable(journey))
                     {
-                        if (step is not { Kind: JourneyStepKind.GoToDevice } || string.IsNullOrWhiteSpace(step.TargetTag)
-                            || !accessibleTags.Contains(step.TargetTag.Trim()))
+                        if (node is not { Kind: JourneyNodeKind.Device } || string.IsNullOrWhiteSpace(node.TargetTag)
+                            || !accessibleTags.Contains(node.TargetTag.Trim()))
                         {
                             continue;
                         }
 
-                        string tag = step.TargetTag.Trim();
+                        string tag = node.TargetTag.Trim();
                         foreach (IGrouping<Guid, Device> onLevel in study.Devices
                             .Where(d => string.Equals(d.TypeTag, tag, StringComparison.OrdinalIgnoreCase))
                             .GroupBy(d => d.LevelId))
@@ -641,7 +642,6 @@ public static class StudyValidator
 
     private static void ValidateMix(Study study, Region region, string label, EmissionRule rule, List<ValidationMessage> messages)
     {
-        CultureInfo c = CultureInfo.InvariantCulture;
         if (rule.Mix is not { } mix || !mix.Any(m => m is not null && m.Share > 0))
         {
             messages.Add(new ValidationMessage(ValidationSeverity.Warning, $"{label} has no mix line with a share above zero, so it emits no one.", region.Id));
@@ -662,7 +662,7 @@ public static class StudyValidator
                 messages.Add(new ValidationMessage(ValidationSeverity.Warning, $"{label} uses a profile that isn't in the library; Commuter is used instead.", region.Id));
             }
 
-            if (line.JourneyId is not { } journeyId || !checkedJourneys.Add(journeyId))
+            if (StudyTemplates.JourneyIdFor(study, line) is not { } journeyId || !checkedJourneys.Add(journeyId))
             {
                 continue;
             }
@@ -673,38 +673,78 @@ public static class StudyValidator
                 continue;
             }
 
-            for (int s = 0; s < journey.Steps.Count; s++)
+            ValidateJourney(study, journey, $"{label}: journey '{journey.Name}'", region.Id, deviceTags, messages);
+        }
+    }
+
+    /// <summary>
+    /// One journey graph (D-302–D-306): its structure (one Spawn, no loops, no broken or doubled wires, sane Chance
+    /// weights and tags are errors; unwired outputs and unreachable nodes warn), then what each node reachable from
+    /// Spawn asks for: device types, zones, sink zones and train services the study must have.
+    /// </summary>
+    private static void ValidateJourney(Study study, JourneyTemplate journey, string at, Guid regionId, HashSet<string> deviceTags, List<ValidationMessage> messages)
+    {
+        JourneyGraph.Ensure(journey);
+        foreach (JourneyGraphProblem problem in JourneyGraph.Problems(journey))
+        {
+            messages.Add(new ValidationMessage(problem.IsError ? ValidationSeverity.Error : ValidationSeverity.Warning, $"{at} {problem.Message}.", regionId) { Rule = ValidationRules.JourneyGraph });
+        }
+
+        foreach (JourneyNode node in JourneyGraph.Reachable(journey))
+        {
+            string where = $"{at} node '{node.Title}'";
+            string tag = node.TargetTag?.Trim() ?? string.Empty;
+
+            // Pick lists (D-318): every pick should still exist, and random-by-weight needs a weight above zero. Picks that
+            // match nothing in this study (a journey from your library, or every pick deleted) use the type / tag (D-349).
+            bool usesPicks = JourneyTargets.UsesPicks(study, node);
+            if (JourneyTargets.PicksFallBack(study, node))
             {
-                JourneyStep step = journey.Steps[s];
-                string at = string.Create(c, $"{label}: journey '{journey.Name}' step {s + 1}");
-                switch (step.Kind)
+                string by = node.Kind == JourneyNodeKind.Device ? "its device type" : "its zone tag";
+                messages.Add(new ValidationMessage(ValidationSeverity.Info, $"{where}: its picks aren't in this study, so it uses {by} instead.", regionId) { Rule = ValidationRules.PicksFallback });
+            }
+            else if (usesPicks)
+            {
+                int missing = JourneyTargets.MissingPicks(study, node).Count;
+                if (missing > 0)
                 {
-                    case JourneyStepKind.GoToDevice when string.IsNullOrWhiteSpace(step.TargetTag):
-                        messages.Add(new ValidationMessage(ValidationSeverity.Error, $"{at} doesn't say which device type to use.", region.Id));
-                        break;
-
-                    case JourneyStepKind.GoToDevice when !deviceTags.Contains(step.TargetTag):
-                        messages.Add(new ValidationMessage(ValidationSeverity.Error, $"{at} needs a '{step.TargetTag}' device, but the study has none.", region.Id));
-                        break;
-
-                    case JourneyStepKind.BoardTrain when TrainService.Matching(study, step.TargetTag).Count == 0:
-                        string service = string.IsNullOrWhiteSpace(step.TargetTag) ? "a train service" : $"a train service tagged '{step.TargetTag.Trim()}'";
-                        messages.Add(new ValidationMessage(ValidationSeverity.Error, $"{at} needs {service}, but the study has none.", region.Id));
-                        break;
-
-                    case JourneyStepKind.PassZone or JourneyStepKind.Dwell when JourneyZones.Matching(study, step).Count == 0:
-                        string zone = step.ZoneId is not null ? "its zone, which no longer exists" : string.IsNullOrEmpty(step.TargetTag) ? "a dwell zone" : $"a zone tagged '{step.TargetTag}'";
-                        messages.Add(new ValidationMessage(ValidationSeverity.Error, $"{at} needs {zone}, but the study has none.", region.Id));
-                        break;
+                    messages.Add(new ValidationMessage(ValidationSeverity.Warning, string.Create(CultureInfo.InvariantCulture, $"{where}: {missing} of its picks no longer exist; the rest are used."), regionId));
                 }
+            }
 
-                // Give-up pathway (D-165): a jump must land on a step of this journey.
-                if (step.Kind == JourneyStepKind.GoToDevice && step.OnGiveUp == JourneyGiveUp.JumpTo
-                    && (step.GiveUpStep < 0 || step.GiveUpStep >= journey.Steps.Count))
-                {
-                    messages.Add(new ValidationMessage(ValidationSeverity.Error,
-                        string.Create(c, $"{at} jumps to step {step.GiveUpStep + 1} when patience runs out, but the journey has {journey.Steps.Count} steps."), region.Id));
-                }
+            if (node.HasCandidates && node.ChooseBy == JourneyChooseBy.RandomWeighted && usesPicks
+                && !node.Picks!.Any(p => p is not null && JourneyTargets.WeightOf(node, p.Id) > 0))
+            {
+                messages.Add(new ValidationMessage(ValidationSeverity.Error, $"{where} chooses at random by weight, but every weight is zero.", regionId));
+            }
+
+            switch (node.Kind)
+            {
+                case JourneyNodeKind.Device when usesPicks:
+                    break;
+
+                case JourneyNodeKind.Device when tag.Length == 0:
+                    messages.Add(new ValidationMessage(ValidationSeverity.Error, $"{where} doesn't say which device type to use.", regionId));
+                    break;
+
+                case JourneyNodeKind.Device when !deviceTags.Contains(tag):
+                    messages.Add(new ValidationMessage(ValidationSeverity.Error, $"{where} needs a '{tag}' device, but the study has none.", regionId));
+                    break;
+
+                case JourneyNodeKind.Sink when node.SinkKind == JourneySinkKind.BoardTrain && TrainService.Matching(study, tag).Count == 0:
+                    string service = tag.Length == 0 ? "a train service" : $"a train service tagged '{tag}'";
+                    messages.Add(new ValidationMessage(ValidationSeverity.Error, $"{where} needs {service}, but the study has none.", regionId));
+                    break;
+
+                case JourneyNodeKind.Sink when node.SinkKind == JourneySinkKind.Zone && JourneyZones.Matching(study, node).Count == 0:
+                    string sink = node.ZoneId is not null ? "its sink zone, which no longer exists or isn't a sink" : tag.Length == 0 ? "a sink zone" : $"a sink zone tagged '{tag}'";
+                    messages.Add(new ValidationMessage(ValidationSeverity.Error, $"{where} needs {sink}, but the study has none.", regionId));
+                    break;
+
+                case JourneyNodeKind.PassZone or JourneyNodeKind.Dwell when JourneyZones.Matching(study, node).Count == 0:
+                    string zone = node.ZoneId is not null ? "its zone, which no longer exists" : tag.Length == 0 ? (node.Kind == JourneyNodeKind.Dwell ? "a dwell zone" : "a zone") : $"a zone tagged '{tag}'";
+                    messages.Add(new ValidationMessage(ValidationSeverity.Error, $"{where} needs {zone}, but the study has none.", regionId));
+                    break;
             }
         }
     }

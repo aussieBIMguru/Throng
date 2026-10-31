@@ -84,10 +84,11 @@ public static class SimSetup
                         profiles.Add(new SimProfile { Index = p, Template = template, Mobility = NavRoutes.ClassOf(template), R = r, G = g, B = b });
                     }
 
+                    // The line's journey, or the profile's default one (D-304).
                     int j = -1;
-                    if (mix.JourneyId is { } journeyId && StudyTemplates.FindJourney(study, journeyId) is { } journey
-                        && !journeyIndex.TryGetValue(journey.Id, out j))
+                    if (StudyTemplates.JourneyFor(study, mix) is { } journey && !journeyIndex.TryGetValue(journey.Id, out j))
                     {
+                        JourneyGraph.Ensure(journey);
                         j = journeyTemplates.Count;
                         journeyIndex[journey.Id] = j;
                         journeyTemplates.Add(journey);
@@ -140,7 +141,11 @@ public static class SimSetup
         int[] BoardTargets(string? tag) =>
             [.. TrainService.Matching(study, tag).SelectMany(t => t.DoorZoneIds).Select(id => exitByRegion.GetValueOrDefault(id, -1)).Where(s => s >= 0).Distinct()];
 
-        List<SimJourney> journeys = [.. journeyTemplates.Select((t, index) => CompileJourney(study, t, index, devices, zoneTargets, BoardTargets, tags, findings))];
+        // Zone sinks (D-303) leave at the exit sinks of their matching sink zones.
+        int[] SinkTargets(JourneyNode node) =>
+            [.. JourneyZones.Matching(study, node).Select(z => exitByRegion.GetValueOrDefault(z.Id, -1)).Where(s => s >= 0).Distinct()];
+
+        List<SimJourney> journeys = [.. journeyTemplates.Select((t, index) => CompileJourney(study, t, index, devices, zoneTargets, BoardTargets, SinkTargets, s => nav.Sinks[s].RegionId, tags, findings))];
 
         cancel.ThrowIfCancellationRequested();
         NavRoutes routes = NavRoutes.Build(nav, profiles.Any(p => p.Mobility == MobilityClass.StepFree), cancel);
@@ -227,7 +232,7 @@ public static class SimSetup
                 MobilityClass mobility = profiles[line.Profile].Mobility;
                 foreach (SimStep step in journeys[line.Journey].Steps)
                 {
-                    if (step.Kind == JourneyStepKind.Exit)
+                    if (step.Kind == JourneyStepKind.Exit && step.Targets.Length == 0)
                     {
                         continue;
                     }
@@ -467,19 +472,30 @@ public static class SimSetup
     }
 
     /// <summary>
-    /// The devices some journey step asks for (by type tag), with their service areas as route targets and their
+    /// The devices some journey device node asks for (by type tag), with their service areas as route targets and their
     /// queue lines (D-152, D-153).
     /// </summary>
     private static List<SimDevice> BuildDevices(Study study, NavWorld nav, List<JourneyTemplate> journeys, List<NavSink> extraTargets, List<ValidationMessage> findings)
     {
         var wanted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var wantedIds = new HashSet<Guid>();
         foreach (JourneyTemplate journey in journeys)
         {
-            foreach (JourneyStep step in journey.Steps)
+            foreach (JourneyNode node in journey.Nodes)
             {
-                if (step is { Kind: JourneyStepKind.GoToDevice } && !string.IsNullOrWhiteSpace(step.TargetTag))
+                if (node is not { Kind: JourneyNodeKind.Device })
                 {
-                    wanted.Add(step.TargetTag.Trim());
+                    continue;
+                }
+
+                if (JourneyTargets.UsesPicks(study, node))
+                {
+                    // Picked devices (D-318) are built whatever their type; picks that match nothing here use the type (D-349).
+                    wantedIds.UnionWith(node.Picks!.Where(p => p is not null).Select(p => p.Id));
+                }
+                else if (!string.IsNullOrWhiteSpace(node.TargetTag))
+                {
+                    wanted.Add(node.TargetTag.Trim());
                 }
             }
         }
@@ -489,7 +505,7 @@ public static class SimSetup
         int laneBase = 0, lineBase = 0;
         foreach (Device device in study.Devices)
         {
-            if (!wanted.Contains(device.TypeTag ?? string.Empty) || !nav.FloorByLevel.TryGetValue(device.LevelId, out int floor))
+            if ((!wanted.Contains(device.TypeTag?.Trim() ?? string.Empty) && !wantedIds.Contains(device.Id)) || !nav.FloorByLevel.TryGetValue(device.LevelId, out int floor))
             {
                 continue;
             }
@@ -602,13 +618,13 @@ public static class SimSetup
         return points;
     }
 
-    /// <summary>Route targets for every zone a journey's zone step can use (D-149), keyed by region id.</summary>
+    /// <summary>Route targets for every zone a journey's zone node can use (D-149), keyed by region id.</summary>
     private static Dictionary<Guid, int> BuildZoneTargets(Study study, NavWorld nav, List<JourneyTemplate> journeys, List<NavSink> extraTargets, List<ValidationMessage> findings)
     {
         var targets = new Dictionary<Guid, int>();
-        foreach (JourneyStep step in journeys.SelectMany(j => j.Steps).Where(s => s is { Kind: JourneyStepKind.PassZone or JourneyStepKind.Dwell }))
+        foreach (JourneyNode node in journeys.SelectMany(j => j.Nodes).Where(n => n is { Kind: JourneyNodeKind.PassZone or JourneyNodeKind.Dwell }))
         {
-            foreach (Region zone in JourneyZones.Matching(study, step))
+            foreach (Region zone in JourneyZones.Matching(study, node))
             {
                 if (targets.ContainsKey(zone.Id) || !nav.FloorByLevel.TryGetValue(zone.LevelId, out int floor))
                 {
@@ -632,73 +648,143 @@ public static class SimSetup
         return targets;
     }
 
-    /// <summary>Compiles a journey's steps against the devices and zone targets; the result always ends in an exit.</summary>
+    /// <summary>
+    /// Compiles a journey graph (D-302) against the devices and targets: every node reachable from Spawn becomes a
+    /// <see cref="SimNode"/>, the action nodes (devices, zones, sinks) also a <see cref="SimStep"/>; unwired outputs
+    /// lead to −1 (leave by the rule's sinks). Loops are refused by validation before this runs (D-306).
+    /// </summary>
     private static SimJourney CompileJourney(
         Study study, JourneyTemplate template, int index, List<SimDevice> devices, Dictionary<Guid, int> zoneTargets, Func<string?, int[]> boardTargets,
-        TagTable tags, List<ValidationMessage> findings)
+        Func<JourneyNode, int[]> sinkTargets, Func<int, Guid> sinkRegion, TagTable tags, List<ValidationMessage> findings)
     {
-        // Template step index → compiled index (null steps and anything after the first exit are dropped), so a
-        // give-up jump (D-165) lands on the step the editor showed.
-        var compiledIndex = new int[template.Steps.Count];
-        int next = 0;
-        bool ended = false;
-        for (int k = 0; k < template.Steps.Count; k++)
+        JourneyGraph.Ensure(template);
+        List<JourneyNode> reachable = [.. JourneyGraph.Reachable(template).Where(n => n.Kind != JourneyNodeKind.Spawn)];
+        var nodeIndex = new Dictionary<Guid, int>();
+        for (int k = 0; k < reachable.Count; k++)
         {
-            JourneyStep? candidate = template.Steps[k];
-            compiledIndex[k] = ended || candidate is null ? -1 : next++;
-            ended |= candidate is { EndsJourney: true };
+            nodeIndex[reachable[k].Id] = k;
         }
 
+        int NextOf(JourneyNode node, int port) =>
+            JourneyGraph.Next(template, node.Id, port) is { } next && nodeIndex.TryGetValue(next.Id, out int k) ? k : -1;
+
+        var nodes = new SimNode[reachable.Count];
         var steps = new List<SimStep>();
-        foreach (JourneyStep step in template.Steps)
+        for (int k = 0; k < reachable.Count; k++)
         {
-            if (step is null)
+            JourneyNode node = reachable[k];
+            int[] next = [.. Enumerable.Range(0, JourneyGraph.OutputCount(node)).Select(port => NextOf(node, port))];
+            string tag = node.TargetTag?.Trim() ?? string.Empty;
+            switch (node.Kind)
             {
-                continue;
+                case JourneyNodeKind.Chance:
+                {
+                    IReadOnlyList<double> shares = JourneyGraph.Percentages(node);
+                    var cumulative = new double[shares.Count];
+                    double total = 0;
+                    for (int port = 0; port < shares.Count; port++)
+                    {
+                        total += shares[port] / 100.0;
+                        cumulative[port] = total;
+                    }
+
+                    if (cumulative.Length > 0)
+                    {
+                        cumulative[^1] = 1.0;
+                    }
+
+                    nodes[k] = new SimNode { Kind = SimNodeKind.Chance, Next = next, Cumulative = cumulative };
+                    continue;
+                }
+
+                case JourneyNodeKind.TagCheck:
+                    nodes[k] = new SimNode { Kind = SimNodeKind.TagCheck, Next = next, Bit = tags.Bit(tag, findings) ?? 0 };
+                    continue;
+
+                case JourneyNodeKind.SetTag:
+                    nodes[k] = new SimNode { Kind = SimNodeKind.SetTag, Next = next, Bit = tags.Bit(tag, findings) ?? 0, Remove = node.RemoveTag };
+                    continue;
             }
 
-            int giveUpStep = step.OnGiveUp == JourneyGiveUp.JumpTo && step.GiveUpStep >= 0 && step.GiveUpStep < compiledIndex.Length
-                ? compiledIndex[step.GiveUpStep]
-                : -1;
+            JourneyStepKind kind = node.StepKind ?? JourneyStepKind.Exit;
+            // Candidates and their weights (D-318, D-321): picked devices / zones, or by type / tag (weight 1).
+            int[] targets;
+            double[] weights = [];
+            switch (node.Kind)
+            {
+                case JourneyNodeKind.Device:
+                {
+                    HashSet<Guid> ids = [.. JourneyTargets.Devices(study, node).Select(d => d.Id)];
+                    SimDevice[] chosen = [.. devices.Where(d => ids.Contains(d.DeviceId))];
+                    targets = [.. chosen.Select(d => d.Index)];
+                    weights = [.. chosen.Select(d => JourneyTargets.WeightOf(node, d.DeviceId))];
+                    break;
+                }
 
-            int[] targets = step.Kind switch
+                case JourneyNodeKind.PassZone or JourneyNodeKind.Dwell:
+                {
+                    Region[] zones = [.. JourneyZones.Matching(study, node).Where(z => zoneTargets.GetValueOrDefault(z.Id, -1) >= 0)];
+                    targets = [.. zones.Select(z => zoneTargets[z.Id])];
+                    weights = [.. zones.Select(z => JourneyTargets.WeightOf(node, z.Id))];
+                    break;
+                }
+
+                case JourneyNodeKind.Sink when node.SinkKind == JourneySinkKind.BoardTrain:
+                    targets = boardTargets(tag);
+                    break;
+
+                case JourneyNodeKind.Sink when node.SinkKind == JourneySinkKind.Zone:
+                {
+                    Region[] zones = [.. JourneyZones.Matching(study, node)];
+                    targets = sinkTargets(node);
+                    weights = [.. targets.Select(t => zones.FirstOrDefault(r => sinkRegion(t) == r.Id) is { } zone ? JourneyTargets.WeightOf(node, zone.Id) : 1)];
+                    break;
+                }
+
+                default:
+                    targets = [];
+                    break;
+            }
+
+            string label = !string.IsNullOrWhiteSpace(node.Label) ? node.Label.Trim() : node.Kind switch
             {
-                JourneyStepKind.GoToDevice => [.. devices.Where(d => string.Equals(d.TypeTag, step.TargetTag?.Trim(), StringComparison.OrdinalIgnoreCase)).Select(d => d.Index)],
-                JourneyStepKind.PassZone or JourneyStepKind.Dwell => [.. JourneyZones.Matching(study, step).Select(z => zoneTargets.GetValueOrDefault(z.Id, -1)).Where(t => t >= 0)],
-                JourneyStepKind.BoardTrain => boardTargets(step.TargetTag),
-                _ => [],
+                JourneyNodeKind.Device => tag.Length == 0 ? "device" : tag,
+                JourneyNodeKind.Sink when node.SinkKind == JourneySinkKind.BoardTrain => tag.Length == 0 ? "train" : $"{tag} train",
+                JourneyNodeKind.Sink => node.Title,
+                _ => tag.Length == 0 ? "zone" : tag,
             };
-            string label = step.Kind switch
-            {
-                JourneyStepKind.GoToDevice => string.IsNullOrWhiteSpace(step.TargetTag) ? "device" : step.TargetTag.Trim(),
-                JourneyStepKind.Exit => "exit",
-                JourneyStepKind.BoardTrain => string.IsNullOrWhiteSpace(step.TargetTag) ? "train" : $"{step.TargetTag.Trim()} train",
-                _ => string.IsNullOrWhiteSpace(step.TargetTag) ? "zone" : step.TargetTag.Trim(),
-            };
+            nodes[k] = new SimNode { Kind = SimNodeKind.Step, Step = steps.Count, Next = next };
             steps.Add(new SimStep
             {
-                Kind = step.Kind,
+                Kind = kind,
                 Targets = targets,
-                Needs = tags.Bit(step.NeedsTag, findings) ?? 0,
-                Lacks = tags.Bit(step.LacksTag, findings) ?? 0,
-                Grants = tags.Bit(step.GrantsTag, findings) ?? 0,
-                Dwell = step.DwellS ?? Distribution.Fixed(0),
+                Grants = node.Kind == JourneyNodeKind.Sink ? 0 : tags.Bit(node.GrantsTag, findings) ?? 0,
+                Dwell = node.DwellS ?? JourneyGraph.DefaultDwell,
                 Label = label,
-                OnGiveUp = step.Kind == JourneyStepKind.GoToDevice ? step.OnGiveUp : JourneyGiveUp.KeepWaiting,
-                GiveUpStep = giveUpStep,
+                OnGiveUp = node.Kind == JourneyNodeKind.Device ? node.OnGiveUp : JourneyGiveUp.KeepWaiting,
+                ChooseBy = node.HasCandidates ? node.ChooseBy : JourneyChooseBy.Quickest,
+                Weights = weights,
+                Balk = node.Kind == JourneyNodeKind.Device ? node.Balk : JourneyBalk.Default,
+                PatienceS = node.Kind == JourneyNodeKind.Device && node.PatienceS is { } patience && double.IsFinite(patience) && patience > 0 ? patience : double.NaN,
+                Node = k,
+                Next = next.Length > 0 ? next[0] : -1,
+                GaveUpNext = node.Kind == JourneyNodeKind.Device && next.Length > 1 ? next[1] : -1,
             });
-            if (step.EndsJourney)
-            {
-                break;
-            }
         }
 
-        if (steps.Count == 0 || steps[^1].Kind is not (JourneyStepKind.Exit or JourneyStepKind.BoardTrain))
+        JourneyNode? spawnNode = JourneyGraph.Spawn(template);
+        int start = spawnNode is not null && JourneyGraph.Next(template, spawnNode.Id, 0) is { } first && nodeIndex.TryGetValue(first.Id, out int s0) ? s0 : -1;
+        return new SimJourney
         {
-            steps.Add(new SimStep { Kind = JourneyStepKind.Exit, Targets = [], Needs = 0, Lacks = 0, Grants = 0, Dwell = Distribution.Fixed(0), Label = "exit" });
-        }
-
-        return new SimJourney { Index = index, Name = template.Name, Steps = [.. steps] };
+            Index = index,
+            Name = template.Name,
+            Steps = [.. steps],
+            Nodes = nodes,
+            Start = start,
+            JourneyId = template.Id,
+            NodeIds = [.. reachable.Select(n => n.Id)],
+            SpawnId = spawnNode?.Id ?? Guid.Empty,
+        };
     }
 
     /// <summary>Depth of the drawn train box beyond the platform edge, and how far it runs past the end doors, metres.</summary>
