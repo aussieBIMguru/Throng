@@ -12,13 +12,13 @@ namespace Throng.Sim.Tests;
 public sealed class Round009cTests
 {
     [TestMethod]
-    public void BuiltIns_StairEffort_CommutersMildest_LuggageElderlyFamilyStrongest()
+    public void BuiltIns_StairEffort_CommutersMildest_LuggageElderlyStrongest()
     {
         static AgentProfileTemplate P(string key) => (AgentProfileTemplate)BuiltInLibrary.Instance.FindByKey(key)!;
         Assert.AreEqual(AgentProfileTemplate.DefaultStairUpEffort, P("agent.infrequent").StairUpEffort);
         Assert.AreEqual(AgentProfileTemplate.DefaultStairDownEffort, P("agent.infrequent").StairDownEffort);
         Assert.IsTrue(P("agent.commuter").StairUpEffort < P("agent.infrequent").StairUpEffort);
-        foreach (string key in new[] { "agent.luggage", "agent.elderly", "agent.family" })
+        foreach (string key in new[] { "agent.luggage", "agent.elderly" })
         {
             Assert.IsTrue(P(key).StairUpEffort > P("agent.infrequent").StairUpEffort, key);
             Assert.IsTrue(P(key).StairDownEffort > P("agent.infrequent").StairDownEffort, key);

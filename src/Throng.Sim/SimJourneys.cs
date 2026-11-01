@@ -151,11 +151,54 @@ public sealed class SimJourney
     public int[] SinkSteps => [.. Enumerable.Range(0, Steps.Length).Where(k => Steps[k].IsSink)];
 }
 
-/// <summary>One line of an emitter's mix ready to run (D-151).</summary>
+/// <summary>One line of an emitter's mix ready to run (D-151); since round 024 possibly a line of groups (D-386).</summary>
 public sealed class SimMixLine
 {
-    /// <summary>Index into <see cref="SimModel.Profiles"/>.</summary>
+    /// <summary>Index into <see cref="SimModel.Profiles"/>: the profile of single people, or a group's lead (first row).</summary>
     public required int Profile { get; init; }
+
+    /// <summary>
+    /// Index into <see cref="SimModel.RouteProfiles"/> of the profile that makes this line's choices: <see cref="Profile"/>
+    /// for single people; for groups the lead's profile with every member's hard needs (D-387).
+    /// </summary>
+    public int RouteProfile { get; init; } = -1;
+
+    /// <summary>Group member rows (profile index, min, max), empty for single people (D-382).</summary>
+    public (int Profile, int Min, int Max)[] Members { get; init; } = [];
+
+    /// <summary>Group template name, empty for single people.</summary>
+    public string GroupName { get; init; } = string.Empty;
+
+    /// <summary>True for a line of groups.</summary>
+    public bool IsGroup => Members.Length > 0;
+
+    /// <summary>Mean people per spawn: 1 for single people, the group's mean size otherwise (D-386).</summary>
+    public double MeanSize { get; init; } = 1;
+
+    /// <summary>
+    /// Weight when picking which line spawns next: the share for single people (so studies without groups draw as
+    /// before); share ÷ mean size for groups, so shares stay shares of people (D-386).
+    /// </summary>
+    public double PickWeight => IsGroup ? Share / Math.Max(1, MeanSize) : Share;
+
+    /// <summary>True when this line brings people of profile <paramref name="profile"/> (its own, or a group member's).</summary>
+    public bool HasProfile(int profile)
+    {
+        if (!IsGroup)
+        {
+            return Profile == profile;
+        }
+
+        foreach ((int p, int _, int _) in Members)
+        {
+            if (p == profile)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     /// <summary>Index into <see cref="SimModel.Journeys"/>, or −1 to walk straight to a sink.</summary>
     public required int Journey { get; init; }

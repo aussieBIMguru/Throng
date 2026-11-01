@@ -604,8 +604,9 @@ public static class StudyValidator
             {
                 foreach (MixLine line in rule.Mix ?? [])
                 {
+                    // A group with someone who needs accessible devices: the whole group does (D-387).
                     if (line is null || !(line.Share > 0)
-                        || StudyTemplates.FindProfile(study, line.ProfileId) is not { NeedsAccessibleDevices: true } profile
+                        || StudyTemplates.LineProfiles(study, line).FirstOrDefault(p => p.NeedsAccessibleDevices) is not { } profile
                         || StudyTemplates.JourneyFor(study, line) is not { } journey)
                     {
                         continue;
@@ -657,7 +658,32 @@ public static class StudyValidator
                 continue;
             }
 
-            if (StudyTemplates.FindProfile(study, line.ProfileId) is null)
+            if (line.GroupId is { } groupId)
+            {
+                // Group lines (round 024, D-382): the template and its member profiles.
+                if (StudyTemplates.FindGroup(study, groupId) is not { } group)
+                {
+                    messages.Add(new ValidationMessage(ValidationSeverity.Warning, $"{label} uses a group that isn't in the library; single Commuters are used instead.", region.Id));
+                }
+                else if (!group.Rows().Any(m => Math.Max(m.Min, m.Max) > 0))
+                {
+                    messages.Add(new ValidationMessage(ValidationSeverity.Warning, $"{label}: group '{group.Name}' has no members; single Commuters are used instead.", region.Id));
+                }
+                else
+                {
+                    if (group.Rows().Any(m => StudyTemplates.FindProfile(study, m.ProfileId) is null))
+                    {
+                        messages.Add(new ValidationMessage(ValidationSeverity.Warning, $"{label}: group '{group.Name}' uses a profile that isn't in the library; Commuter is used instead.", region.Id));
+                    }
+
+                    if (group.Rows().Sum(m => Math.Max(0, m.Min)) > GroupTemplate.MaxPeople)
+                    {
+                        messages.Add(new ValidationMessage(ValidationSeverity.Warning,
+                            $"{label}: group '{group.Name}' needs more than {GroupTemplate.MaxPeople} people; groups are cut to {GroupTemplate.MaxPeople}, from the last rows.", region.Id));
+                    }
+                }
+            }
+            else if (StudyTemplates.FindProfile(study, line.ProfileId) is null)
             {
                 messages.Add(new ValidationMessage(ValidationSeverity.Warning, $"{label} uses a profile that isn't in the library; Commuter is used instead.", region.Id));
             }

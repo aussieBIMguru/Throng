@@ -253,7 +253,7 @@ public sealed partial class SimEngine
 
     /// <summary>True when this person boards lifts first (D-247; with the switch off, only at accessible-priority presets).</summary>
     private bool HasLiftPriority(int i, SimLift lift) =>
-        (_tuning.LiftPriority || lift.AccessiblePriority) && RoutePlanner.HasLiftPriority(_model.Profiles[_agents.Profile[i]].Template);
+        (_tuning.LiftPriority || lift.AccessiblePriority) && RoutePlanner.HasLiftPriority(RouteOf(i).Template);
 
     /// <summary>Places a person takes in a car (D-243).</summary>
     private double PlacesOf(int i)
@@ -332,7 +332,7 @@ public sealed partial class SimEngine
         a.Phase[i] = AgentPhase.LiftWait;
         a.LiftCar[i] = -1;
         a.JoinTime[i] = TimeS;
-        a.LiftGiveUpAt[i] = TimeS + _model.Profiles[a.Profile[i]].Template.PatienceS;
+        a.LiftGiveUpAt[i] = TimeS + RouteOf(i).Template.PatienceS;
         NavSurface floor = _world.Surfaces[portal.Floor];
         Point2 spot = new(a.X[i], a.Y[i]);
         for (int attempt = 0; attempt < 6; attempt++)
@@ -399,7 +399,7 @@ public sealed partial class SimEngine
     /// <summary>The landing of this bank on another stop that leaves the least time to the agent's target, or −1.</summary>
     private int BestLiftExit(int i, SimLift lift, int fromStop)
     {
-        MobilityClass mobility = _model.Profiles[_agents.Profile[i]].Mobility;
+        MobilityClass mobility = RouteOf(i).Mobility;
         int best = -1;
         double bestCost = double.PositiveInfinity;
         for (int s = 0; s < lift.Stops; s++)
@@ -439,7 +439,7 @@ public sealed partial class SimEngine
         }
 
         int lift = LiftOfPortal(a.Target[i]);
-        SimProfile profile = _model.Profiles[a.Profile[i]];
+        SimProfile profile = RouteOf(i);
         double patience = Math.Max(1.0, profile.Template.PatienceS);
         if (lift < 0)
         {
@@ -1120,15 +1120,15 @@ public sealed partial class SimEngine
         int p0 = lift.PortalAt(stop, 0), p1 = lift.PortalAt(stop, 1);
         int dir = _carDir[car];
         bool destination = IsDestination(lift);
-        bool bestPriority = false;
+        bool bestPriority = false, bestMate = false;
         double bestJoin = double.PositiveInfinity;
         for (int i = 0; i < a.Count; i++)
         {
             int target = a.Target[i];
             if (a.Phase[i] != AgentPhase.LiftWait || target < 0 || (target != p0 && target != p1) || !_world.Portals[target].AllowsEntry
-                || (destination && a.LiftCar[i] != car))
+                || (destination && a.LiftCar[i] != car && !(a.Group[i] >= 0 && MateGivenCar(i, car))))
             {
-                // Under destination dispatch only the people given this car get on (D-255).
+                // Under destination dispatch only the people given this car get on (D-255), and their group (D-384).
                 continue;
             }
 
@@ -1139,10 +1139,18 @@ public sealed partial class SimEngine
                 continue;
             }
 
+            // A group boards all at once or not at all, mates of someone already in first (D-384).
+            if (!GroupReadyForLift(i, car, p0, p1, room, lift.Capacity, out bool mate))
+            {
+                continue;
+            }
+
             bool priority = HasLiftPriority(i, lift);
-            if ((priority && !bestPriority) || (priority == bestPriority && a.JoinTime[i] < bestJoin))
+            if ((mate && !bestMate)
+                || (mate == bestMate && ((priority && !bestPriority) || (priority == bestPriority && a.JoinTime[i] < bestJoin))))
             {
                 boarder = i;
+                bestMate = mate;
                 bestPriority = priority;
                 bestJoin = a.JoinTime[i];
             }

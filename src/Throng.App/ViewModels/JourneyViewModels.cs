@@ -31,7 +31,7 @@ public sealed class JourneyViewModel : ObservableObject, IJourneyCanvasHost
     private bool _overlayPredicted;
     private string? _overlayProfile;
     private JourneyOverlay _overlay = JourneyOverlay.Empty;
-    private (long Version, SimRunner? Runner, string State, bool Predicted, string? Profile, SimModel? Model)? _overlayKey;
+    private (long Version, object? Source, string State, bool Predicted, string? Profile, SimModel? Model)? _overlayKey;
 
     /// <summary>Wraps a journey.</summary>
     public JourneyViewModel(JourneyTemplate journey, MainViewModel owner)
@@ -225,7 +225,7 @@ public sealed class JourneyViewModel : ObservableObject, IJourneyCanvasHost
     internal bool ShowsActual => !_overlay.IsPredicted && ActualFlow is not null;
 
     /// <summary>This journey's counts for the filtered profile from the latest results, or null (no run, or not on the run).</summary>
-    internal JourneyFlowResult? ActualFlow => _owner.OverlayRunner is null ? null : _owner.OverlayResults.FlowFor(_id, _overlayProfile);
+    internal JourneyFlowResult? ActualFlow => _owner.OverlaySource is null ? null : _owner.OverlayResults.FlowFor(_id, _overlayProfile);
 
     /// <summary>The profile filter's label for SELECTION ("all profiles" or a name).</summary>
     internal string OverlayProfileName => _overlayProfile ?? "all profiles";
@@ -236,7 +236,7 @@ public sealed class JourneyViewModel : ObservableObject, IJourneyCanvasHost
     /// </summary>
     public void RefreshOverlay()
     {
-        var key = (_owner.OverlayResults.Version, _owner.OverlayRunner, _owner.OverlayRunState, _overlayPredicted, _overlayProfile, _owner.PredictionModel);
+        var key = (_owner.OverlayResults.Version, _owner.OverlaySource, _owner.OverlayRunState, _overlayPredicted, _overlayProfile, _owner.PredictionModel);
         if (_overlayKey is { } last && last.Equals(key))
         {
             return;
@@ -293,10 +293,13 @@ public sealed class JourneyViewModel : ObservableObject, IJourneyCanvasHost
                 {
                     if (line is not null && StudyTemplates.JourneyIdFor(Study, line) == _id)
                     {
-                        string name = StudyTemplates.ProfileOrFallback(Study, line.ProfileId).Name;
-                        if (!names.Contains(name))
+                        // A group line brings its members' profiles (round 024).
+                        foreach (AgentProfileTemplate profile in StudyTemplates.LineProfiles(Study, line))
                         {
-                            names.Add(name);
+                            if (!names.Contains(profile.Name))
+                            {
+                                names.Add(profile.Name);
+                            }
                         }
                     }
                 }
@@ -357,7 +360,7 @@ public sealed class JourneyViewModel : ObservableObject, IJourneyCanvasHost
 
     private void RebuildOverlay()
     {
-        _overlayKey = (_owner.OverlayResults.Version, _owner.OverlayRunner, _owner.OverlayRunState, _overlayPredicted, _overlayProfile, _owner.PredictionModel);
+        _overlayKey = (_owner.OverlayResults.Version, _owner.OverlaySource, _owner.OverlayRunState, _overlayPredicted, _overlayProfile, _owner.PredictionModel);
         CultureInfo c = CultureInfo.InvariantCulture;
         JourneyTemplate journey = Journey;
         JourneyShares? shares = PredictedShares(out SimJourney? compiled);

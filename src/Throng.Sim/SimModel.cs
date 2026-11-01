@@ -69,6 +69,21 @@ public sealed class SimEmitter
         }
     }
 
+    /// <summary>Sum of the lines' pick weights (D-386): <see cref="TotalShare"/> when no line spawns groups.</summary>
+    public double TotalPickWeight
+    {
+        get
+        {
+            double total = 0;
+            foreach (SimMixLine line in Lines)
+            {
+                total += line.PickWeight;
+            }
+
+            return total;
+        }
+    }
+
     /// <summary>Floor surface of the zone.</summary>
     public required int Floor { get; init; }
 
@@ -96,6 +111,18 @@ public sealed class SimModel
 
     /// <summary>Profiles in use.</summary>
     public required IReadOnlyList<SimProfile> Profiles { get; init; }
+
+    /// <summary>
+    /// Profiles that make people's choices (round 024, D-387): <see cref="Profiles"/> first (same objects, same indices),
+    /// then one per group line: its lead's profile with every member's hard needs. Defaults to <see cref="Profiles"/>.
+    /// </summary>
+    public IReadOnlyList<SimProfile> RouteProfiles
+    {
+        get => _routeProfiles ?? Profiles;
+        init => _routeProfiles = value;
+    }
+
+    private readonly IReadOnlyList<SimProfile>? _routeProfiles;
 
     /// <summary>Emission rules in use.</summary>
     public required IReadOnlyList<SimEmitter> Emitters { get; init; }

@@ -1,0 +1,51 @@
+<Window x:Class="Throng.App.Views.BatchDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        WindowStyle="None"
+        ResizeMode="NoResize"
+        SizeToContent="WidthAndHeight"
+        ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner"
+        MinWidth="400"
+        MaxWidth="560"
+        Background="{StaticResource PanelBrush}"
+        Foreground="{StaticResource TextBrush}"
+        FontFamily="Segoe UI"
+        FontSize="12"
+        UseLayoutRounding="True"
+        TextOptions.TextFormattingMode="Display">
+    <!--
+        STUDY ▸ RUN ▸ BATCH… (round 021, D-354, D-356, D-361, D-363): how many runs, the seeds they use, and a duration
+        when the study runs until stopped. Borderless like ThrongDialog; drag the title strip to move it.
+    -->
+    <Border BorderBrush="{StaticResource AccentBrush}" BorderThickness="1">
+        <DockPanel>
+            <Border x:Name="TitleStrip" DockPanel.Dock="Top" Background="{StaticResource PanelAltBrush}" Padding="14,6" Cursor="SizeAll">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock FontFamily="{StaticResource GlyphFont}" FontSize="14" VerticalAlignment="Center"
+                               Foreground="{StaticResource AccentBrush}" Margin="0,0,9,0" Text="&#xE8FD;" />
+                    <TextBlock Text="BATCH RUNS" FontFamily="{DynamicResource RetroFont}" FontSize="20"
+                               Foreground="{StaticResource AccentBrush}" VerticalAlignment="Center" />
+                </StackPanel>
+            </Border>
+
+            <DockPanel DockPanel.Dock="Bottom" Margin="14,4,14,14" LastChildFill="False">
+                <Button x:Name="CancelButton" DockPanel.Dock="Right" Content="CANCEL" MinWidth="86" Margin="8,0,0,0" IsCancel="True" FontFamily="{DynamicResource RetroFont}" FontSize="16" />
+                <Button x:Name="StartButton" DockPanel.Dock="Right" Content="START" MinWidth="86" IsDefault="True" FontFamily="{DynamicResource RetroFont}" FontSize="16" />
+            </DockPanel>
+
+            <StackPanel Margin="18,14,18,10">
+                <TextBlock TextWrapping="Wrap" LineHeight="18" Margin="0,0,0,10"
+                           Text="Runs the study several times on consecutive seeds, headless and in parallel. RESULTS then shows each number as the mean with the lowest and highest run, the graphs with a min–max band, and the run maps averaged." />
+                <TextBlock Style="{StaticResource FieldLabel}" Text="Runs (2–20)" />
+                <TextBox x:Name="RunsBox" MinWidth="320" />
+                <StackPanel x:Name="DurationPanel">
+                    <TextBlock Style="{StaticResource FieldLabel}" Text="Minutes per run (the study runs until stopped)" />
+                    <TextBox x:Name="DurationBox" MinWidth="320" />
+                </StackPanel>
+                <TextBlock x:Name="SeedsText" Margin="0,10,0,0" Style="{StaticResource DataText}" TextWrapping="Wrap" />
+                <TextBlock x:Name="ProblemText" Margin="0,4,0,0" Foreground="{StaticResource RedBrush}" TextWrapping="Wrap" />
+            </StackPanel>
+        </DockPanel>
+    </Border>
+</Window>

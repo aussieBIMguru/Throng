@@ -23,8 +23,11 @@ namespace Throng.Sim.Engine;
 /// </remarks>
 public sealed partial class SimEngine
 {
-    /// <summary>Floats per agent in a snapshot: x, y, z, heading, r, g, b, radius, height, stuck, stress (D-145).</summary>
-    public const int FloatsPerAgent = 11;
+    /// <summary>
+    /// Floats per agent in a snapshot: x, y, z, heading, r, g, b, radius, height, stuck, stress (D-145), group hue (1–255,
+    /// 0 for people on their own; round 024, D-391).
+    /// </summary>
+    public const int FloatsPerAgent = 12;
 
     /// <summary>
     /// Below this share of their own pace a person counts as held up (D-145): of the desired speed before D-191, of
@@ -100,6 +103,8 @@ public sealed partial class SimEngine
     private const double CombRange = 2.0, CombSocialFactor = 0.2;
 
     private readonly SimModel _model;
+    private readonly int _seed;
+    private readonly double? _durationS;
     private readonly NavRoutes _routes;
     private readonly NavWorld _world;
     private readonly AgentStore _agents = new();
@@ -137,13 +142,29 @@ public sealed partial class SimEngine
     private double _journeySum;
     private int _stuckNow;
 
-    /// <summary>Creates an engine at time zero.</summary>
+    /// <summary>Creates an engine at time zero on the model's own seed and end.</summary>
     /// <param name="model">The compiled model.</param>
     /// <param name="tuning">Rule switches; null for the defaults (everything on).</param>
     public SimEngine(SimModel model, SimTuning? tuning = null)
+        : this(model, model.Seed, model.DurationS, tuning)
+    {
+    }
+
+    /// <summary>
+    /// Creates an engine at time zero on its own seed and end (round 021, D-355): batch runs share one compiled model,
+    /// which is only read during a run, so each worker passes its seed here rather than compiling the study again. A
+    /// run on seed <c>s</c> is identical to PLAY on a study whose seed is <c>s</c>.
+    /// </summary>
+    /// <param name="model">The compiled model (shared read-only between engines).</param>
+    /// <param name="seed">Random seed for this run.</param>
+    /// <param name="durationS">Simulated seconds to run, or null to run until stopped.</param>
+    /// <param name="tuning">Rule switches; null for the defaults (everything on).</param>
+    public SimEngine(SimModel model, int seed, double? durationS, SimTuning? tuning = null)
     {
         _tuning = tuning ?? SimTuning.Default;
         _model = model;
+        _seed = seed;
+        _durationS = durationS;
         _routes = model.Routes;
         _world = model.World;
         _dt = model.TimeStepS;
@@ -211,6 +232,12 @@ public sealed partial class SimEngine
     /// <summary>The compiled model.</summary>
     public SimModel Model => _model;
 
+    /// <summary>The seed this run draws from (the model's, unless given to the constructor).</summary>
+    public int Seed => _seed;
+
+    /// <summary>Simulated seconds this run lasts, or null to run until stopped.</summary>
+    public double? DurationS => _durationS;
+
     /// <summary>Agent state (read by tests and the snapshot writer).</summary>
     public AgentStore Agents => _agents;
 
@@ -226,7 +253,7 @@ public sealed partial class SimEngine
         TimeS > 0 && connector >= 0 && connector < _boardedTotal.Length ? _boardedTotal[connector] * 60.0 / TimeS : 0;
 
     /// <summary>True once a fixed-duration run has reached its end (D-103).</summary>
-    public bool IsFinished => _model.DurationS is { } duration && TimeS >= duration - 1e-9;
+    public bool IsFinished => _durationS is { } duration && TimeS >= duration - 1e-9;
 
     /// <summary>Current counters.</summary>
     public SimStats Stats
@@ -265,13 +292,14 @@ public sealed partial class SimEngine
     public void Reset()
     {
         _agents.Clear();
+        ResetGroups();
         _density?.Clear();
         ResetResults();
         _stuckLog.Clear();
         _tick = _spawned = _arrived = _stuckRemoved = 0;
         _journeySum = 0;
         _stuckNow = 0;
-        ulong seed = (ulong)(uint)_model.Seed;
+        ulong seed = (ulong)(uint)_seed;
         _random = new DeterministicRandom(DeterministicRandom.DeriveSeed(seed, 0));
         for (int e = 0; e < _model.Emitters.Count; e++)
         {
@@ -314,6 +342,7 @@ public sealed partial class SimEngine
     public void Step()
     {
         double t1 = TimeS + _dt;
+        IndexGroups();
         RefillTokens();
         CountArrivals();
         UpdateTrains();
@@ -322,6 +351,7 @@ public sealed partial class SimEngine
         UpdateWaits();
         _hash.Build(_agents.X, _agents.Y, _agents.Count);
         SpawnPending();
+        IndexGroups();
 
         int n = _agents.Count;
         for (int i = 0; i < n; i++)
@@ -386,6 +416,7 @@ public sealed partial class SimEngine
                 _stuckLog.Add(new StuckRecord(t1, _agents.Surface[index], _agents.X[index], _agents.Y[index], _agents.Mode[index], _agents.Target[index]));
             }
 
+            LeaveGroup(_agents.Group[index]);
             _agents.RemoveAt(index);
         }
 
@@ -423,6 +454,7 @@ public sealed partial class SimEngine
             buffer[o + 8] = _agents.Height[i];
             buffer[o + 9] = _agents.Since[i] >= StuckFlagS ? 1f : 0f;
             buffer[o + 10] = _agents.Stress[i];
+            buffer[o + 11] = GroupHue(i);
         }
 
         return n;
@@ -719,19 +751,42 @@ public sealed partial class SimEngine
         _justSpawned.Clear();
         for (int e = 0; e < _model.Emitters.Count; e++)
         {
-            while (_pending[e] > 0 && TrySpawn(e))
+            // A group uses up as many arrivals as it has people (D-386); the count may dip below zero, and later
+            // arrivals pay it back.
+            while (_pending[e] > 0)
             {
-                _pending[e]--;
+                int people = TrySpawn(e);
+                if (people <= 0)
+                {
+                    break;
+                }
+
+                _pending[e] -= people;
             }
         }
     }
 
-    /// <summary>Places one agent on a random free walkable cell of the zone; false when the zone is too crowded.</summary>
-    private bool TrySpawn(int e)
+    /// <summary>
+    /// Places one agent (or one group, D-382) on a random free walkable cell of the zone; returns the people placed, 0 when
+    /// the zone is too crowded.
+    /// </summary>
+    private int TrySpawn(int e)
     {
         SimEmitter emitter = _model.Emitters[e];
         DeterministicRandom random = _ruleRandom[e];
-        SimMixLine line = PickLine(emitter, random);
+        if (_heldLine[e] >= 0)
+        {
+            // A group picked earlier that didn't fit yet keeps its turn and its roll.
+            return TrySpawnGroup(e, _heldLine[e]);
+        }
+
+        int lineIndex = PickLine(emitter, random);
+        SimMixLine line = emitter.Lines[lineIndex];
+        if (line.IsGroup)
+        {
+            return TrySpawnGroup(e, lineIndex);
+        }
+
         SimProfile profile = _model.Profiles[line.Profile];
         AgentProfileTemplate template = profile.Template;
         NavSurface floor = _world.Surfaces[emitter.Floor];
@@ -753,6 +808,7 @@ public sealed partial class SimEngine
             _agents.Z[i] = floor.Z0;
             _agents.Surface[i] = emitter.Floor;
             _agents.Profile[i] = line.Profile;
+            _agents.Route[i] = line.RouteProfile >= 0 ? line.RouteProfile : line.Profile;
             _agents.Emitter[i] = e;
             _agents.Journey[i] = line.Journey;
             _agents.Tags[i] = SpawnTags(line, random);
@@ -766,10 +822,10 @@ public sealed partial class SimEngine
             StartJourney(i, random);
             _justSpawned.Add(i);
             _spawned++;
-            return true;
+            return 1;
         }
 
-        return false;
+        return 0;
     }
 
     private int PickSink(int i, SimEmitter emitter, SimProfile profile, DeterministicRandom random)
@@ -867,7 +923,7 @@ public sealed partial class SimEngine
             return;
         }
 
-        SimProfile profile = _model.Profiles[_agents.Profile[i]];
+        SimProfile profile = RouteOf(i);
         double cost = RoutePlanner.Choose(
             _routes, s, _agents.X[i], _agents.Y[i], _agents.Sink[i], profile.Mobility, profile.Template, random, out bool direct, out RouteOption option, _wait,
             BeltWalkSpeed(i), stairEffort: _tuning.StairEffort, standingRest: _tuning.StandingRest, sightRadius: Sight(i), priorityPenaltyS: _liftPriorityS, barredConnector: Barred(i));
@@ -897,7 +953,8 @@ public sealed partial class SimEngine
     /// </summary>
     private void Review(int i)
     {
-        if (!_tuning.Balk)
+        // Group members follow the mate ahead of them on the same surface (D-383).
+        if (FollowGuide(i) || !_tuning.Balk)
         {
             return;
         }
@@ -939,7 +996,7 @@ public sealed partial class SimEngine
             return;
         }
 
-        SimProfile profile = _model.Profiles[a.Profile[i]];
+        SimProfile profile = RouteOf(i);
         double cost = RoutePlanner.Choose(
             _routes, a.Surface[i], a.X[i], a.Y[i], a.Sink[i], profile.Mobility, profile.Template, null, out bool direct, out RouteOption option, _wait,
             BeltWalkSpeed(i), k, StayBonusS, _tuning.StairEffort, _tuning.StandingRest, Sight(i), priorityPenaltyS: _liftPriorityS, barredConnector: Barred(i));
@@ -971,7 +1028,7 @@ public sealed partial class SimEngine
             return;
         }
 
-        MobilityClass mobility = _model.Profiles[_agents.Profile[i]].Mobility;
+        MobilityClass mobility = RouteOf(i).Mobility;
         int best = -1;
         double bestCost = double.PositiveInfinity;
         foreach (int p in _world.Connectors[surface.ConnectorIndex].Portals)
@@ -1130,19 +1187,26 @@ public sealed partial class SimEngine
 
         double v0 = a.V0[i];
         double vdx, vdy;
+        double groupScale = 1, pullX = 0, pullY = 0;
+        if (a.Group[i] >= 0 && !holding && s.Motion != NavMotion.Belt)
+        {
+            // Walking together (D-383): toward the group's centre, easing off when ahead.
+            GroupPull(i, ex, ey, out groupScale, out pullX, out pullY);
+        }
+
         if (s.Motion == NavMotion.Belt)
         {
             BeltDesired(i, s, v0, out vdx, out vdy, out ex, out ey);
         }
         else
         {
-            double factor = SpeedFactor(i, s, ex, ey);
+            double factor = SpeedFactor(i, s, ex, ey) * groupScale;
             vdx = ex * v0 * factor;
             vdy = ey * v0 * factor;
         }
 
-        double ax = (vdx - a.Vx[i]) / Tau;
-        double ay = (vdy - a.Vy[i]) / Tau;
+        double ax = ((vdx - a.Vx[i]) / Tau) + pullX;
+        double ay = ((vdy - a.Vy[i]) / Tau) + pullY;
         double cx = 0, cy = 0;
         int oncoming = 0, close = 0;
 
@@ -1151,6 +1215,7 @@ public sealed partial class SimEngine
         double ri = a.Radius[i];
         double zi = a.Z[i];
         int gi = _group[i];
+        int party = a.Group[i];
         bool onLanding = _tuning.LandingSqueeze && IsStairLanding(s);
         bool stalled = _tuning.StallEscape && a.Since[i] >= StallS;
         for (int row = hy - 1; row <= hy + 1; row++)
@@ -1193,6 +1258,11 @@ public sealed partial class SimEngine
                 {
                     // Closing up at and on a metered belt (D-128); contact correction still stops overlaps.
                     magnitude *= CombSocialFactor;
+                }
+                else if (party >= 0 && a.Group[j] == party)
+                {
+                    // Group mates walk close, side by side (D-383).
+                    magnitude *= GroupSocialFactor;
                 }
                 else if (_tuning.StallEscape && (stalled || a.Since[j] >= StallS))
                 {
@@ -1858,7 +1928,8 @@ public sealed partial class SimEngine
     private void UpdateStress(int i, NavSurface s)
     {
         AgentStore a = _agents;
-        AgentProfileTemplate t = _model.Profiles[a.Profile[i]].Template;
+        // Patience and density tolerance: the group lead's for group members (D-387).
+        AgentProfileTemplate t = RouteOf(i).Template;
         bool heldUp;
         if (s.Motion == NavMotion.Belt)
         {

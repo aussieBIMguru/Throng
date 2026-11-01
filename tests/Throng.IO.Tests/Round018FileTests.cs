@@ -91,7 +91,7 @@ public sealed class Round018FileTests
 
         string path = Path.Combine(_folder, "graph" + ThrongFile.Extension);
         Assert.IsTrue(ThrongFile.Save(demo, path).IsSuccess);
-        Assert.AreEqual(11, ThrongFile.ReadManifest(path).Value!.FormatVersion);
+        Assert.AreEqual(ThrongFile.CurrentFormatVersion, ThrongFile.ReadManifest(path).Value!.FormatVersion);
         Study loaded = ThrongFile.Load(path).Value!;
 
         var journey = (JourneyTemplate)loaded.Library.Find(copy.Id)!;

@@ -1,4 +1,5 @@
 using CommunityToolkit.Mvvm.ComponentModel;
+using Throng.Sim.Batch;
 using Throng.Sim.Engine;
 
 namespace Throng.App.ViewModels;
@@ -9,14 +10,14 @@ namespace Throng.App.ViewModels;
 /// </summary>
 public sealed class JourneyResultRow : ObservableObject
 {
-    private long _finished;
-    private double _meanS;
-    private double _p95S;
-    private double _withinPct;
-    private double _longWaitPct;
-    private long _gaveUp;
-    private long _stuck;
-    private int _inProgress;
+    private StatCell _finished;
+    private StatCell _meanS;
+    private StatCell _p95S;
+    private StatCell _withinPct;
+    private StatCell _longWaitPct;
+    private StatCell _gaveUp;
+    private StatCell _stuck;
+    private StatCell _inProgress;
 
     /// <summary>Creates a row.</summary>
     /// <param name="profile">Profile name.</param>
@@ -52,28 +53,28 @@ public sealed class JourneyResultRow : ObservableObject
     public double AcceptableS { get; }
 
     /// <summary>People who finished.</summary>
-    public long Finished { get => _finished; private set => SetProperty(ref _finished, value); }
+    public StatCell Finished { get => _finished; private set => SetProperty(ref _finished, value); }
 
     /// <summary>Mean journey time, seconds.</summary>
-    public double MeanS { get => _meanS; private set => SetProperty(ref _meanS, value); }
+    public StatCell MeanS { get => _meanS; private set => SetProperty(ref _meanS, value); }
 
     /// <summary>95th percentile journey time, seconds.</summary>
-    public double P95S { get => _p95S; private set => SetProperty(ref _p95S, value); }
+    public StatCell P95S { get => _p95S; private set => SetProperty(ref _p95S, value); }
 
     /// <summary>Share finished within the acceptable time, percent.</summary>
-    public double WithinPct { get => _withinPct; private set => SetProperty(ref _withinPct, value); }
+    public StatCell WithinPct { get => _withinPct; private set => SetProperty(ref _withinPct, value); }
 
     /// <summary>Share with a single wait over Long wait, percent.</summary>
-    public double LongWaitPct { get => _longWaitPct; private set => SetProperty(ref _longWaitPct, value); }
+    public StatCell LongWaitPct { get => _longWaitPct; private set => SetProperty(ref _longWaitPct, value); }
 
     /// <summary>People who gave up in a line and left.</summary>
-    public long GaveUp { get => _gaveUp; private set => SetProperty(ref _gaveUp, value); }
+    public StatCell GaveUp { get => _gaveUp; private set => SetProperty(ref _gaveUp, value); }
 
     /// <summary>People removed as stuck.</summary>
-    public long Stuck { get => _stuck; private set => SetProperty(ref _stuck, value); }
+    public StatCell Stuck { get => _stuck; private set => SetProperty(ref _stuck, value); }
 
     /// <summary>People still in the model.</summary>
-    public int InProgress { get => _inProgress; private set => SetProperty(ref _inProgress, value); }
+    public StatCell InProgress { get => _inProgress; private set => SetProperty(ref _inProgress, value); }
 
     /// <summary>True when this row is the same profile and journey as <paramref name="result"/>.</summary>
     public bool Matches(JourneyResult result) =>
@@ -83,13 +84,26 @@ public sealed class JourneyResultRow : ObservableObject
     /// <summary>Copies the latest stats in.</summary>
     public void Update(JourneyResult result)
     {
-        Finished = result.Finished;
-        MeanS = Math.Round(result.MeanS, 1);
-        P95S = Math.Round(result.P95S, 1);
-        WithinPct = Math.Round(result.WithinAcceptablePct, 1);
-        LongWaitPct = Math.Round(result.LongWaitPct, 1);
-        GaveUp = result.GaveUp;
-        Stuck = result.Stuck;
-        InProgress = result.InProgress;
+        Finished = StatCell.Single(result.Finished);
+        MeanS = StatCell.Single(Math.Round(result.MeanS, 1));
+        P95S = StatCell.Single(Math.Round(result.P95S, 1));
+        WithinPct = StatCell.Single(Math.Round(result.WithinAcceptablePct, 1));
+        LongWaitPct = StatCell.Single(Math.Round(result.LongWaitPct, 1));
+        GaveUp = StatCell.Single(result.GaveUp);
+        Stuck = StatCell.Single(result.Stuck);
+        InProgress = StatCell.Single(result.InProgress);
+    }
+
+    /// <summary>Copies a batch's stats in: means with min–max (round 021, D-358).</summary>
+    public void Update(JourneyBatchResult result)
+    {
+        Finished = StatCell.Batch(result.Finished, 1);
+        MeanS = StatCell.Batch(result.MeanS, 1);
+        P95S = StatCell.Batch(result.P95S, 1);
+        WithinPct = StatCell.Batch(result.WithinAcceptablePct, 1);
+        LongWaitPct = StatCell.Batch(result.LongWaitPct, 1);
+        GaveUp = StatCell.Batch(result.GaveUp, 1);
+        Stuck = StatCell.Batch(result.Stuck, 1);
+        InProgress = StatCell.Batch(result.InProgress, 1);
     }
 }

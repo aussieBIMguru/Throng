@@ -174,13 +174,14 @@
         </Setter>
     </Style>
 
-    <!-- Square SimX-style tool button: glyph in Tag, retro label in Content, flavour text in ToolTip. -->
+    <!-- SimX-style tool button: glyph in Tag, retro label in Content, flavour text in ToolTip. As wide as its label
+         (round 022, D-369), never narrower than 44; no Content = icon only. -->
     <Style x:Key="ToolButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
-        <Setter Property="Width" Value="62" />
+        <Setter Property="MinWidth" Value="44" />
         <Setter Property="Height" Value="54" />
         <Setter Property="FocusVisualStyle" Value="{StaticResource ThrongFocusVisual}" />
         <Setter Property="Margin" Value="2,0" />
-        <Setter Property="Padding" Value="0" />
+        <Setter Property="Padding" Value="7,0" />
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="Button">
@@ -188,7 +189,8 @@
                             Background="{TemplateBinding Background}"
                             BorderBrush="{TemplateBinding BorderBrush}"
                             BorderThickness="1"
-                            CornerRadius="3">
+                            CornerRadius="3"
+                            Padding="{TemplateBinding Padding}">
                         <StackPanel VerticalAlignment="Center">
                             <TextBlock x:Name="Glyph"
                                        Text="{Binding Tag, RelativeSource={RelativeSource TemplatedParent}}"
@@ -196,7 +198,8 @@
                                        FontSize="18"
                                        HorizontalAlignment="Center"
                                        Foreground="{TemplateBinding Foreground}" />
-                            <TextBlock Text="{Binding Content, RelativeSource={RelativeSource TemplatedParent}}"
+                            <TextBlock x:Name="Label"
+                                       Text="{Binding Content, RelativeSource={RelativeSource TemplatedParent}}"
                                        FontFamily="{DynamicResource RetroFont}"
                                        FontSize="15"
                                        Margin="0,3,0,0"
@@ -216,10 +219,19 @@
                         <Trigger Property="IsEnabled" Value="False">
                             <Setter Property="Opacity" Value="0.35" />
                         </Trigger>
+                        <Trigger Property="Content" Value="{x:Null}">
+                            <Setter TargetName="Label" Property="Visibility" Value="Collapsed" />
+                        </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
             </Setter.Value>
         </Setter>
+    </Style>
+
+    <!-- Icon-only tool button (round 022, D-369: UNDO / REDO); the name lives in the tooltip. -->
+    <Style x:Key="ToolIconButton" TargetType="Button" BasedOn="{StaticResource ToolButton}">
+        <Setter Property="MinWidth" Value="38" />
+        <Setter Property="Padding" Value="4,0" />
     </Style>
 
     <!-- Thin vertical divider between tool button groups. -->

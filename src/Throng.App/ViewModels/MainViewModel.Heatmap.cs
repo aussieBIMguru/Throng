@@ -6,6 +6,7 @@ using Throng.Core.Model;
 using Throng.Render.Gl;
 using Throng.Render.Scene;
 using Throng.Sim;
+using Throng.Sim.Batch;
 using Throng.Sim.Engine;
 
 namespace Throng.App.ViewModels;
@@ -14,7 +15,8 @@ namespace Throng.App.ViewModels;
 /// Heatmap half of the main view model (M5): the MAP chips (Off / Density / LoS, D-201, and the RUN maps Max / E+ time /
 /// Mean / Trail, D-216, D-217), painting the runner's density maps into per-layer textures for the viewport (D-202),
 /// the legend, the warm-up note on run maps (D-218), the peak LoS ticker line (D-204), and the colour-blind ramp
-/// setting (D-206).
+/// setting (D-206). Round 021 (D-360): while RESULTS shows a batch, the RUN maps are the batch's (cumulative maps
+/// averaged, peak the highest run); live maps need a single run.
 /// </summary>
 public sealed partial class MainViewModel
 {
@@ -22,6 +24,7 @@ public sealed partial class MainViewModel
     private float[] _densityValues = [];
     private long _densityVersion = -1;
     private SimRunner? _densityRunner;
+    private BatchDensity? _densityBatch;
     private readonly List<HeatLayerDraw> _heatDraws = [];
     private readonly Dictionary<int, HeatLayerDraw> _heatDrawCache = new();
     private string _heatKey = string.Empty;
@@ -151,8 +154,10 @@ public sealed partial class MainViewModel
         }
     }
 
-    /// <summary>True while a run is active and a heatmap mode is picked: the legend shows.</summary>
-    public bool ShowHeatLegend => _isRunActive && _heatmapMode != HeatmapMode.Off;
+    /// <summary>
+    /// True while a heatmap mode is picked and there's a map to read: a run is active, or RESULTS shows a batch (D-360).
+    /// </summary>
+    public bool ShowHeatLegend => _heatmapMode != HeatmapMode.Off && ((_isRunActive && !_isBatching) || ShowsBatch);
 
     /// <summary>Legend title.</summary>
     public string HeatLegendTitle => _heatmapMode switch
@@ -185,22 +190,82 @@ public sealed partial class MainViewModel
     public IReadOnlyList<HeatLayerDraw>? FetchHeat(ViewMode mode, out long version)
     {
         version = -1;
-        if (_runner is not { } runner || _heatmapMode == HeatmapMode.Off)
+        if (_heatmapMode == HeatmapMode.Off)
         {
             return null;
         }
 
-        bool changed = RefreshDensity(runner);
+        bool changed;
+        DensityGrid layout;
+        if (ShowsBatch && _batch!.Density is { } batchMaps)
+        {
+            changed = RefreshBatchDensity(batchMaps);
+            layout = batchMaps.Layout;
+        }
+        else if (_runner is { } runner && !ShowsBatch)
+        {
+            if (_scrubTimeS is not null && !HeatmapPainter.IsCumulative(_heatmapMode))
+            {
+                // Live maps aren't recorded (D-374): nothing to show for a replayed time.
+                return null;
+            }
+
+            changed = RefreshDensity(runner);
+            layout = runner.DensityLayout;
+        }
+        else
+        {
+            return null;
+        }
+
         string key = HeatKey(mode);
         if (changed || key != _heatKey)
         {
             _heatKey = key;
-            PaintHeat(runner.DensityLayout, mode);
+            PaintHeat(layout, mode);
             _heatOutputVersion++;
         }
 
         version = _heatOutputVersion;
         return _heatDraws;
+    }
+
+    /// <summary>
+    /// Copies the batch's map for the current measure when the batch or the measure changed (D-360); live measures have
+    /// no batch map, so nothing paints.
+    /// </summary>
+    private bool RefreshBatchDensity(BatchDensity maps)
+    {
+        if (ReferenceEquals(maps, _densityBatch) && _densityVersion >= 0)
+        {
+            return false;
+        }
+
+        if (!ReferenceEquals(maps, _densityBatch))
+        {
+            _densityBatch = maps;
+            _densityRunner = null;
+            _heatDrawCache.Clear();
+            _heatKey = string.Empty;
+        }
+
+        _densityValues = maps.Values(HeatmapPainter.MeasureOf(_heatmapMode)).ToArray();
+        _densityVersion = 0;
+        return true;
+    }
+
+    /// <summary>The source changed (a batch finished or was dropped, SOURCE clicked): fetch and repaint afresh.</summary>
+    private void InvalidateHeat()
+    {
+        _densityRunner = null;
+        _densityBatch = null;
+        _densityVersion = -1;
+        _heatKey = string.Empty;
+        _heatScale = 0;
+        _lastHeatTicker = null;
+        _heatDrawCache.Clear();
+        RefreshHeatNote();
+        OnHeatLegendChanged();
     }
 
     /// <summary>Copies the runner's latest map when it has changed (a new run starts a fresh copy).</summary>
@@ -209,6 +274,7 @@ public sealed partial class MainViewModel
         if (!ReferenceEquals(runner, _densityRunner))
         {
             _densityRunner = runner;
+            _densityBatch = null;
             _densityVersion = -1;
             _heatDrawCache.Clear();
             _heatKey = string.Empty;
@@ -284,7 +350,7 @@ public sealed partial class MainViewModel
     private void RefreshHeatTicker()
     {
         RefreshHeatNote();
-        if (_runner is not { } runner || _heatmapMode is not (HeatmapMode.Density or HeatmapMode.Los))
+        if (ShowsBatch || _runner is not { } runner || _heatmapMode is not (HeatmapMode.Density or HeatmapMode.Los))
         {
             return;
         }
@@ -337,6 +403,22 @@ public sealed partial class MainViewModel
     /// <summary>Warm-up status on run maps (D-218): counting starts at the warm-up, then time gathered.</summary>
     private void RefreshHeatNote()
     {
+        if (ShowsBatch && _batch is { } batch && _heatmapMode != HeatmapMode.Off)
+        {
+            // Batch maps (D-360): averages of every run, peak the highest; there's no live map for a batch.
+            HeatLegendNote = !HeatmapPainter.IsCumulative(_heatmapMode)
+                ? "LIVE MAPS NEED PLAY ▸ PICK A RUN MAP"
+                : string.Create(CultureInfo.InvariantCulture,
+                    $"{(_heatmapMode == HeatmapMode.MaxDensity ? "HIGHEST" : "AVERAGE")} OF {batch.Count} RUNS · {Clock(batch.Density?.AccumulatedS ?? batch.MeasuredS)} EACH");
+            return;
+        }
+
+        if (_runner is not null && _scrubTimeS is not null && _heatmapMode != HeatmapMode.Off && !HeatmapPainter.IsCumulative(_heatmapMode))
+        {
+            HeatLegendNote = "LIVE MAPS SHOW AT LIVE ▸ PRESS LIVE";
+            return;
+        }
+
         if (_runner is not { } runner || !HeatmapPainter.IsCumulative(_heatmapMode))
         {
             HeatLegendNote = string.Empty;

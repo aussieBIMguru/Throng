@@ -270,7 +270,12 @@ public sealed class RegionViewModel : ObservableObject
     {
         get
         {
-            List<IdOption> profiles = [.. StudyTemplates.AvailableProfiles(_owner.Study, _owner.Mine).Select(p => new IdOption(p.Id, p.Name))];
+            // Profiles, then group templates (round 024, D-386): a line's "who" is either.
+            List<IdOption> profiles =
+            [
+                .. StudyTemplates.AvailableProfiles(_owner.Study, _owner.Mine).Select(p => new IdOption(p.Id, p.Name)),
+                .. StudyTemplates.AvailableGroups(_owner.Study, _owner.Mine).Select(g => new IdOption(g.Id, $"{g.Name} (group)")),
+            ];
             List<IdOption> journeys =
             [
                 new IdOption(MixLineViewModel.ProfileDefaultId, "(profile default)"),
@@ -325,11 +330,17 @@ public sealed class RegionViewModel : ObservableObject
     /// <summary>Embeds a profile's default journey (D-304) when a mix line starts following it.</summary>
     internal void EmbedDefaultJourney(Guid profileId)
     {
-        if (StudyTemplates.ProfileOrFallback(_owner.Study, profileId).DefaultJourneyId is { } journeyId)
+        Guid? journey = StudyTemplates.FindGroup(_owner.Study, profileId, _owner.Mine) is { } group
+            ? group.DefaultJourneyId
+            : StudyTemplates.ProfileOrFallback(_owner.Study, profileId).DefaultJourneyId;
+        if (journey is { } journeyId)
         {
             EmbedJourney(journeyId);
         }
     }
+
+    /// <summary>True when <paramref name="id"/> is a group template the study can use (round 024).</summary>
+    internal bool IsGroup(Guid id) => StudyTemplates.FindGroup(_owner.Study, id, _owner.Mine) is not null;
 
     /// <summary>Shows a validation message in the ticker.</summary>
     internal void Reject(string message) => _owner.Ticker = message;

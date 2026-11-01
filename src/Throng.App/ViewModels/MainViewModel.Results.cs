@@ -7,6 +7,7 @@ using Throng.App.Services;
 using Throng.App.Views;
 using Throng.Core.Common;
 using Throng.Sim;
+using Throng.Sim.Batch;
 using Throng.Sim.Engine;
 
 namespace Throng.App.ViewModels;
@@ -15,7 +16,9 @@ namespace Throng.App.ViewModels;
 /// RESULTS half of the main view model (round 011c): the RESULTS tab (D-219) with the device table (stats after the
 /// warm-up, D-218), the hand-drawn graph (D-220, D-221) with its queue lines (ticked rows, else the five longest,
 /// D-226), and CSV export (D-222). Round 012 adds the DEVICES / ZONES / JOURNEYS table chips (D-232), the ZONES graph,
-/// zones.csv and journeys.csv (D-233). Results live until RESET; they aren't saved (D-215).
+/// zones.csv and journeys.csv (D-233). Results live until RESET; they aren't saved (D-215). Round 021 adds the batch
+/// source (D-358, D-359, D-362, D-363): the same tables as mean (lowest–highest run), graphs with a min–max band, and
+/// the batch CSV export.
 /// </summary>
 public sealed partial class MainViewModel
 {
@@ -32,6 +35,7 @@ public sealed partial class MainViewModel
     ];
 
     private SimRunner? _resultsRunner;
+    private BatchResults? _shownBatch;
     private RunResults _results = RunResults.Empty;
     private long _resultsVersion = -1;
     private GraphMetric _graphMetric = GraphMetric.People;
@@ -103,25 +107,29 @@ public sealed partial class MainViewModel
     /// <summary>EXPORT CSV (D-222, D-233, D-260): devices, zones, journeys, lifts and time series CSVs into a folder you pick.</summary>
     public RelayCommand ExportResultsCommand => _exportResultsCommand ??= new RelayCommand(ExportResults, () => _results.SampleCount > 0);
 
-    /// <summary>Picks up a new results copy from the runner (run status tick); RESET clears the tab.</summary>
+    /// <summary>
+    /// Picks up a new results copy from the runner (run status tick), or shows the batch when SOURCE says so (D-363);
+    /// RESET clears the last run's.
+    /// </summary>
     private void RefreshResults()
     {
+        if (ShowsBatch)
+        {
+            ShowBatchResults(_batch!);
+            return;
+        }
+
+        if (_shownBatch is not null)
+        {
+            // Back from the batch: start the last run's view afresh.
+            ClearResultsView();
+        }
+
         if (_runner is not { } runner)
         {
             if (_resultsRunner is not null)
             {
-                _resultsRunner = null;
-                _results = RunResults.Empty;
-                _resultsVersion = -1;
-                ResultRows.Clear();
-                ZoneResultRows.Clear();
-                JourneyResultRows.Clear();
-                LiftResultRows.Clear();
-                SelectedResultRow = null;
-                RefreshJourneyOverlay();
-                ResultsSummary = "No run yet. PLAY to gather results; they stay until RESET.";
-                RebuildGraph();
-                ExportResultsCommand.NotifyCanExecuteChanged();
+                ClearResultsView();
             }
 
             return;
@@ -211,6 +219,79 @@ public sealed partial class MainViewModel
         ExportResultsCommand.NotifyCanExecuteChanged();
     }
 
+    /// <summary>Empties the tables, graph and overlay (nothing to show).</summary>
+    private void ClearResultsView()
+    {
+        _resultsRunner = null;
+        _shownBatch = null;
+        _results = RunResults.Empty;
+        _resultsVersion = -1;
+        ResultRows.Clear();
+        ZoneResultRows.Clear();
+        JourneyResultRows.Clear();
+        LiftResultRows.Clear();
+        SelectedResultRow = null;
+        RefreshJourneyOverlay();
+        ResultsSummary = Summary(_results);
+        RebuildGraph();
+        ExportResultsCommand.NotifyCanExecuteChanged();
+    }
+
+    /// <summary>Fills the tables from a batch: mean (lowest–highest run) per cell (D-358); rebuilt only for a new batch.</summary>
+    private void ShowBatchResults(BatchResults batch)
+    {
+        if (ReferenceEquals(batch, _shownBatch))
+        {
+            return;
+        }
+
+        _resultsRunner = null;
+        _shownBatch = batch;
+        _results = batch.Mean;
+        _resultsVersion = batch.Mean.Version;
+        IReadOnlyList<SimDevice> devices = _batchModel?.Devices ?? [];
+        ResultRows.Clear();
+        foreach (DeviceBatchResult device in batch.Devices)
+        {
+            int d = device.Device;
+            var row = new DeviceResultRow(d, d < devices.Count ? devices[d].DeviceId : Guid.Empty, device.Name, device.TypeTag, RebuildGraph);
+            row.Update(device);
+            ResultRows.Add(row);
+        }
+
+        IReadOnlyList<SimZone> zones = _batchModel?.Zones ?? [];
+        ZoneResultRows.Clear();
+        foreach (ZoneBatchResult zone in batch.Zones)
+        {
+            int z = zone.Zone;
+            var row = new ZoneResultRow(z, z < zones.Count ? zones[z].RegionId : Guid.Empty, zone.Name, zone.WidthM, RebuildGraph);
+            row.Update(zone);
+            ZoneResultRows.Add(row);
+        }
+
+        JourneyResultRows.Clear();
+        foreach (JourneyBatchResult journey in batch.Journeys)
+        {
+            var row = new JourneyResultRow(journey.Profile, journey.Journey, journey.IsAll, journey.AcceptableS, journey.Sink);
+            row.Update(journey);
+            JourneyResultRows.Add(row);
+        }
+
+        LiftResultRows.Clear();
+        foreach (LiftBatchResult lift in batch.Lifts)
+        {
+            var row = new LiftResultRow(lift.Lift, lift.Name, lift.Cars);
+            row.Update(lift);
+            LiftResultRows.Add(row);
+        }
+
+        SyncResultSelection();
+        ResultsSummary = Summary(_results);
+        RebuildGraph();
+        ExportResultsCommand.NotifyCanExecuteChanged();
+        RefreshJourneyOverlay();
+    }
+
     /// <summary>True when the journey rows are the same rows, in the same order, as <paramref name="journeys"/>.</summary>
     private bool JourneyRowsMatch(IReadOnlyList<JourneyResult> journeys)
     {
@@ -239,6 +320,7 @@ public sealed partial class MainViewModel
             OnPropertyChanged(nameof(IsTableZones));
             OnPropertyChanged(nameof(IsTableJourneys));
             OnPropertyChanged(nameof(IsTableLifts));
+            OnPropertyChanged(nameof(SelectedTable));
             ResultsSummary = Summary(_results);
         }
 
@@ -255,9 +337,16 @@ public sealed partial class MainViewModel
     private string Summary(RunResults results)
     {
         CultureInfo c = CultureInfo.InvariantCulture;
+        if (_shownBatch is { } batch)
+        {
+            return BatchSummary(batch);
+        }
+
         if (_resultsRunner is null)
         {
-            return "No run yet. PLAY to gather results; they stay until RESET.";
+            return _batch is null
+                ? "No run yet. PLAY to gather results; they stay until RESET. STUDY ▸ RUN ▸ BATCH… averages several seeds."
+                : "No run yet. PLAY to gather results, or pick SOURCE ▸ BATCH for the batch.";
         }
 
         if (results.WarmUpS > 0 && results.TimeS < results.WarmUpS)
@@ -285,6 +374,22 @@ public sealed partial class MainViewModel
         }
     }
 
+    /// <summary>The summary line for a batch (D-358): seeds, time measured and how to read the cells.</summary>
+    private string BatchSummary(BatchResults batch)
+    {
+        CultureInfo c = CultureInfo.InvariantCulture;
+        string head = string.Create(c,
+            $"BATCH ({batch.Count}) ▸ seeds {batch.SeedRange.First}–{batch.SeedRange.Last} · {Clock(batch.MeasuredS)} measured each{(batch.WarmUpS > 0 ? $" after a {Clock(batch.WarmUpS)} warm-up" : string.Empty)} · cells: mean (lowest–highest run).");
+        string tail = _resultsTable switch
+        {
+            ResultsTable.Zones => batch.Zones.Count == 0 ? " No measurement zones." : string.Create(c, $" {batch.Zones.Sum(z => z.Entries.Mean):N0} entries per run."),
+            ResultsTable.Journeys => string.Create(c, $" {batch.Journeys.Where(j => !j.IsAll && !j.IsSink).Sum(j => j.Finished.Mean):N0} finished per run; times cover runs where someone finished."),
+            ResultsTable.Lifts => batch.Lifts.Count == 0 ? " No lifts in this study." : string.Create(c, $" {batch.Lifts.Sum(l => l.Boarded.Mean):N0} boarded per run."),
+            _ => string.Create(c, $" {batch.Devices.Sum(d => d.Served.Mean):N0} served per run; waits cover runs where the device served someone."),
+        };
+        return head + tail;
+    }
+
     private void SelectGraph(GraphMetric metric, string chip)
     {
         if (_graphMetric != metric)
@@ -295,6 +400,7 @@ public sealed partial class MainViewModel
             OnPropertyChanged(nameof(IsGraphDensity));
             OnPropertyChanged(nameof(IsGraphFlow));
             OnPropertyChanged(nameof(IsGraphZones));
+            OnPropertyChanged(nameof(SelectedGraph));
             RebuildGraph();
         }
 
@@ -304,6 +410,13 @@ public sealed partial class MainViewModel
     /// <summary>Rebuilds the graph for the current metric from the latest results.</summary>
     private void RebuildGraph()
     {
+        if (_shownBatch is { } batch)
+        {
+            _resultsGraph = BatchGraph(batch);
+            OnPropertyChanged(nameof(ResultsGraph));
+            return;
+        }
+
         RunResults r = _results;
         double[] times = r.Times;
         _resultsGraph = _graphMetric switch
@@ -343,7 +456,7 @@ public sealed partial class MainViewModel
         List<DeviceResultRow> rows = [.. ResultRows.Where(row => row.IsGraphed)];
         if (rows.Count == 0)
         {
-            rows = [.. ResultRows.Where(row => row.MaxQueue > 0).OrderByDescending(row => row.MaxQueue).ThenBy(row => row.Index).Take(DefaultGraphedQueues)];
+            rows = [.. ResultRows.Where(row => row.MaxQueue.Mean > 0).OrderByDescending(row => row.MaxQueue.Mean).ThenBy(row => row.Index).Take(DefaultGraphedQueues)];
         }
 
         var lines = new List<GraphLine>(rows.Count);
@@ -398,8 +511,97 @@ public sealed partial class MainViewModel
         return new GraphData { Times = r.Times, Lines = lines, Bands = [], WarmUpS = r.WarmUpS, Unit = "IN ZONE", MinTop = 5 };
     }
 
+    /// <summary>
+    /// A batch's graph (D-359): the same metrics and row picks as a single run, each line the mean with a faint band from
+    /// the lowest to the highest run.
+    /// </summary>
+    private GraphData BatchGraph(BatchResults b)
+    {
+        static GraphLine Line(string label, Color colour, BatchSeries series) => new(label, colour, series.Mean, series.Min, series.Max);
+        switch (_graphMetric)
+        {
+            case GraphMetric.Queues:
+            {
+                List<DeviceResultRow> rows = [.. ResultRows.Where(row => row.IsGraphed)];
+                if (rows.Count == 0)
+                {
+                    rows = [.. ResultRows.Where(row => row.MaxQueue.Mean > 0).OrderByDescending(row => row.MaxQueue.Mean).ThenBy(row => row.Index).Take(DefaultGraphedQueues)];
+                }
+
+                var lines = new List<GraphLine>(rows.Count);
+                foreach (DeviceResultRow row in rows.Where(row => row.Index < b.Queues.Count))
+                {
+                    lines.Add(Line(row.Name, QueueColours[lines.Count % QueueColours.Length], b.Queues[row.Index]));
+                }
+
+                return new GraphData { Times = b.Times, Lines = lines, Bands = [], WarmUpS = b.WarmUpS, Unit = "IN LINE", MinTop = 5 };
+            }
+
+            case GraphMetric.Zones:
+            {
+                List<ZoneResultRow> rows = [.. ZoneResultRows.Where(row => row.IsGraphed)];
+                if (rows.Count == 0)
+                {
+                    rows = [.. ZoneResultRows];
+                }
+
+                var lines = new List<GraphLine>(rows.Count);
+                foreach (ZoneResultRow row in rows.Where(row => row.Index < b.ZoneOccupancy.Count))
+                {
+                    lines.Add(Line(row.Name, QueueColours[lines.Count % QueueColours.Length], b.ZoneOccupancy[row.Index]));
+                }
+
+                return new GraphData { Times = b.Times, Lines = lines, Bands = [], WarmUpS = b.WarmUpS, Unit = "IN ZONE", MinTop = 5 };
+            }
+
+            case GraphMetric.Density:
+                return new GraphData
+                {
+                    Times = b.Times,
+                    Lines = [Line("PEAK", Color.FromRgb(0xFF, 0xFF, 0xFF), b.PeakDensity)],
+                    Bands = LosBands(),
+                    WarmUpS = b.WarmUpS,
+                    Unit = "P/M² · WALKWAY LOS",
+                    MinTop = 1.5,
+                };
+
+            case GraphMetric.Flow:
+                return new GraphData
+                {
+                    Times = b.Times,
+                    Lines = [Line("IN / MIN", QueueColours[0], b.ArrivalsPerMin), Line("OUT / MIN", QueueColours[1], b.ExitsPerMin)],
+                    Bands = [],
+                    WarmUpS = b.WarmUpS,
+                    Unit = "PEOPLE / MIN",
+                    MinTop = 10,
+                };
+
+            default:
+                return new GraphData
+                {
+                    Times = b.Times,
+                    Lines = [Line("IN MODEL", QueueColours[0], b.InModel)],
+                    Bands = [],
+                    WarmUpS = b.WarmUpS,
+                    Unit = "PEOPLE",
+                    MinTop = 10,
+                };
+        }
+    }
+
     /// <summary>Peak density with the walkway Fruin bands behind it, in the heatmap's LoS colours (D-221).</summary>
-    private GraphData DensityGraph(RunResults r)
+    private GraphData DensityGraph(RunResults r) => new()
+    {
+        Times = r.Times,
+        Lines = [new GraphLine("PEAK", Color.FromRgb(0xFF, 0xFF, 0xFF), [.. r.PeakDensity.Select(v => (double)v)])],
+        Bands = LosBands(),
+        WarmUpS = r.WarmUpS,
+        Unit = "P/M² · WALKWAY LOS",
+        MinTop = 1.5,
+    };
+
+    /// <summary>The walkway Fruin grades as graph bands, in the heatmap's LoS colours (D-221).</summary>
+    private List<GraphBand> LosBands()
     {
         IReadOnlyList<HeatLegendEntry> grades = HeatmapPainter.Legend(HeatmapMode.Los, HeatRamp);
         double[] starts = FruinLevelOfService.GradeStartDensities(LosAreaType.Walkway);
@@ -413,20 +615,18 @@ public sealed partial class MainViewModel
             bands.Add(new GraphBand(from, to, Color.FromRgb(ToByte(e.R), ToByte(e.G), ToByte(e.B)), letters[g]));
         }
 
-        return new GraphData
-        {
-            Times = r.Times,
-            Lines = [new GraphLine("PEAK", Color.FromRgb(0xFF, 0xFF, 0xFF), [.. r.PeakDensity.Select(v => (double)v)])],
-            Bands = bands,
-            WarmUpS = r.WarmUpS,
-            Unit = "P/M² · WALKWAY LOS",
-            MinTop = 1.5,
-        };
+        return bands;
     }
 
     /// <summary>EXPORT CSV: asks for a folder and writes both files (D-222); problems are shown, never thrown.</summary>
     private void ExportResults()
     {
+        if (_shownBatch is { } batch)
+        {
+            ExportBatch(batch);
+            return;
+        }
+
         RunResults results = _runner?.LatestResults ?? _results;
         if (results.SampleCount == 0)
         {
@@ -448,5 +648,25 @@ public sealed partial class MainViewModel
 
         AppLog.Info($"Results exported to {folder}");
         Ticker = $"EXPORTED ▸ {ResultsCsv.DevicesFileName}, {ResultsCsv.ZonesFileName}, {ResultsCsv.JourneysFileName}, {ResultsCsv.LiftsFileName}, {ResultsCsv.NodesFileName}, {ResultsCsv.TimeSeriesFileName}";
+    }
+
+    /// <summary>EXPORT CSV for a batch (D-362): the summary folder and a folder per run, into a folder you pick.</summary>
+    private void ExportBatch(BatchResults batch)
+    {
+        if (_dialogs.PickFolder($"Export batch results ({BatchCsv.SummaryFolderName} folder + one folder per run)") is not { } folder)
+        {
+            return;
+        }
+
+        Result written = BatchCsv.Export(batch, folder, _batchModel);
+        if (!written.IsSuccess)
+        {
+            AppLog.Warn(written.Error ?? "Batch export failed.");
+            _dialogs.ShowError(written.Error ?? "The batch results couldn't be written.");
+            return;
+        }
+
+        AppLog.Info($"Batch results exported to {folder}");
+        Ticker = string.Create(CultureInfo.InvariantCulture, $"EXPORTED ▸ {BatchCsv.SummaryFolderName}\\ (mean, min, max) and {batch.Count} run folders");
     }
 }

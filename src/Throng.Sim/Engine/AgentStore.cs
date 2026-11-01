@@ -20,6 +20,7 @@ public enum AgentMode : byte
 public sealed class AgentStore
 {
     private int _capacity;
+    private int _nextSerial;
 
     /// <summary>Creates an empty store.</summary>
     public AgentStore(int capacity = 256)
@@ -52,8 +53,20 @@ public sealed class AgentStore
     /// <summary>Destination sink.</summary>
     public int[] Sink = [];
 
-    /// <summary>Profile index.</summary>
+    /// <summary>Profile index (the person's own: body, colour and results rows).</summary>
     public int[] Profile = [];
+
+    /// <summary>
+    /// Index into <c>SimModel.RouteProfiles</c> of the profile that makes this person's choices (round 024, D-387): the
+    /// same as <see cref="Profile"/> for people on their own; a group's merged profile for group members.
+    /// </summary>
+    public int[] Route = [];
+
+    /// <summary>Group slot in the engine's group table, or −1 for people on their own (round 024, D-382).</summary>
+    public int[] Group = [];
+
+    /// <summary>Device whose step the person last finished, or −1 (round 024: regrouping past it, D-384).</summary>
+    public int[] LastDevice = [];
 
     /// <summary>Free walking speed, m/s.</summary>
     public float[] V0 = [];
@@ -111,6 +124,12 @@ public sealed class AgentStore
 
     /// <summary>Stress (frustration) 0–1 (D-145).</summary>
     public float[] Stress = [];
+
+    /// <summary>
+    /// A number unique to each person since the last <see cref="Clear"/>, kept when the store swap-removes (round 023:
+    /// replay frames match people between frames to interpolate). Never read by the simulation itself.
+    /// </summary>
+    public int[] Serial = [];
 
     /// <summary>Weighted seconds spent held up, decaying in free flow; drives <see cref="Stress"/> (D-145).</summary>
     public float[] HeldS = [];
@@ -194,10 +213,12 @@ public sealed class AgentStore
         }
 
         int i = Count++;
+        Serial[i] = _nextSerial++;
         X[i] = Y[i] = Vx[i] = Vy[i] = Z[i] = 0;
         Surface[i] = 0;
         Mode[i] = AgentMode.Direct;
         Target[i] = PlannedExit[i] = Sink[i] = Profile[i] = OffPortal[i] = -1;
+        Route[i] = Group[i] = LastDevice[i] = -1;
         OffTime[i] = 0;
         JointX[i] = JointY[i] = JointDx[i] = JointDy[i] = 0;
         JointDepth[i] = 0;
@@ -248,6 +269,9 @@ public sealed class AgentStore
         PlannedExit[i] = PlannedExit[last];
         Sink[i] = Sink[last];
         Profile[i] = Profile[last];
+        Route[i] = Route[last];
+        Group[i] = Group[last];
+        LastDevice[i] = LastDevice[last];
         V0[i] = V0[last];
         Radius[i] = Radius[last];
         Height[i] = Height[last];
@@ -268,6 +292,7 @@ public sealed class AgentStore
         JointDepth[i] = JointDepth[last];
         JointDy[i] = JointDy[last];
         Stress[i] = Stress[last];
+        Serial[i] = Serial[last];
         HeldS[i] = HeldS[last];
         ThroughLeft[i] = ThroughLeft[last];
         Emitter[i] = Emitter[last];
@@ -295,10 +320,15 @@ public sealed class AgentStore
     }
 
     /// <summary>Removes every agent.</summary>
-    public void Clear() => Count = 0;
+    public void Clear()
+    {
+        Count = 0;
+        _nextSerial = 0;
+    }
 
     private void Allocate(int capacity)
     {
+        Array.Resize(ref Serial, capacity);
         Array.Resize(ref X, capacity);
         Array.Resize(ref Y, capacity);
         Array.Resize(ref Vx, capacity);
@@ -309,6 +339,9 @@ public sealed class AgentStore
         Array.Resize(ref PlannedExit, capacity);
         Array.Resize(ref Sink, capacity);
         Array.Resize(ref Profile, capacity);
+        Array.Resize(ref Route, capacity);
+        Array.Resize(ref Group, capacity);
+        Array.Resize(ref LastDevice, capacity);
         Array.Resize(ref V0, capacity);
         Array.Resize(ref Radius, capacity);
         Array.Resize(ref Height, capacity);

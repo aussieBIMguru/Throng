@@ -149,7 +149,7 @@ public static class StudyDefinitions
     public static IReadOnlyList<Device> DevicesUsing(Study study, DeviceTemplate template) =>
         [.. study.Devices.Where(d => ReferenceEquals(StudyTemplates.FindDeviceTemplate(study, d), template))];
 
-    /// <summary>Number of mix lines (every spawn zone's rules) that use a profile.</summary>
+    /// <summary>Number of mix lines (every spawn zone's rules) that use a profile, directly or in a group (round 024).</summary>
     public static int ProfileUseCount(Study study, Guid profileId)
     {
         int uses = 0;
@@ -159,7 +159,15 @@ public static class StudyDefinitions
             {
                 foreach (MixLine line in rule?.Mix ?? [])
                 {
-                    if (line?.ProfileId == profileId)
+                    // A group line uses its members' profiles (round 024), not its leftover profile id.
+                    if (line is null)
+                    {
+                        continue;
+                    }
+
+                    if (line.GroupId is { } groupId
+                        ? StudyTemplates.FindGroup(study, groupId)?.Rows().Any(m => m.ProfileId == profileId) == true
+                        : line.ProfileId == profileId)
                     {
                         uses++;
                     }

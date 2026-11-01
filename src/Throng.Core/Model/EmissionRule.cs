@@ -83,11 +83,29 @@ public sealed record MixLine
     /// </summary>
     public bool UseProfileJourney { get; init; }
 
-    /// <summary>Relative share of the rule's arrivals; zero or less means none.</summary>
+    /// <summary>
+    /// Group template id (round 024, D-386): when set the line spawns groups of that template instead of single people
+    /// of <see cref="ProfileId"/> (which is then ignored), and "(profile default)" means the group's default journey.
+    /// Null (and not written) for single-profile lines.
+    /// </summary>
+    public Guid? GroupId { get; init; }
+
+    /// <summary>True when the line spawns groups (D-386).</summary>
+    [JsonIgnore]
+    public bool IsGroup => GroupId is not null;
+
+    /// <summary>
+    /// Relative share of the rule's arrivals; zero or less means none. Shares count people, also for group lines
+    /// (D-386): a group line with share 1 next to a single line with share 1 brings half the people in groups.
+    /// </summary>
     public double Share { get; init; } = 1;
 
     /// <summary>Tags a share of these agents start with (D-150).</summary>
     public List<SpawnTag> SpawnTags { get; init; } = [];
+
+    /// <summary>A line of groups of one template with a share of 1 by default (D-386).</summary>
+    public static MixLine OfGroup(Guid groupId, Guid? journeyId = null, double share = 1, params SpawnTag[] tags) =>
+        new() { GroupId = groupId, JourneyId = journeyId, Share = share, SpawnTags = [.. tags] };
 
     /// <summary>A line of one profile with a share of 1 by default.</summary>
     public static MixLine Of(Guid profileId, Guid? journeyId = null, double share = 1, params SpawnTag[] tags) =>

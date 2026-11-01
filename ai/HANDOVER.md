@@ -1,8 +1,52 @@
 # Throng — Handover to the next chat
 
-**Written:** 2026-10-31, end of the round 020 build + round 021 queries. **Brief:** v0.42. **Decisions:** D-001–D-365.
-**State:** round 020 built, **unbuilt in the sandbox** (no SDK): your library across studies (D-340–D-351). 019
-confirmed (346 tests). **Next chat = (1) fix any 020 build errors, (2) confirm 020 with its checklist, (3) round 021
+**Written:** 2026-11-01, end of round 024a (group movement: model, format v12, simulation) — **unbuilt in the sandbox**.
+**Brief:** v0.46. **Decisions:** D-001–D-393. **390 test methods; format v12.** 023 confirmed.
+**Next chat = (1) fix any 024a build errors, (2) confirm 024a with `ai/rounds/round-024.md`'s 15-step checklist,
+(3) round 024b BUILD — already decided (D-388, D-390, D-391, D-392): LIBRARY ▸ GROUPS tab + SELECTION editor (overrides
+with RESET, DUPLICATE, NEW, DELETE when unused), SAVE TO MY LIBRARY (brings member profiles), `.thronglib` groups,
+RESULTS ▸ JOURNEYS group × journey rows (group time = last member out, mean / 95th, size, people, spread over 5 m) in
+journeys.csv and batch, hover / selection tethers. Ask 024b's two small open questions first (round-024.md). No further
+split.** Then the stadium round (decided ahead, D-379–D-381). Next free decision: D-394.
+**Round 024a recap:** `Core/Library/GroupTemplate.cs` (`Roll`, `MeanSize`), `TemplateLibrary.Groups`, `MixLine.GroupId`,
+`StudyTemplates.{FindGroup, AvailableGroups, LineProfiles}`, built-ins (`agent.child`, six `group.*`; `agent.family`
+gone), `FormatMigrations.UpgradeV11ToV12`. Sim: `SimMixLine.{RouteProfile, Members, PickWeight}`,
+`SimModel.RouteProfiles` (Profiles + one merged per group, D-387), `AgentStore.{Route, Group, LastDevice}`,
+`Engine/SimEngine.Groups.cs` (slot table, per-step `IndexGroups`, spawn, `Recall`/`Remember` per journey node,
+`FollowGuide`, `GroupPull`, regroup, lift / train readiness), `AgentPhase.Regroup`, snapshot float 11 = group hue,
+replay `PackedAgent.GroupHue`. App: COLOUR ▸ GROUP (`GroupColours`), mix-line "who" lists groups.
+(023 handover follows.)
+**Written:** 2026-11-01, end of round 023 — **confirmed by Gavin (builds, no issues)**. Rounds 020–023 all confirmed.
+**Brief:** v0.45. **Decisions:** D-001–D-377. **375 test methods; format v11.** No open build errors.
+**Next chat = round 024 Query phase.** Gavin attaches the latest zip (Throng-r023). Read `ai/PROTOCOL.md`, this file,
+`ai/rounds/round-023.md`, then ask round 024's queries (staged batches, recommended first). Backlog candidates, in
+suggested order: (1) stadium-scale performance pass + stadium demo (watch batch memory: cores − 1 engines at once, and
+replay memory: 22 B × people × frames, 1 GB cap); (2) one-page PDF report (could take the batch summary and a replay
+still); (3) group movement (families / friends walking together); (4) video / GIF export of a replay. Open small item:
+an across-runs nodes summary CSV (round 021).
+**Round 023 (replay scrubbing, unbuilt in sandbox, 375 tests):** `Sim/Replay/ReplayRecording` (frames every 0.5 s,
+thinning at 1 GB, interpolation by `AgentStore.Serial`), captured in `SimRunner` after each step; `SimRunner.ViewTimeS`
+makes the Copy… methods and `ViewStats` show the recording; app in `App/ViewModels/MainViewModel.Replay.cs` (slider, LIVE,
+arrows, graph jump, batch REPLAY via `StartRunAsync(seedOverride, durationOverride)`). 022 confirmed. **Next chat = fix
+023 build errors, confirm with `round-023.md`'s 14 steps, then the next round's queries (stadium pass, PDF report, group
+movement, replay export).** Next free decision: D-378. *(Superseded: 023 is confirmed; see the top.)*
+(022 handover follows.)
+**Round 022 (UI fit, app only, unbuilt in sandbox):** label-width `ToolButton` + `ToolIconButton`, transport bar (body grid
+row 1 under the viewport: SPEED / COLOUR / MAP), RESULTS drop-downs (`MainViewModel.Choices.cs`), right panel 340, compact
+`RunStatusText` + `RunStatusDetail`. 021 confirmed by Gavin. **Next chat = fix 022 build errors, confirm with
+`round-022.md`'s 10 steps, then round 023 queries: replay scrubbing in the transport bar, incl. REPLAY of a batch run on
+its seed (D-371).** Next free decision: D-373.
+(021 handover follows.)
+**State:** round 021 built, **unbuilt in the sandbox** (no SDK): seeded batch runs in parallel (D-352–D-367). 020
+confirmed (built clean, 362 tests). **Next chat = (1) fix any 021 build errors, (2) confirm 021 with its 14-step
+checklist (`ai/rounds/round-021.md`), (3) the next round's queries (backlog below). 370 test methods; format v11.**
+021 recap: `SimEngine(model, seed, durationS)` lets runs share one compiled model (only read during a run, D-366);
+`Sim/Batch/BatchRunner` (Parallel.For, cores − 1, maps folded in seed order), `BatchAverager` (pure: `BatchStat` mean /
+min / max, `BatchSeries`, rounded `Mean` RunResults for the overlay), `Analysis/BatchCsv`; app in
+`App/ViewModels/MainViewModel.Batch.cs` (+ `BatchDialog`), RESULTS cells are `StatCell`s, SOURCE switch (`ShowsBatch`)
+drives tables, graph bands, heat (`RefreshBatchDensity`) and the overlay (`OverlaySource`).
+(Round 020 handover, kept for reference:) round 020 built: your library across studies (D-340–D-351). 019
+confirmed (346 tests). **Then: (1) fix any 020 build errors, (2) confirm 020 with its checklist, (3) round 021
 BUILD: seeded batch runs with averages (M8), already decided (D-352–D-365, parallel across cores) in
 `ai/rounds/round-021.md`**. Next free decision: D-366. **Format v11; 362 test methods.**
 020 recap: rules in `Core/Library/MyLibrary.cs` (no IO; `EmbedForUse`, `EmbedReferenced`, `PlanSave`, `Differs`,
@@ -20,8 +64,8 @@ candidates, post-warm-up only) copied as `RunResults.Flows` (`JourneyFlowResult`
 `IJourneyCanvasHost`, host `JourneyViewModel`, node editor `JourneyNodeEditorViewModel`); built-in overrides
 (`MainViewModel.EditJourney/ResetJourney`); PICK IN PLAN.
 **Start here (next chat):** `ai/PROTOCOL.md` (AFK / manual-approval: ask permissions before the build, none during it;
-docs to the project + zip in one step at the end), this file, then `ai/rounds/round-021.md` (queries to ask), then
-`round-020.md`.
+docs to the project + zip in one step at the end), this file, then `ai/rounds/round-021.md` (as built + checklist),
+then `round-020.md`.
 Open watch items: crowd stress (D-194) barely shows at 2.5 p/m² with 1 m counting; hold points can sit in front of an
 adjacent device's lane mouth; gate throughput with D-209/D-211 (diagnostics row "no lane clear").
 **Quota:** Gavin's weekly quota ran to ~98% in round 010. Keep reads to the files a change touches, batch edits,
@@ -221,18 +265,30 @@ served level** (D-068). Shafts already carry "no stop" levels (D-087) for that.
 | Run overlay (019) | `Sim/Engine/{SimEngine.JourneyFlow, JourneyFlowResult, JourneyFlowWire, JourneyNodeStats, JourneyCandidateStats}.cs`, `RunResults.{Flows, FlowFor}`, `SimJourney.{JourneyId, NodeIds, SpawnId}`, `SimNode.PickPort`, `CapacityCheck.{FlowShares, PredictedShares}`, `Analysis/Checks/JourneyShares.cs`, `StudyCheck.RunWithModel`, `ResultsCsv.NodesCsv`, `App/Views/{JourneyOverlay, JourneyWireLabel}.cs`, `JourneyCanvas` (strip, `DrawWireLabels`, `StatsRow`), `JourneyViewModel.{Overlay, RefreshOverlay, RebuildOverlay, NodeLine}`, `App/ViewModels/{MainViewModel.JourneyFlow, JourneyRunRow}.cs`, `JourneyNodeEditorViewModel.{RunSummary, RunRows}`, `LibraryBrowserViewModel.IsJourneysTabSelected` |
 | Journey graphs (018a) | `Core/Library/{JourneyGraph (JourneyNode, JourneyWire, Problems, FromSteps, Builder), JourneyTemplate (Nodes, Wires, legacy Steps), JourneyZones}.cs`, `StudyTemplates.{JourneyFor, JourneyIdFor}`, `AgentProfileTemplate.DefaultJourneyId`, `MixLine.UseProfileJourney`, `FormatMigrations.UpgradeV10ToV11`, `ThrongFile.EnsureJourneyGraphs`, `Sim/SimJourneys.cs` (`SimNode`, `SimStep.Next/GaveUpNext`, `SimJourney.Start`), `SimSetup.CompileJourney`, `SimEngine.{GoToNode, BeginExit(sinkStep)}`, `SimEngine.JourneyResults` (sink buckets), `StudyValidator.ValidateJourney`, `CapacityCheck.{WalkNode, NodeShares}`, `App/Views/JourneyCanvas.cs`, `App/ViewModels/JourneyViewModels.cs` (node rows), `MainViewModel.Journeys` (`IsJourneyView`) |
 | Your library (020) | `Core/Library/{MyLibrary, LibrarySavePlan, LibraryImportResult}.cs`, `ReconcileKind.LibraryItem`, `ReconcileAction.Replace`, optional `mine` on `StudyTemplates.{FindProfile, FindJourney, AvailableProfiles, AvailableJourneys, CanEditJourney, Layered}` / `StudyDefinitions.{FindDevice, AvailableDevices}`, `JourneyTargets.{UsesPicks, PicksFallBack}`, `JourneyZones.PickedZones`, `ValidationRules.PicksFallback`, `IO/{UserLibraryStore, LibraryFile}.cs`, `App/ViewModels/MainViewModel.MyLibrary.cs`, `App/Views/TextPromptDialog.xaml(.cs)`, `ReconcileDialog` library mode, `LevelPickerDialog` OK label, MY LIBRARY block + SELECTION buttons in `MainWindow.xaml`, `MainWindow.OnLibraryItemRightClick` |
+| Batch runs (021) | `Sim/Engine/SimEngine.cs` (seed + duration constructor), `Sim/Batch/{BatchOptions, BatchRunner, BatchAverager, BatchResults, BatchRun, BatchStat, BatchSeries, BatchProgress, BatchDensity, DensityFold, DeviceBatchResult, ZoneBatchResult, JourneyBatchResult, LiftBatchResult}.cs`, `Analysis/BatchCsv.cs`, `App/ViewModels/{MainViewModel.Batch, StatCell}.cs`, `App/Views/BatchDialog.xaml(.cs)`, `App/Services/BatchRequest.cs`, `IDialogService.AskBatch`, batch paths in `MainViewModel.{Results, Heatmap, JourneyFlow, Run}.cs`, `GraphLine.{Low, High}` + `TimeSeriesGraph.DrawBand`, SOURCE chips + BATCH… in `MainWindow.xaml` |
+| UI fit (022) | `Themes/Theme.xaml` (`ToolButton` MinWidth, `ToolIconButton`), transport bar + RESULTS drop-downs in `MainWindow.xaml`, `MainWindow.xaml.cs` (tagline), `App/ViewModels/MainViewModel.Choices.cs`, `MainViewModel.Run.RunStatus(compact)` |
+| Replay (023) | `Sim/Engine/AgentStore.Serial`, `Sim/Replay/{ReplayRecording, ReplayState, ReplayFrame, PackedAgent, AgentLook}.cs`, `SimRunner.{Recording, ViewTimeS, ViewStats, Seed}` + seed constructor, `App/ViewModels/MainViewModel.Replay.cs`, `TimeSeriesGraph.{CursorTimeS, JumpCommand}`, scrubber + RESULTS ▸ RUN / REPLAY + arrow keys in `MainWindow.xaml` |
+| Groups (024a) | `Core/Library/GroupTemplate.cs`, `TemplateLibrary.Groups`, `MixLine.GroupId`, `StudyTemplates.{FindGroup, AvailableGroups, LineProfiles}`, `BuiltInLibrary.AddGroups`, `FormatMigrations.UpgradeV11ToV12`, `SimSetup` (group lines, `GroupRouteTemplate`), `Sim/SimJourneys.cs` (`SimMixLine.{RouteProfile, Members, PickWeight}`), `SimModel.RouteProfiles`, `AgentStore.{Route, Group, LastDevice}`, `Sim/Engine/SimEngine.Groups.cs`, `AgentPhase.Regroup`, `Replay/PackedAgent.GroupHue`, `Render/Gl/AgentColoring.cs` (`Group`, `GroupColours`), `MainViewModel.Run.FetchAgents`, `MixLineViewModel.ProfileId` |
 | Clean script | `clean.bat` (repo root) |
 
 ## 8. Don't regress
 
-- Demo loads clean (0 errors, 0 warnings) and all tests pass (362 methods on 020; the wheelchair test expects > 95 % at the accessible gate, D-213).
+- Demo loads clean (0 errors, 0 warnings) and all tests pass (390 methods on 024a; the wheelchair test expects > 95 % at the accessible gate, D-213).
+- Studies without group lines draw exactly the same random numbers as before round 024 (`Recall` is false for people on
+  their own; `PickWeight` = share for single lines); group members' choices go through `RouteOf(i)`, their body,
+  colour and results rows through their own `Profile[i]`.
+- Group members are found through the per-step index (`IndexGroups`), never stored agent indices (the store swap-removes).
+- The compiled `SimModel` is never written during a run (D-366): batches share it across threads. Anything new a run
+  changes belongs in `SimEngine`, never on model objects; `Round021Tests.BatchRun_IsPlayOnItsSeed` guards it.
+- Recording only reads the engine (`Round023Tests.Recording_NeverChangesTheRun`); `AgentStore.Serial` must never feed the
+  simulation.
 - Your library is never needed by a saved study or a run: MINE items are embedded on first use under their id (D-346),
   with `EmbedReferencedFromMine` after every model change, before save and before a run. Tests never touch the real
   `%AppData%` (the store's folder is a constructor parameter). Library writes keep `library.bak.json` (D-348).
 - Test helpers live in classes named for what they test, not the file (`VerticalCutTests.TwoLevelsWithStair` is in
   `ConnectorTests.cs`): grep for the class before calling a helper.
 - Demo PLAY runs: people cross all three levels; editing locks until RESET.
-- Older files open with their old behaviour (v1/v2: single-level fixed regions, single-run switchbacks; v1–v3: no emission rules; v1–v4: flat rates; v1–v5: one profile per rule, no journey, straight to a sink; v1–v6: no train services, doors emit continuously; v1–v7: no accessible flags, except the built-in accessible gate and wheelchair profile, upgraded on load; v1–v8: no lifts; v9 before 013b: automatic train boxes; lifts saved with Destination before 014 never existed, the factory mapped it to Collective; v1–v9: no saved views, nothing ignored; v1–v10: journeys as step lists, converted to graphs on load, no profile default journeys except embedded built-ins).
+- Older files open with their old behaviour (v1/v2: single-level fixed regions, single-run switchbacks; v1–v3: no emission rules; v1–v4: flat rates; v1–v5: one profile per rule, no journey, straight to a sink; v1–v6: no train services, doors emit continuously; v1–v7: no accessible flags, except the built-in accessible gate and wheelchair profile, upgraded on load; v1–v8: no lifts; v9 before 013b: automatic train boxes; lifts saved with Destination before 014 never existed, the factory mapped it to Collective; v1–v9: no saved views, nothing ignored; v1–v10: journeys as step lists, converted to graphs on load, no profile default journeys except embedded built-ins; v1–v11: no groups, and lines of the removed one-wide-agent Family profile become Family group lines).
 - Queuers, people being served and dwellers are never removed as stuck; device line membership is per agent (device, line, slot), never agent indices (the store swap-removes).
 - Built-in journeys are never changed in place: edits go to the study's copy under the built-in's id (D-328), looked up by id on every read (`JourneyViewModel.Journey`); `IsEditableJourney` = the study's own (DELETE), `CanEditJourney` = editable. Nodes and wires are records; edits go through `MainViewModel.EditJourney` (one undo step) and replace the lists.
 - Journey graphs have no loops (D-306); old step lists keep their behaviour after conversion (results match for the same seed).
@@ -245,7 +301,14 @@ served level** (D-068). Shafts already carry "no stop" levels (D-087) for that.
 - Undo/redo for every edit; dirty marker in the title; save → reopen round-trips.
 - The viewport shows its offline panel (never crashes the app) if OpenGL can't start.
 
-## 9. After round 020
+## 9. After round 021
+
+Round 021 is built (`ai/rounds/round-021.md`: as built, 14-step checklist, judgement calls). First fix any build errors
+Gavin reports. Backlog (suggested order): replay scrubbing (M8), stadium-scale performance pass + stadium demo (watch batch
+memory: cores − 1 engines at once), one-page PDF report (could take the batch summary), group movement. Open: an
+across-runs nodes summary CSV.
+
+## 9a. After round 020 (history)
 
 Round 020 is built (`ai/rounds/round-020.md`: as built, test checklist, judgement calls, one open question). First fix
 any build errors Gavin reports. Round 021 is decided (D-352–D-365) in `ai/rounds/round-021.md`: build it next.

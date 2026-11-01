@@ -221,8 +221,11 @@ public sealed class EmissionRuleViewModel : ObservableObject
     /// <summary>Embeds a built-in journey in the study library.</summary>
     internal void EmbedJourney(Guid journeyId) => _region.EmbedJourney(journeyId);
 
-    /// <summary>Embeds a profile's default journey (D-304) when it's a built-in the study doesn't hold yet.</summary>
+    /// <summary>Embeds a profile's (or group's) default journey (D-304) when it's a built-in the study doesn't hold yet.</summary>
     internal void EmbedDefaultJourney(Guid profileId) => _region.EmbedDefaultJourney(profileId);
+
+    /// <summary>True when <paramref name="id"/> is a group template (round 024).</summary>
+    internal bool IsGroup(Guid id) => _region.IsGroup(id);
 
     /// <summary>Shows a validation message.</summary>
     internal void Reject(string message) => _region.Reject(message);
@@ -455,22 +458,28 @@ public sealed class MixLineViewModel : ObservableObject
     /// <summary>The journey choice that stands for "(profile default)" (D-304).</summary>
     public static readonly Guid ProfileDefaultId = new("00000000-0000-0000-0000-0000000000d1");
 
-    /// <summary>Profile id.</summary>
+    /// <summary>
+    /// Who the line spawns: a profile id, or a group template id (round 024, D-386; the same list holds both).
+    /// </summary>
     public Guid ProfileId
     {
-        get => _line.ProfileId;
+        get => _line.GroupId ?? _line.ProfileId;
         set
         {
-            if (value != _line.ProfileId && value != Guid.Empty)
+            if (value == Guid.Empty || value == (_line.GroupId ?? _line.ProfileId))
             {
-                _rule.EmbedProfile(value);
-                if (_line.UseProfileJourney)
-                {
-                    _rule.EmbedDefaultJourney(value);
-                }
-
-                _rule.SetLine(_index, _line with { ProfileId = value }, "Change mix line profile");
+                return;
             }
+
+            _rule.EmbedProfile(value);
+            if (_line.UseProfileJourney)
+            {
+                _rule.EmbedDefaultJourney(value);
+            }
+
+            bool group = _rule.IsGroup(value);
+            _rule.SetLine(_index, group ? _line with { GroupId = value } : _line with { ProfileId = value, GroupId = null },
+                group ? "Change mix line to a group" : "Change mix line profile");
         }
     }
 
@@ -487,7 +496,7 @@ public sealed class MixLineViewModel : ObservableObject
             {
                 if (!_line.UseProfileJourney)
                 {
-                    _rule.EmbedDefaultJourney(_line.ProfileId);
+                    _rule.EmbedDefaultJourney(_line.GroupId ?? _line.ProfileId);
                     _rule.SetLine(_index, _line with { UseProfileJourney = true }, "Mix line follows the profile's default journey");
                 }
 

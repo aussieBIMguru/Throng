@@ -27,6 +27,9 @@ namespace Throng.IO;
 /// <item>10 → 11 (round 018, D-302, D-304): each journey's step list becomes a graph (Spawn, a node per step, Tag
 /// checks for needs / lacks, sinks), laid out left to right; embedded copies of built-in profiles get the built-in's
 /// default journey; mix lines keep their explicit journey.</item>
+/// <item>11 → 12 (round 024, D-382, D-385, D-386): group templates in the study library and group mix lines. Mix
+/// lines of the removed one-wide-agent "Family / group" profile become lines of the built-in Family group (same share,
+/// journey and tags), and the study's copy of that profile is dropped once nothing uses it.</item>
 /// </list>
 /// </remarks>
 internal static class FormatMigrations
@@ -44,6 +47,7 @@ internal static class FormatMigrations
         (8, UpgradeV8ToV9),
         (9, UpgradeV9ToV10),
         (10, UpgradeV10ToV11),
+        (11, UpgradeV11ToV12),
     ];
 
     /// <summary>Applies every step needed to bring a study from <paramref name="fileVersion"/> to current.</summary>
@@ -218,6 +222,45 @@ internal static class FormatMigrations
             {
                 profile.DefaultJourneyId = builtIn.DefaultJourneyId;
             }
+        }
+    }
+
+    /// <summary>
+    /// v11 → v12 (D-385, D-386): group templates arrive. The "Family / group" profile (one wider, slower agent) is gone,
+    /// so mix lines using it switch to the built-in Family group and the study's copy of it is dropped when unused.
+    /// </summary>
+    private static void UpgradeV11ToV12(Study study)
+    {
+        study.Library.Groups ??= [];
+        study.Library.Groups.RemoveAll(g => g is null);
+        Guid family = TemplateIds.FromKey(BuiltInLibrary.RemovedFamilyProfileKey);
+        Guid group = TemplateIds.FromKey(BuiltInLibrary.FamilyGroupKey);
+        foreach (Region region in study.Regions)
+        {
+            if (region.EmissionRules is not { Count: > 0 } rules)
+            {
+                continue;
+            }
+
+            for (int r = 0; r < rules.Count; r++)
+            {
+                if (rules[r]?.Mix is not { } mix || !mix.Any(m => m is not null && m.GroupId is null && m.ProfileId == family))
+                {
+                    continue;
+                }
+
+                rules[r] = rules[r] with
+                {
+                    Mix = [.. mix.Select(m => m is not null && m.GroupId is null && m.ProfileId == family ? m with { GroupId = group } : m)],
+                };
+            }
+        }
+
+        bool used = study.Regions.SelectMany(r => r.EmissionRules ?? []).SelectMany(r => r?.Mix ?? [])
+            .Any(m => m is not null && m.GroupId is null && m.ProfileId == family);
+        if (!used)
+        {
+            study.Library.AgentProfiles.RemoveAll(p => p is not null && (p.Id == family || string.Equals(p.Key, BuiltInLibrary.RemovedFamilyProfileKey, StringComparison.Ordinal)));
         }
     }
 

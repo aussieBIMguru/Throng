@@ -57,6 +57,8 @@ public static class SimSetup
         var journeyTemplates = new List<JourneyTemplate>();
         var journeyIndex = new Dictionary<Guid, int>();
         var pending = new List<(Region Region, int RuleNumber, EmissionRule Rule, List<PendingLine> Lines)>();
+        var groupRoutes = new List<AgentProfileTemplate>();
+        var groupRouteIndex = new Dictionary<Guid, int>();
         foreach (Region region in study.Regions.Where(r => r.IsSpawn))
         {
             for (int i = 0; i < region.EmissionRules.Count; i++)
@@ -75,13 +77,45 @@ public static class SimSetup
                         continue;
                     }
 
-                    AgentProfileTemplate template = StudyTemplates.ProfileOrFallback(study, mix.ProfileId);
-                    if (!profileIndex.TryGetValue(template.Id, out int p))
+                    int ProfileOf(AgentProfileTemplate template)
                     {
-                        p = profiles.Count;
-                        profileIndex[template.Id] = p;
-                        (float r, float g, float b) = ParseColour(template.ColorHex);
-                        profiles.Add(new SimProfile { Index = p, Template = template, Mobility = NavRoutes.ClassOf(template), R = r, G = g, B = b });
+                        if (!profileIndex.TryGetValue(template.Id, out int index))
+                        {
+                            index = profiles.Count;
+                            profileIndex[template.Id] = index;
+                            (float r, float g, float b) = ParseColour(template.ColorHex);
+                            profiles.Add(new SimProfile { Index = index, Template = template, Mobility = NavRoutes.ClassOf(template), R = r, G = g, B = b });
+                        }
+
+                        return index;
+                    }
+
+                    // A group line (round 024, D-382, D-386): its member rows; a group that can't be found (or has no
+                    // one in it) spawns single Commuters, as a missing profile does (validation warns).
+                    (int Profile, int Min, int Max)[] members = [];
+                    int groupRoute = -1;
+                    string groupName = string.Empty;
+                    double meanSize = 1;
+                    int p;
+                    if (mix.GroupId is { } groupId && StudyTemplates.FindGroup(study, groupId) is { } group
+                        && group.Rows().Any(m => Math.Max(m.Min, m.Max) > 0))
+                    {
+                        List<GroupMember> rows = [.. group.Rows()];
+                        List<AgentProfileTemplate> rowProfiles = [.. rows.Select(m => StudyTemplates.ProfileOrFallback(study, m.ProfileId))];
+                        members = [.. rows.Select((m, k) => (ProfileOf(rowProfiles[k]), Math.Max(0, m.Min), Math.Max(Math.Max(0, m.Min), m.Max)))];
+                        p = members[0].Profile;
+                        groupName = group.Name;
+                        meanSize = GroupTemplate.MeanSize([.. members.Select(m => (m.Min, m.Max))]);
+                        if (!groupRouteIndex.TryGetValue(group.Id, out groupRoute))
+                        {
+                            groupRoute = groupRoutes.Count;
+                            groupRouteIndex[group.Id] = groupRoute;
+                            groupRoutes.Add(GroupRouteTemplate(group, rowProfiles));
+                        }
+                    }
+                    else
+                    {
+                        p = ProfileOf(StudyTemplates.ProfileOrFallback(study, mix.GroupId is null ? mix.ProfileId : Guid.Empty));
                     }
 
                     // The line's journey, or the profile's default one (D-304).
@@ -103,7 +137,7 @@ public static class SimSetup
                         }
                     }
 
-                    lines.Add(new PendingLine(p, j, mix.Share, [.. spawnTags]));
+                    lines.Add(new PendingLine(p, j, mix.Share, [.. spawnTags]) { Members = members, GroupRoute = groupRoute, GroupName = groupName, MeanSize = meanSize });
                 }
 
                 if (lines.Count > 0)
@@ -117,7 +151,18 @@ public static class SimSetup
         var extraTargets = new List<NavSink>();
         List<SimDevice> devices = BuildDevices(study, nav, journeyTemplates, extraTargets, findings);
         Dictionary<Guid, int> zoneTargets = BuildZoneTargets(study, nav, journeyTemplates, extraTargets, findings);
-        foreach (SimProfile profile in profiles)
+
+        // Route profiles (D-387): the profiles themselves, then each group's merged one, coloured as its lead.
+        var routeProfiles = new List<SimProfile>(profiles);
+        foreach (AgentProfileTemplate merged in groupRoutes)
+        {
+            (float r, float g, float b) = ParseColour(merged.ColorHex);
+            routeProfiles.Add(new SimProfile { Index = routeProfiles.Count, Template = merged, Mobility = NavRoutes.ClassOf(merged), R = r, G = g, B = b });
+        }
+
+        int RouteOf(PendingLine line) => line.GroupRoute >= 0 ? profiles.Count + line.GroupRoute : line.Profile;
+
+        foreach (SimProfile profile in routeProfiles)
         {
             // Device preferences (D-166): seconds off each device's choice cost for this profile.
             profile.DeviceBonusS = [.. devices.Select(d => profile.Template.DeviceBonusS(d.PresetKey, d.TypeTag))];
@@ -148,7 +193,7 @@ public static class SimSetup
         List<SimJourney> journeys = [.. journeyTemplates.Select((t, index) => CompileJourney(study, t, index, devices, zoneTargets, BoardTargets, SinkTargets, s => nav.Sinks[s].RegionId, tags, findings))];
 
         cancel.ThrowIfCancellationRequested();
-        NavRoutes routes = NavRoutes.Build(nav, profiles.Any(p => p.Mobility == MobilityClass.StepFree), cancel);
+        NavRoutes routes = NavRoutes.Build(nav, routeProfiles.Any(p => p.Mobility == MobilityClass.StepFree), cancel);
 
         var sinkByRegion = new Dictionary<Guid, int>();
         foreach (NavSink sink in nav.Sinks)
@@ -196,7 +241,7 @@ public static class SimSetup
             // Reachability from the middle of the zone, plain nominal costs, for each routing class in the mix. A sink
             // is kept when every class can reach it.
             Point2 from = nav.Surfaces[floor].CellCentre(cells[cells.Count / 2]);
-            List<MobilityClass> classes = [.. lines.Select(l => profiles[l.Profile].Mobility).Distinct()];
+            List<MobilityClass> classes = [.. lines.Select(l => routeProfiles[RouteOf(l)].Mobility).Distinct()];
             var reachable = new List<(int Sink, double Weight)>();
             var unreachable = new List<string>();
             foreach ((int s, double w) in candidates)
@@ -227,9 +272,9 @@ public static class SimSetup
 
             // Journey steps: some target of every step must be reachable from the zone (D-149).
             bool stepsOk = true;
-            foreach (PendingLine line in lines.Where(l => l.Journey >= 0).DistinctBy(l => (l.Journey, l.Profile)))
+            foreach (PendingLine line in lines.Where(l => l.Journey >= 0).DistinctBy(l => (l.Journey, RouteOf(l))))
             {
-                MobilityClass mobility = profiles[line.Profile].Mobility;
+                MobilityClass mobility = routeProfiles[RouteOf(line)].Mobility;
                 foreach (SimStep step in journeys[line.Journey].Steps)
                 {
                     if (step.Kind == JourneyStepKind.Exit && step.Targets.Length == 0)
@@ -263,7 +308,17 @@ public static class SimSetup
                 RegionId = region.Id,
                 Label = label,
                 Rule = rule,
-                Lines = [.. lines.Select(l => new SimMixLine { Profile = l.Profile, Journey = l.Journey, Share = l.Share, SpawnTags = l.SpawnTags })],
+                Lines = [.. lines.Select(l => new SimMixLine
+                {
+                    Profile = l.Profile,
+                    RouteProfile = RouteOf(l),
+                    Journey = l.Journey,
+                    Share = l.Share,
+                    SpawnTags = l.SpawnTags,
+                    Members = l.Members,
+                    GroupName = l.GroupName,
+                    MeanSize = l.MeanSize,
+                })],
                 Floor = floor,
                 Cells = [.. cells],
                 Nearest = rule.DestinationMode == DestinationMode.NearestSink,
@@ -290,6 +345,7 @@ public static class SimSetup
         {
             Routes = routes,
             Profiles = profiles,
+            RouteProfiles = routeProfiles,
             Emitters = emitters,
             Journeys = journeys,
             Devices = devices,
@@ -428,7 +484,33 @@ public static class SimSetup
     }
 
     /// <summary>A mix line before its emitter is built.</summary>
-    private sealed record PendingLine(int Profile, int Journey, double Share, (ulong Bit, double Probability)[] SpawnTags);
+    private sealed record PendingLine(int Profile, int Journey, double Share, (ulong Bit, double Probability)[] SpawnTags)
+    {
+        /// <summary>Group rows (profile index, min, max); empty for single people.</summary>
+        public (int Profile, int Min, int Max)[] Members { get; init; } = [];
+
+        /// <summary>Index of the group's merged route profile among the group ones, or −1.</summary>
+        public int GroupRoute { get; init; } = -1;
+
+        /// <summary>Group template name.</summary>
+        public string GroupName { get; init; } = string.Empty;
+
+        /// <summary>Mean group size (1 for single people).</summary>
+        public double MeanSize { get; init; } = 1;
+    }
+
+    /// <summary>
+    /// The profile a group's choices are made with (D-387): a copy of the lead's (first row) with the hard needs of every
+    /// member: lift only and accessible devices only if anyone has them. Named after the group, coloured as the lead.
+    /// </summary>
+    internal static AgentProfileTemplate GroupRouteTemplate(GroupTemplate group, IReadOnlyList<AgentProfileTemplate> rowProfiles)
+    {
+        var merged = (AgentProfileTemplate)TemplateCloner.Clone(rowProfiles[0]);
+        merged.Name = group.Name;
+        merged.LiftOnly = rowProfiles.Any(p => p.LiftOnly);
+        merged.NeedsAccessibleDevices = rowProfiles.Any(p => p.NeedsAccessibleDevices);
+        return merged;
+    }
 
     /// <summary>Tag names to bits (D-150): case-insensitive, at most 64 per run; extra tags are ignored with a warning.</summary>
     private sealed class TagTable

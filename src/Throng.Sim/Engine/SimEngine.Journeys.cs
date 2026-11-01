@@ -130,26 +130,29 @@ public sealed partial class SimEngine
 
     // ------------------------------------------------------------------ spawning and steps
 
-    /// <summary>One of the emitter's mix lines, picked by share (D-151).</summary>
-    private static SimMixLine PickLine(SimEmitter emitter, DeterministicRandom random)
+    /// <summary>
+    /// The index of one of the emitter's mix lines, picked by share (D-151); a group line's share is divided by its mean
+    /// size so shares stay shares of people (D-386). Without group lines the draw is the same as before round 024.
+    /// </summary>
+    private static int PickLine(SimEmitter emitter, DeterministicRandom random)
     {
         SimMixLine[] lines = emitter.Lines;
         if (lines.Length == 1)
         {
-            return lines[0];
+            return 0;
         }
 
-        double pick = random.NextDouble() * emitter.TotalShare;
-        foreach (SimMixLine line in lines)
+        double pick = random.NextDouble() * emitter.TotalPickWeight;
+        for (int k = 0; k < lines.Length; k++)
         {
-            pick -= line.Share;
+            pick -= lines[k].PickWeight;
             if (pick < 0)
             {
-                return line;
+                return k;
             }
         }
 
-        return lines[^1];
+        return lines.Length - 1;
     }
 
     /// <summary>The tags a new agent of this line starts with (D-150).</summary>
@@ -245,8 +248,13 @@ public sealed partial class SimEngine
             {
                 case SimNodeKind.Chance:
                 {
-                    // The same single draw as before round 019 (Pick), so seeded runs don't change.
-                    int port = n.PickPort(random.NextDouble());
+                    // The same single draw as before round 019 (Pick), so seeded runs don't change; once per group (D-389).
+                    if (!Recall(i, node, out int port))
+                    {
+                        port = n.PickPort(random.NextDouble());
+                        Remember(i, node, port);
+                    }
+
                     CountWire(row, j, node, port);
                     node = port >= 0 ? n.Next[port] : -1;
                     continue;
@@ -278,7 +286,12 @@ public sealed partial class SimEngine
                 case JourneyStepKind.BoardTrain:
                 {
                     // Leave on a train (D-186): head for the quickest, quietest door of the step's services.
-                    int door = ChooseTrainDoor(i, step, random);
+                    if (!Recall(i, node, out int door))
+                    {
+                        door = ChooseTrainDoor(i, step, random);
+                        Remember(i, node, door);
+                    }
+
                     if (door < 0)
                     {
                         // Passed by: no one can reach it (counted on its first output, like a skip).
@@ -295,7 +308,12 @@ public sealed partial class SimEngine
 
                 case JourneyStepKind.GoToDevice:
                 {
-                    int d = ChooseDevice(i, step, -1, random, out _, step.ChooseBy);
+                    if (!Recall(i, node, out int d))
+                    {
+                        d = ChooseDevice(i, step, -1, random, out _, step.ChooseBy);
+                        Remember(i, node, d);
+                    }
+
                     if (d < 0)
                     {
                         CountWire(row, j, node, 0);
@@ -312,7 +330,12 @@ public sealed partial class SimEngine
 
                 default:
                 {
-                    int target = ChooseZone(i, step, random);
+                    if (!Recall(i, node, out int target))
+                    {
+                        target = ChooseZone(i, step, random);
+                        Remember(i, node, target);
+                    }
+
                     if (target < 0)
                     {
                         CountWire(row, j, node, 0);
@@ -356,7 +379,22 @@ public sealed partial class SimEngine
         a.Step[i] = sink is not null ? sinkStep : j >= 0 ? _model.Journeys[j].Steps.Length : 0;
         a.Phase[i] = AgentPhase.Walk;
         a.QDevice[i] = -1;
-        int target = sink is { Targets.Length: > 0 } ? ChooseZone(i, sink, random) : -1;
+
+        // The group leaves by the same sink (D-389): whoever heads off first chooses it.
+        int key = ExitKey(i, sink is not null ? sinkStep : -1);
+        if (Recall(i, key, out int target))
+        {
+            if (sink is not null && sink.Targets.AsSpan().Contains(target))
+            {
+                CountCandidate(i, sink, target);
+            }
+
+            a.Sink[i] = target;
+            Decide(i, random);
+            return;
+        }
+
+        target = sink is { Targets.Length: > 0 } ? ChooseZone(i, sink, random) : -1;
         if (sink is not null && target >= 0)
         {
             CountCandidate(i, sink, target);
@@ -365,9 +403,10 @@ public sealed partial class SimEngine
         if (target < 0)
         {
             SimEmitter emitter = _model.Emitters[a.Emitter[i]];
-            target = PickSink(i, emitter, _model.Profiles[a.Profile[i]], random);
+            target = PickSink(i, emitter, RouteOf(i), random);
         }
 
+        Remember(i, key, target);
         a.Sink[i] = target;
         Decide(i, random);
     }
@@ -384,7 +423,7 @@ public sealed partial class SimEngine
     private int ChooseDevice(int i, SimStep step, int exclude, DeterministicRandom? random, out double bestTotal, JourneyChooseBy rule = JourneyChooseBy.Quickest)
     {
         AgentStore a = _agents;
-        SimProfile profile = _model.Profiles[a.Profile[i]];
+        SimProfile profile = RouteOf(i);
         int best = -1;
         bestTotal = double.PositiveInfinity;
         double bestScore = double.PositiveInfinity;
@@ -529,7 +568,7 @@ public sealed partial class SimEngine
             }
         }
 
-        SimProfile profile = _model.Profiles[a.Profile[i]];
+        SimProfile profile = RouteOf(i);
         double best = double.PositiveInfinity;
         if (next is { Targets.Length: > 0 })
         {
@@ -616,7 +655,7 @@ public sealed partial class SimEngine
             return -1;
         }
 
-        SimProfile profile = _model.Profiles[a.Profile[i]];
+        SimProfile profile = RouteOf(i);
         JourneyChooseBy rule = step.ChooseBy;
         bool weighted = rule == JourneyChooseBy.RandomWeighted;
         int best = -1;
@@ -904,7 +943,11 @@ public sealed partial class SimEngine
                 if (left < ThroughDoneM || TimeS >= a.Timer[i])
                 {
                     _laneThrough[g]--;
+                    int used = a.QDevice[i];
                     CompleteStep(i);
+
+                    // Past the gate: wait for the rest of the group (D-384).
+                    MaybeRegroup(i, used);
                 }
                 else if (left > _laneThroughLeftNext[g])
                 {
@@ -918,8 +961,15 @@ public sealed partial class SimEngine
                 if (TimeS >= a.Timer[i])
                 {
                     a.Phase[i] = AgentPhase.Walk;
+
+                    // Stepped aside from a machine: wait for the rest of the group (D-384).
+                    MaybeRegroup(i, a.LastDevice[i]);
                 }
 
+                break;
+
+            case AgentPhase.Regroup:
+                UpdateRegroup(i);
                 break;
 
             case AgentPhase.Dwell:
@@ -966,6 +1016,9 @@ public sealed partial class SimEngine
         int best = -1, bestLoad = int.MaxValue, turnLoad = int.MaxValue;
         double bestDistance = double.PositiveInfinity, nearest = double.PositiveInfinity;
         int longest = 0;
+
+        // Group mates queue together (D-384): a lane a mate is already in counts one shorter.
+        int mateLane = MateLane(i, device, side);
         for (int lane = 0; lane < device.Lanes; lane++)
         {
             Point2[] slots = device.Slots[device.Line(side, lane)];
@@ -988,7 +1041,7 @@ public sealed partial class SimEngine
                 continue;
             }
 
-            int load = LaneLoad(device, lane);
+            int load = LaneLoad(device, lane) - (lane == mateLane ? 1 : 0);
             if (load < bestLoad || (load == bestLoad && distance < bestDistance))
             {
                 best = lane;
@@ -1130,16 +1183,31 @@ public sealed partial class SimEngine
         }
 
         AgentStore a = _agents;
-        // The node's patience override (D-322), else the profile's.
-        double patience = double.IsNaN(step.PatienceS) ? _model.Profiles[a.Profile[i]].Template.PatienceS : step.PatienceS;
+        // The node's patience override (D-322), else the profile's (the group lead's for groups, D-387).
+        double patience = double.IsNaN(step.PatienceS) ? RouteOf(i).Template.PatienceS : step.PatienceS;
         if (!(TimeS - a.JoinTime[i] >= patience))
         {
             return false;
         }
 
+        // The group gives up together (D-384): mates still heading for or waiting at this device go too.
+        int device = a.QDevice[i], stepIndex = a.Step[i];
+        GiveUp(i, step);
+        GiveUpMates(i, stepIndex, device);
+        return true;
+    }
+
+    /// <summary>Leaves a device step whose patience ran out (D-165, D-306): along the gave-up output, or to an exit.</summary>
+    private void GiveUp(int i, SimStep step)
+    {
+        AgentStore a = _agents;
         RecordGaveUp(a.QDevice[i]);
         CountGaveUp(i);
-        NoteWait(i, TimeS - a.JoinTime[i]);
+        if (a.Phase[i] is AgentPhase.Queue or AgentPhase.WaitJoin)
+        {
+            NoteWait(i, TimeS - a.JoinTime[i]);
+        }
+
         if (a.Phase[i] == AgentPhase.Queue)
         {
             LeaveLine(i);
@@ -1151,13 +1219,12 @@ public sealed partial class SimEngine
         {
             // Carry on along the gave-up output (D-306), no tag granted.
             AdvanceStep(i, _random, gaveUp: true);
-            return true;
+            return;
         }
 
         _gaveUp++;
         a.LeftEarly[i] = true;
         BeginExit(i, _random);
-        return true;
     }
 
     /// <summary>
@@ -1174,10 +1241,16 @@ public sealed partial class SimEngine
             return false;
         }
 
+        // A group whose member is already being served here has committed to this device (D-384).
+        if (MateServedAt(i, device.Index))
+        {
+            return false;
+        }
+
         // Like for like (r009b-3): the other device's total includes its choice weight and the profile's preference,
         // so this device's wait carries its own too. A favoured device is kept through a longer queue (D-166).
         AgentStore a = _agents;
-        SimProfile profile = _model.Profiles[a.Profile[i]];
+        SimProfile profile = RouteOf(i);
         double adjustHere = device.ChoicePenaltyS - profile.BonusFor(device.Index) + AccessAvoidS(profile, device);
         int other = ChooseDevice(i, step, device.Index, null, out double otherTotal);
         if (other < 0 || !(waitHere + adjustHere > BalkFactor * otherTotal))
@@ -1192,6 +1265,9 @@ public sealed partial class SimEngine
         a.QDevice[i] = other;
         a.Sink[i] = _model.Devices[other].Target;
         Decide(i, _random);
+
+        // The group balks together (D-384).
+        BalkMates(i, step, device.Index, other);
         return true;
     }
 
@@ -1327,6 +1403,7 @@ public sealed partial class SimEngine
         double t = device.Lanes == 1 ? 1 : (lane < device.Lanes / 2.0 ? -1 : 1);
         Point2 aside = device.Facing.Perpendicular() * (t * AsideM);
         double x = a.X[i], y = a.Y[i];
+        a.LastDevice[i] = device.Index;
         CompleteStep(i);
         a.Phase[i] = AgentPhase.Aside;
         a.AimX[i] = x + aside.X;
@@ -1540,7 +1617,9 @@ public sealed partial class SimEngine
             case AgentPhase.WaitJoin:
             case AgentPhase.WaitTrain:
             case AgentPhase.LiftWait:
-                // To the hold point (D-167), the spot beside a train door (D-186) or on a lift landing, then stand.
+            case AgentPhase.Regroup:
+                // To the hold point (D-167), the spot beside a train door (D-186), on a lift landing or just past a
+                // device for the rest of the group (D-384), then stand.
                 tx = a.AimX[i];
                 ty = a.AimY[i];
                 arrive = true;

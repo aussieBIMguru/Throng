@@ -1,4 +1,5 @@
 using CommunityToolkit.Mvvm.ComponentModel;
+using Throng.Sim.Batch;
 using Throng.Sim.Engine;
 
 namespace Throng.App.ViewModels;
@@ -10,12 +11,12 @@ namespace Throng.App.ViewModels;
 public sealed class ZoneResultRow : ObservableObject
 {
     private readonly Action _graphedChanged;
-    private int _peakOccupancy;
-    private double _meanOccupancy;
-    private double _peakDensity;
-    private long _entries;
-    private double _entriesPerMin;
-    private double _entriesPerMinPerM;
+    private StatCell _peakOccupancy;
+    private StatCell _meanOccupancy;
+    private StatCell _peakDensity;
+    private StatCell _entries;
+    private StatCell _entriesPerMin;
+    private StatCell _entriesPerMinPerM;
     private bool _isGraphed;
 
     /// <summary>Creates a row for a zone.</summary>
@@ -46,22 +47,22 @@ public sealed class ZoneResultRow : ObservableObject
     public double WidthM { get; }
 
     /// <summary>Most people in it at once.</summary>
-    public int PeakOccupancy { get => _peakOccupancy; private set => SetProperty(ref _peakOccupancy, value); }
+    public StatCell PeakOccupancy { get => _peakOccupancy; private set => SetProperty(ref _peakOccupancy, value); }
 
     /// <summary>Average number of people in it.</summary>
-    public double MeanOccupancy { get => _meanOccupancy; private set => SetProperty(ref _meanOccupancy, value); }
+    public StatCell MeanOccupancy { get => _meanOccupancy; private set => SetProperty(ref _meanOccupancy, value); }
 
     /// <summary>Peak occupancy over the zone area, people per m².</summary>
-    public double PeakDensity { get => _peakDensity; private set => SetProperty(ref _peakDensity, value); }
+    public StatCell PeakDensity { get => _peakDensity; private set => SetProperty(ref _peakDensity, value); }
 
     /// <summary>People who walked in.</summary>
-    public long Entries { get => _entries; private set => SetProperty(ref _entries, value); }
+    public StatCell Entries { get => _entries; private set => SetProperty(ref _entries, value); }
 
     /// <summary>Entries per minute.</summary>
-    public double EntriesPerMin { get => _entriesPerMin; private set => SetProperty(ref _entriesPerMin, value); }
+    public StatCell EntriesPerMin { get => _entriesPerMin; private set => SetProperty(ref _entriesPerMin, value); }
 
     /// <summary>Entries per minute per metre of width.</summary>
-    public double EntriesPerMinPerM { get => _entriesPerMinPerM; private set => SetProperty(ref _entriesPerMinPerM, value); }
+    public StatCell EntriesPerMinPerM { get => _entriesPerMinPerM; private set => SetProperty(ref _entriesPerMinPerM, value); }
 
     /// <summary>Ticked: its occupancy is on the graph (ZONES).</summary>
     public bool IsGraphed
@@ -79,11 +80,22 @@ public sealed class ZoneResultRow : ObservableObject
     /// <summary>Copies the latest stats in.</summary>
     public void Update(ZoneResult result)
     {
-        PeakOccupancy = result.PeakOccupancy;
-        MeanOccupancy = Math.Round(result.MeanOccupancy, 1);
-        PeakDensity = Math.Round(result.PeakDensity, 2);
-        Entries = result.Entries;
-        EntriesPerMin = Math.Round(result.EntriesPerMin, 1);
-        EntriesPerMinPerM = Math.Round(result.EntriesPerMinPerM, 1);
+        PeakOccupancy = StatCell.Single(result.PeakOccupancy);
+        MeanOccupancy = StatCell.Single(Math.Round(result.MeanOccupancy, 1));
+        PeakDensity = StatCell.Single(Math.Round(result.PeakDensity, 2));
+        Entries = StatCell.Single(result.Entries);
+        EntriesPerMin = StatCell.Single(Math.Round(result.EntriesPerMin, 1));
+        EntriesPerMinPerM = StatCell.Single(Math.Round(result.EntriesPerMinPerM, 1));
+    }
+
+    /// <summary>Copies a batch's stats in: means with min–max (round 021, D-358).</summary>
+    public void Update(ZoneBatchResult result)
+    {
+        PeakOccupancy = StatCell.Batch(result.PeakOccupancy, 1);
+        MeanOccupancy = StatCell.Batch(result.MeanOccupancy, 1);
+        PeakDensity = StatCell.Batch(result.PeakDensity, 2);
+        Entries = StatCell.Batch(result.Entries, 1);
+        EntriesPerMin = StatCell.Batch(result.EntriesPerMin, 1);
+        EntriesPerMinPerM = StatCell.Batch(result.EntriesPerMinPerM, 1);
     }
 }

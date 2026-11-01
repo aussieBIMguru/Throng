@@ -205,7 +205,8 @@ public sealed partial class SimEngine
 
         if (a.Phase[i] == AgentPhase.WaitTrain)
         {
-            if (CanBoard(v))
+            // A group goes to board once everyone's there and fits (D-384).
+            if (CanBoard(v) && GroupReadyForTrain(i, v))
             {
                 a.Phase[i] = AgentPhase.Walk;
                 Decide(i, _random);
@@ -225,7 +226,7 @@ public sealed partial class SimEngine
     /// <summary>Reached a train door while walking: board when the train can take them (true = leave), else wait.</summary>
     private bool ArriveAtTrainDoor(int i, int v)
     {
-        if (CanBoard(v))
+        if (CanBoard(v) && GroupReadyForTrain(i, v))
         {
             _trainBoarded[v]++;
             _boardedTrains++;
@@ -284,7 +285,7 @@ public sealed partial class SimEngine
     private int ChooseTrainDoor(int i, SimStep step, DeterministicRandom random)
     {
         AgentStore a = _agents;
-        SimProfile profile = _model.Profiles[a.Profile[i]];
+        SimProfile profile = RouteOf(i);
         double sight = Sight(i);
         int best = -1;
         double bestCost = double.PositiveInfinity;

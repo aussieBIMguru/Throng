@@ -32,4 +32,9 @@ public enum AgentPhase : byte
 
     /// <summary>Riding a lift car (round 013): held in the car, carried with it, off the floor.</summary>
     LiftRide,
+
+    /// <summary>
+    /// A group member past a device, standing about 2 m on until the rest of the group is through (round 024, D-384).
+    /// </summary>
+    Regroup,
 }

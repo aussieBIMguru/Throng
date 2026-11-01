@@ -140,6 +140,8 @@ These carry no licence obligation; they are credited as a courtesy.
 - **Fruin, J. J.** — *Pedestrian Planning and Design* (1971). Level of Service concept and thresholds used in
   `FruinLevelOfService` (values to be verified against the source before results are shared).
 - **Helbing, D. & Molnár, P.** — "Social force model for pedestrian dynamics" (1995). Basis for local movement (M2).
+- **Moussaïd, M., Perozo, N., Garnier, S., Helbing, D. & Theraulaz, G.** — "The walking behaviour of pedestrian social
+  groups and its impact on crowd dynamics" (2010). Idea behind the group cohesion term (round 024, D-383).
 - **Weidmann, U.** — *Transporttechnik der Fussgänger* (1993). Walking-speed distributions behind the agent profile defaults.
 - **Treuille, A., Cooper, S. & Popović, Z.** — "Continuum Crowds" (2006). Flow-field navigation inspiration.
 - **Barney, G.** — *Elevator Traffic Handbook*. Collective control and up-peak lift dispatch concepts.

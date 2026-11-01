@@ -21,6 +21,9 @@ public static class BuiltInLibrary
         public const string Lifts = "Lifts";
         public const string Schedules = "Schedules";
         public const string Journeys = "Journeys";
+
+        /// <summary>Group templates (round 024).</summary>
+        public const string Groups = "Groups";
     }
 
     /// <summary>Key of the accessible wide gate preset, which wheelchair and luggage profiles favour (D-166).</summary>
@@ -28,6 +31,12 @@ public static class BuiltInLibrary
 
     /// <summary>Key of the wheelchair profile, which needs accessible devices (D-213).</summary>
     public const string MobilityProfileKey = "agent.mobility";
+
+    /// <summary>Key of the built-in Family group (round 024; studies that used the old one-wide-agent profile get it, D-385).</summary>
+    public const string FamilyGroupKey = "group.family";
+
+    /// <summary>Key of the removed "Family / group" profile (one wider, slower agent; D-385), for the v11 → v12 load step.</summary>
+    public const string RemovedFamilyProfileKey = "agent.family";
 
     private static readonly Lazy<TemplateLibrary> Cached = new(Build);
 
@@ -47,6 +56,7 @@ public static class BuiltInLibrary
         AddLifts(library);
         AddSchedules(library);
         AddJourneys(library);
+        AddGroups(library);
         return library;
     }
 
@@ -170,11 +180,11 @@ public static class BuiltInLibrary
 
         lib.Add(Init(new AgentProfileTemplate
         {
-            RadiusM = 0.35, Speed = Distribution.Normal(1.00, 0.20, 0.5, 1.5),
-            PatienceS = 300, Decisiveness = 0.5, LiftPreference = 0.2, MechanisedPreference = 0.5, EscalatorWalkProbability = 0.05, AcceptableJourneyS = 900,
-            StairUpEffort = 3.0, StairDownEffort = 2.0,
+            RadiusM = 0.20, HeightM = 1.25, Speed = Distribution.Normal(1.10, 0.20, 0.6, 1.6),
+            PatienceS = 240, Decisiveness = 0.3, LiftPreference = 0.2, MechanisedPreference = 0.5, EscalatorWalkProbability = 0.05, AcceptableJourneyS = 900,
+            StairUpEffort = 2.0, StairDownEffort = 1.4, SightRadiusM = 20,
             DefaultJourneyId = TemplateIds.FromKey("journey.ticket-gates"),
-        }, "agent.family", "Family / group", cat, "#86EFAC", "Small group modelled as one wider, slower agent. True group movement comes later.", version: 2));
+        }, "agent.child", "Child", cat, "#86EFAC", "A child walking with adults (round 024). Small and quick to tire; use in groups, where the lead's choices steer them."));
 
         lib.Add(Init(new AgentProfileTemplate
         {
@@ -190,6 +200,52 @@ public static class BuiltInLibrary
             PatienceS = 150, Decisiveness = 0.6, EscalatorWalkProbability = 0.4, AcceptableJourneyS = 1200, DensityTolerance = 0.9,
             DefaultJourneyId = TemplateIds.FromKey("journey.through-gates"),
         }, "agent.fan", "Event fan", cat, "#F87171", "Stadium or event attendee. Arrives in surges, tolerates density, impatient at exits."));
+    }
+
+    /// <summary>
+    /// Built-in group templates (round 024, D-382, D-388). The first row is the lead (D-387); groups walk at their slowest
+    /// member's pace and queue, ride and board together (D-383, D-384).
+    /// </summary>
+    private static void AddGroups(TemplateLibrary lib)
+    {
+        const string cat = Categories.Groups;
+        Guid Id(string key) => TemplateIds.FromKey(key);
+
+        lib.Add(Init(new GroupTemplate
+        {
+            Members = [GroupMember.Of(Id("agent.infrequent"), 2, 2)],
+            DefaultJourneyId = Id("journey.ticket-gates"),
+        }, "group.couple", "Couple", cat, "#FDE68A", "Two people travelling together."));
+
+        lib.Add(Init(new GroupTemplate
+        {
+            Members = [GroupMember.Of(Id("agent.infrequent"), 1, 2), GroupMember.Of(Id("agent.child"), 1, 3)],
+            DefaultJourneyId = Id("journey.ticket-gates"),
+        }, FamilyGroupKey, "Family", cat, "#86EFAC", "One or two adults with one to three children; replaces the old one-wide-agent Family profile."));
+
+        lib.Add(Init(new GroupTemplate
+        {
+            Members = [GroupMember.Of(Id("agent.infrequent"), 3, 5)],
+            DefaultJourneyId = Id("journey.ticket-gates"),
+        }, "group.friends", "Friends", cat, "#FCA5A5", "Three to five friends out together."));
+
+        lib.Add(Init(new GroupTemplate
+        {
+            Members = [GroupMember.Of(Id(MobilityProfileKey), 1, 1), GroupMember.Of(Id("agent.infrequent"), 1, 2)],
+            DefaultJourneyId = Id("journey.through-gates"),
+        }, "group.wheelchair-companion", "Wheelchair user + companion", cat, "#C4B5FD", "A wheelchair user leading one or two companions: the whole group uses lifts, ramps and accessible devices."));
+
+        lib.Add(Init(new GroupTemplate
+        {
+            Members = [GroupMember.Of(Id("agent.infrequent"), 1, 2), GroupMember.Of(Id("agent.child"), 4, 6)],
+            DefaultJourneyId = Id("journey.ticket-gates"),
+        }, "group.school", "School party", cat, "#FDBA74", "A teacher or two with a small class (up to 8 people in all)."));
+
+        lib.Add(Init(new GroupTemplate
+        {
+            Members = [GroupMember.Of(Id("agent.fan"), 2, 6)],
+            DefaultJourneyId = Id("journey.through-gates"),
+        }, "group.fans", "Fans", cat, "#F87171", "Two to six event fans arriving together."));
     }
 
     private static void AddDevices(TemplateLibrary lib)

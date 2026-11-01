@@ -79,6 +79,15 @@ public sealed partial class SimEngine
                 {
                     used[(line.Profile * stride) + line.Journey + 1] = true;
                 }
+
+                // Group members are counted under their own profiles (D-390).
+                foreach ((int member, int _, int _) in line.Members)
+                {
+                    if (member >= 0 && member < profiles)
+                    {
+                        used[(member * stride) + line.Journey + 1] = true;
+                    }
+                }
             }
         }
 

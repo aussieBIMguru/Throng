@@ -98,7 +98,9 @@ public sealed class Round009FileTests
         Study demo = DemoStudyBuilder.Build();
         EmissionRule entrance = demo.Regions.Single(r => r.Name == "West entrance").EmissionRules.Single();
         Assert.AreEqual(100.0, entrance.Mix.Sum(m => m.Share), 1e-9);
-        Assert.AreEqual(70.0, entrance.Mix.Where(m => m.ProfileId == TemplateIds.FromKey("agent.commuter")).Sum(m => m.Share), 1e-9);
+        // Round 024 (D-392): 6 of the 70 commuter points went to Family groups.
+        Assert.AreEqual(64.0, entrance.Mix.Where(m => !m.IsGroup && m.ProfileId == TemplateIds.FromKey("agent.commuter")).Sum(m => m.Share), 1e-9);
+        Assert.AreEqual(6.0, entrance.Mix.Where(m => m.GroupId == TemplateIds.FromKey(BuiltInLibrary.FamilyGroupKey)).Sum(m => m.Share), 1e-9);
         Assert.IsTrue(entrance.Mix.All(m => m.JourneyId is not null));
         Assert.IsTrue(demo.Regions.Any(r => r.ZoneKind == ZoneKind.Dwell && r.Tag == DemoStudyBuilder.RetailTag && demo.FindLevel(r.LevelId)!.Name == "Concourse"));
         Assert.AreEqual(8, demo.Devices.Count(d => d.TypeTag == "TicketMachine"));

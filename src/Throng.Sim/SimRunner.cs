@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Throng.Sim.Engine;
+using Throng.Sim.Replay;
 
 namespace Throng.Sim;
 
@@ -57,7 +58,12 @@ public sealed class SimRunner : IDisposable
     private double[] _backCars = [];
 
     /// <summary>Values per car in the published car buffers: height, state, riders, direction, door opening (0–1).</summary>
-    private const int CarStride = 5;
+    private const int CarStride = ReplayRecording.CarStride;
+
+    // Replay (round 023, D-373–D-375): frames captured on the run's thread; while ViewTimeS is set, the Copy… methods
+    // and ViewStats show the recording at that time instead of the live run.
+    private readonly ReplayRecording _recording = new();
+    private double _viewTimeS = double.NaN;
 
     // Density maps (D-202, D-216): every measure back to back (DensityMeasure order, CellCount each), copied only
     // when the engine has sampled since the last publish.
@@ -75,10 +81,22 @@ public sealed class SimRunner : IDisposable
     private RunResults _frontResults = RunResults.Empty;
     private long _publishedResultsVersion = -1;
 
-    /// <summary>Creates a paused runner and starts its thread.</summary>
+    /// <summary>Creates a paused runner on the model's seed and end, and starts its thread.</summary>
     public SimRunner(SimModel model)
+        : this(model, model.Seed, model.DurationS)
     {
-        _engine = new SimEngine(model);
+    }
+
+    /// <summary>
+    /// Creates a paused runner on its own seed and end (round 023, D-376: REPLAY of a batch run) and starts its thread.
+    /// </summary>
+    /// <param name="model">The compiled model.</param>
+    /// <param name="seed">Random seed for the run.</param>
+    /// <param name="durationS">Simulated seconds to run, or null to run until stopped.</param>
+    public SimRunner(SimModel model, int seed, double? durationS)
+    {
+        _engine = new SimEngine(model, seed, durationS);
+        _recording.CaptureIfDue(_engine);
         DensityLayout = _engine.Density;
         _frontDensity = new float[DensityLayout.CellCount * Measures.Length];
         _backDensity = new float[DensityLayout.CellCount * Measures.Length];
@@ -96,6 +114,38 @@ public sealed class SimRunner : IDisposable
 
     /// <summary>The model being run.</summary>
     public SimModel Model => _engine.Model;
+
+    /// <summary>The seed the run draws from.</summary>
+    public int Seed => _engine.Seed;
+
+    /// <summary>The run's replay frames (round 023); safe to read from any thread.</summary>
+    public ReplayRecording Recording => _recording;
+
+    /// <summary>
+    /// The replayed time the Copy… methods and <see cref="ViewStats"/> show, or null for the live run (round 023, D-374).
+    /// Set from the UI; pause the run first, the live run keeps its own state.
+    /// </summary>
+    public double? ViewTimeS
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return double.IsNaN(_viewTimeS) ? null : _viewTimeS;
+            }
+        }
+
+        set
+        {
+            lock (_gate)
+            {
+                _viewTimeS = value ?? double.NaN;
+            }
+        }
+    }
+
+    /// <summary>Counters at <see cref="ViewTimeS"/> while replaying, else <see cref="LatestStats"/>.</summary>
+    public SimStats ViewStats => ViewTimeS is { } t && _recording.StateAt(t) is { } state ? state.Stats : LatestStats;
 
     /// <summary>
     /// The density map's layers and cell kinds (fixed for the run, safe to read from any thread). Its values come from
@@ -172,7 +222,7 @@ public sealed class SimRunner : IDisposable
     }
 
     /// <summary>True once a fixed-duration run has reached its end.</summary>
-    public bool IsFinished => _engine.Model.DurationS is { } d && LatestStats.TimeS >= d - 1e-9;
+    public bool IsFinished => _engine.DurationS is { } d && LatestStats.TimeS >= d - 1e-9;
 
     /// <summary>Current speed.</summary>
     public RunSpeed Speed
@@ -227,6 +277,13 @@ public sealed class SimRunner : IDisposable
     /// </summary>
     public int CopySnapshot(ref float[] buffer, out SimStats stats, out long version)
     {
+        if (ViewTimeS is { } t && _recording.TryReadAgents(t, ref buffer, out int replayed))
+        {
+            stats = ViewStats;
+            version = -1 - (long)Math.Round(t / ReplayRecording.FrameIntervalS * 1000);
+            return replayed;
+        }
+
         lock (_gate)
         {
             int floats = _frontCount * SimEngine.FloatsPerAgent;
@@ -291,6 +348,8 @@ public sealed class SimRunner : IDisposable
                 {
                     _resetRequested = false;
                     _engine.Reset();
+                    _recording.Clear();
+                    _recording.CaptureIfDue(_engine);
                     owedSimSeconds = 0;
                     Publish();
                 }
@@ -302,6 +361,7 @@ public sealed class SimRunner : IDisposable
                     if (!_engine.IsFinished)
                     {
                         _engine.Step();
+                        _recording.CaptureIfDue(_engine);
                         stepped = true;
                     }
                 }
@@ -333,6 +393,7 @@ public sealed class SimRunner : IDisposable
                     while (clock.Elapsed.TotalMilliseconds - batchStart < MaxBatchMs && !_engine.IsFinished && _playing && !_stop)
                     {
                         _engine.Step();
+                        _recording.CaptureIfDue(_engine);
                     }
                 }
                 else
@@ -341,6 +402,7 @@ public sealed class SimRunner : IDisposable
                     while (owedSimSeconds >= dt && !_engine.IsFinished && _playing && !_stop)
                     {
                         _engine.Step();
+                        _recording.CaptureIfDue(_engine);
                         owedSimSeconds -= dt;
                         if (clock.Elapsed.TotalMilliseconds - batchStart > MaxBatchMs)
                         {
@@ -407,16 +469,18 @@ public sealed class SimRunner : IDisposable
     {
         IReadOnlyList<SimLift> lifts = _engine.Model.Lifts;
         var result = new List<(SimLift, int, double, LiftCarStatus, int, int)>();
+        double[]? replayed = ViewTimeS is { } t ? _recording.StateAt(t)?.Cars : null;
         lock (_gate)
         {
+            double[] cars = replayed ?? _frontCars;
             foreach (SimLift lift in lifts)
             {
                 for (int c = 0; c < lift.Cars; c++)
                 {
                     int o = (lift.FirstCar + c) * CarStride;
-                    if (o + CarStride - 1 < _frontCars.Length)
+                    if (o + CarStride - 1 < cars.Length)
                     {
-                        result.Add((lift, c, _frontCars[o], (LiftCarStatus)(int)_frontCars[o + 1], (int)_frontCars[o + 2], (int)_frontCars[o + 3]));
+                        result.Add((lift, c, cars[o], (LiftCarStatus)(int)cars[o + 1], (int)cars[o + 2], (int)cars[o + 3]));
                     }
                 }
             }
@@ -431,12 +495,14 @@ public sealed class SimRunner : IDisposable
     /// </summary>
     public double[] CopyLiftDoorShares()
     {
+        double[]? replayed = ViewTimeS is { } t ? _recording.StateAt(t)?.Cars : null;
         lock (_gate)
         {
-            var shares = new double[_frontCars.Length / CarStride];
+            double[] cars = replayed ?? _frontCars;
+            var shares = new double[cars.Length / CarStride];
             for (int c = 0; c < shares.Length; c++)
             {
-                shares[c] = _frontCars[(c * CarStride) + 4];
+                shares[c] = cars[(c * CarStride) + 4];
             }
 
             return shares;
@@ -451,11 +517,13 @@ public sealed class SimRunner : IDisposable
     {
         IReadOnlyList<SimTrain> trains = _engine.Model.Trains;
         var result = new List<(SimTrain, bool, bool)>(trains.Count);
+        byte[]? replayed = ViewTimeS is { } t ? _recording.StateAt(t)?.Trains : null;
         lock (_gate)
         {
-            for (int v = 0; v < trains.Count && v < _frontTrains.Length; v++)
+            byte[] states = replayed ?? _frontTrains;
+            for (int v = 0; v < trains.Count && v < states.Length; v++)
             {
-                result.Add((trains[v], _frontTrains[v] > 0, _frontTrains[v] > 1));
+                result.Add((trains[v], states[v] > 0, states[v] > 1));
             }
         }
 

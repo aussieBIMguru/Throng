@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Windows;
+using System.Windows.Input;
 using System.Windows.Media;
 
 namespace Throng.App.Views;
@@ -14,13 +15,62 @@ public sealed class TimeSeriesGraph : FrameworkElement
     public static readonly DependencyProperty DataProperty = DependencyProperty.Register(
         nameof(Data), typeof(GraphData), typeof(TimeSeriesGraph), new FrameworkPropertyMetadata(GraphData.Empty, FrameworkPropertyMetadataOptions.AffectsRender));
 
+    /// <summary>A time to mark with a vertical cursor (round 023: the replayed time), seconds; NaN for none.</summary>
+    public static readonly DependencyProperty CursorTimeSProperty = DependencyProperty.Register(
+        nameof(CursorTimeS), typeof(double), typeof(TimeSeriesGraph), new FrameworkPropertyMetadata(double.NaN, FrameworkPropertyMetadataOptions.AffectsRender));
+
+    /// <summary>Run with the clicked time in seconds (a double) when the plot is clicked (round 023, D-375).</summary>
+    public static readonly DependencyProperty JumpCommandProperty = DependencyProperty.Register(
+        nameof(JumpCommand), typeof(ICommand), typeof(TimeSeriesGraph), new PropertyMetadata(null));
+
     private const double LeftM = 38, RightM = 18, TopM = 20, BottomM = 18, FontSize = 13;
+
+    // The last drawn plot area and time span, for turning a click into a time.
+    private Rect _lastPlot = Rect.Empty;
+    private double _lastTMax;
 
     /// <summary>The data to draw.</summary>
     public GraphData Data
     {
         get => (GraphData)GetValue(DataProperty);
         set => SetValue(DataProperty, value);
+    }
+
+    /// <summary>A time to mark with a vertical cursor, seconds; NaN for none.</summary>
+    public double CursorTimeS
+    {
+        get => (double)GetValue(CursorTimeSProperty);
+        set => SetValue(CursorTimeSProperty, value);
+    }
+
+    /// <summary>Run with the clicked time (seconds) when the plot is clicked.</summary>
+    public ICommand? JumpCommand
+    {
+        get => (ICommand?)GetValue(JumpCommandProperty);
+        set => SetValue(JumpCommandProperty, value);
+    }
+
+    /// <inheritdoc />
+    protected override void OnMouseLeftButtonDown(MouseButtonEventArgs e)
+    {
+        base.OnMouseLeftButtonDown(e);
+        if (JumpCommand is not { } command || _lastPlot.IsEmpty || _lastTMax <= 0)
+        {
+            return;
+        }
+
+        Point at = e.GetPosition(this);
+        if (!_lastPlot.Contains(at))
+        {
+            return;
+        }
+
+        double t = _lastTMax * Math.Clamp((at.X - _lastPlot.Left) / _lastPlot.Width, 0, 1);
+        if (command.CanExecute(t))
+        {
+            command.Execute(t);
+            e.Handled = true;
+        }
     }
 
     /// <inheritdoc />
@@ -37,6 +87,7 @@ public sealed class TimeSeriesGraph : FrameworkElement
         Typeface face = new(TryFindResource("RetroFont") as FontFamily ?? new FontFamily("Consolas"), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
         double dip = VisualTreeHelper.GetDpi(this).PixelsPerDip;
 
+        _lastPlot = Rect.Empty;
         if (data.Times.Length < 2)
         {
             DrawText(dc, "NO DATA YET ▸ PLAY TO RECORD", face, text, dip, plot.Left, plot.Top + (plot.Height / 2) - 8);
@@ -47,7 +98,7 @@ public sealed class TimeSeriesGraph : FrameworkElement
         double top = data.MinTop;
         foreach (GraphLine line in data.Lines)
         {
-            foreach (double v in line.Values)
+            foreach (double v in line.High ?? line.Values)
             {
                 if (double.IsFinite(v) && v > top)
                 {
@@ -57,6 +108,8 @@ public sealed class TimeSeriesGraph : FrameworkElement
         }
 
         top = NiceCeiling(top * 1.05);
+        _lastPlot = plot;
+        _lastTMax = tMax;
         double X(double t) => plot.Left + (plot.Width * Math.Clamp(t / tMax, 0, 1));
         double Y(double v) => plot.Bottom - (plot.Height * Math.Clamp(v / top, 0, 1));
 
@@ -90,9 +143,24 @@ public sealed class TimeSeriesGraph : FrameworkElement
             dc.DrawLine(gridPen, new Point(plot.Left, y), new Point(plot.Right, y));
         }
 
+        // Batch bands first (D-359), so every mean line stays on top.
+        foreach (GraphLine line in data.Lines)
+        {
+            DrawBand(dc, data.Times, line, X, Y);
+        }
+
         foreach (GraphLine line in data.Lines)
         {
             DrawLine(dc, data.Times, line, X, Y);
+        }
+
+        // The replayed time (round 023): a thin vertical cursor.
+        if (double.IsFinite(CursorTimeS))
+        {
+            var cursorPen = new Pen(FindBrush("YellowBrush", Colors.Gold), 1);
+            cursorPen.Freeze();
+            double xc = Math.Round(X(CursorTimeS)) + 0.5;
+            dc.DrawLine(cursorPen, new Point(xc, plot.Top), new Point(xc, plot.Bottom));
         }
 
         dc.Pop();
@@ -167,6 +235,41 @@ public sealed class TimeSeriesGraph : FrameworkElement
         var pen = new Pen(new SolidColorBrush(line.Colour), 1.6) { LineJoin = PenLineJoin.Round };
         pen.Freeze();
         dc.DrawGeometry(null, pen, geometry);
+    }
+
+    /// <summary>A faint fill in the line's colour between its lowest and highest run (round 021, D-359).</summary>
+    private static void DrawBand(DrawingContext dc, double[] times, GraphLine line, Func<double, double> x, Func<double, double> y)
+    {
+        if (line.Low is not { } low || line.High is not { } high)
+        {
+            return;
+        }
+
+        int n = Math.Min(times.Length, Math.Min(low.Length, high.Length));
+        if (n < 2)
+        {
+            return;
+        }
+
+        var geometry = new StreamGeometry();
+        using (StreamGeometryContext g = geometry.Open())
+        {
+            g.BeginFigure(new Point(x(times[0]), y(high[0])), isFilled: true, isClosed: true);
+            for (int i = 1; i < n; i++)
+            {
+                g.LineTo(new Point(x(times[i]), y(high[i])), isStroked: false, isSmoothJoin: false);
+            }
+
+            for (int i = n - 1; i >= 0; i--)
+            {
+                g.LineTo(new Point(x(times[i]), y(low[i])), isStroked: false, isSmoothJoin: false);
+            }
+        }
+
+        geometry.Freeze();
+        var fill = new SolidColorBrush(Color.FromArgb(0x40, line.Colour.R, line.Colour.G, line.Colour.B));
+        fill.Freeze();
+        dc.DrawGeometry(fill, null, geometry);
     }
 
     private static void DrawText(DrawingContext dc, string value, Typeface face, Brush brush, double dip, double x, double y)

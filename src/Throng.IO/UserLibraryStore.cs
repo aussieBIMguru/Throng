@@ -164,12 +164,14 @@ public sealed class UserLibraryStore
         library.Lifts ??= [];
         library.Schedules ??= [];
         library.Journeys ??= [];
+        library.Groups ??= [];
         library.AgentProfiles.RemoveAll(t => t is null);
         library.Devices.RemoveAll(t => t is null);
         library.Connectors.RemoveAll(t => t is null);
         library.Lifts.RemoveAll(t => t is null);
         library.Schedules.RemoveAll(t => t is null);
         library.Journeys.RemoveAll(t => t is null);
+        library.Groups.RemoveAll(t => t is null);
         foreach (AgentProfileTemplate profile in library.AgentProfiles)
         {
             profile.DevicePreferences ??= [];

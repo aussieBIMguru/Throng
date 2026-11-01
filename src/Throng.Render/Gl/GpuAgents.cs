@@ -12,7 +12,7 @@ namespace Throng.Render.Gl;
 internal sealed class GpuAgents : IDisposable
 {
     /// <summary>Floats per instance (matches <c>SimEngine.FloatsPerAgent</c>).</summary>
-    public const int FloatsPerInstance = 11;
+    public const int FloatsPerInstance = 12;
 
     private const int Sides = 12;
     private const int FloatsPerVertex = 5;

@@ -350,7 +350,21 @@ public static class MyLibrary
             study.Library.Journeys ??= [];
         }
 
+        if (source is GroupTemplate)
+        {
+            study.Library.Groups ??= [];
+        }
+
         added.Add(study.Library.AddCopy(source, TemplateSource.Embedded));
+
+        // A group brings its member profiles (round 024), from the same place a profile would come from.
+        if (source is GroupTemplate group)
+        {
+            foreach (GroupMember member in group.Rows())
+            {
+                Embed(study, mine, member.ProfileId, fromMineOnly, added);
+            }
+        }
 
         // A profile from your library brings its default journey from there too (D-350), so it works as saved.
         if (fromMine is AgentProfileTemplate { DefaultJourneyId: { } journeyId })

@@ -36,6 +36,11 @@
         <KeyBinding Key="Enter" Command="{Binding FinishJourneyPickCommand}" />
         <KeyBinding Key="Home" Command="{Binding ZoomExtentsCommand}" />
         <KeyBinding Key="F7" Command="{Binding ValidateCommand}" />
+        <!-- Replay (round 023, D-375): only while there's a run to scrub; text boxes and lists keep their arrows. -->
+        <KeyBinding Key="Left" Command="{Binding ScrubStepCommand}" CommandParameter="-0.5" />
+        <KeyBinding Key="Right" Command="{Binding ScrubStepCommand}" CommandParameter="0.5" />
+        <KeyBinding Key="Left" Modifiers="Shift" Command="{Binding ScrubStepCommand}" CommandParameter="-10" />
+        <KeyBinding Key="Right" Modifiers="Shift" Command="{Binding ScrubStepCommand}" CommandParameter="10" />
     </Window.InputBindings>
 
     <Window.Resources>
@@ -159,23 +164,22 @@
         <!-- ===== Toolbar ===== -->
         <Border DockPanel.Dock="Top" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,1" Padding="6,5">
             <DockPanel>
-                <!-- Brand block on the right. -->
-                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,6,0">
-                    <Image Source="/Assets/throng-64.png" Width="40" Height="40" RenderOptions.BitmapScalingMode="NearestNeighbor" />
-                    <StackPanel Margin="10,0,0,0" VerticalAlignment="Center">
-                        <TextBlock Text="THRONG" FontFamily="{DynamicResource RetroFont}" FontSize="30" Foreground="{StaticResource AccentBrush}" />
-                        <TextBlock Text="PEDESTRIAN FLOW LAB" FontFamily="{DynamicResource RetroFont}" FontSize="13" Foreground="{StaticResource TextDimBrush}" Margin="1,-4,0,0" />
+                <!-- Brand block on the right (round 022: smaller logo; the tagline hides on windows under 1,600 px). -->
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center" Margin="10,0,6,0">
+                    <Image Source="/Assets/throng-64.png" Width="32" Height="32" RenderOptions.BitmapScalingMode="NearestNeighbor" />
+                    <StackPanel Margin="8,0,0,0" VerticalAlignment="Center">
+                        <TextBlock Text="THRONG" FontFamily="{DynamicResource RetroFont}" FontSize="26" Foreground="{StaticResource AccentBrush}" />
+                        <TextBlock x:Name="BrandTagline" Text="PEDESTRIAN FLOW LAB" FontFamily="{DynamicResource RetroFont}" FontSize="13" Foreground="{StaticResource TextDimBrush}" Margin="1,-4,0,0" />
                     </StackPanel>
                 </StackPanel>
 
                 <StackPanel Orientation="Horizontal">
                     <Button Style="{StaticResource ToolButton}" Tag="&#xE710;" Content="NEW" Command="{Binding NewCommand}" ToolTip="New study. A blank slate and a single ground level." />
-                    <Button Style="{StaticResource ToolButton}" Tag="&#xE8F1;" Content="DEMO" Command="{Binding NewFromDemoCommand}" ToolTip="Load the Interchange Station demo: three levels of commuters-to-be (Ctrl+Shift+D)." />
                     <Button Style="{StaticResource ToolButton}" Tag="&#xE8E5;" Content="OPEN" Command="{Binding OpenCommand}" ToolTip="Open a .throng study." />
                     <Button Style="{StaticResource ToolButton}" Tag="&#xE74E;" Content="SAVE" Command="{Binding SaveCommand}" ToolTip="Save the study. Your crowd thanks you." />
                     <Border Style="{StaticResource ToolSeparator}" />
-                    <Button Style="{StaticResource ToolButton}" Tag="&#xE7A7;" Content="UNDO" Command="{Binding UndoCommand}" ToolTip="Undo the last change." />
-                    <Button Style="{StaticResource ToolButton}" Tag="&#xE7A6;" Content="REDO" Command="{Binding RedoCommand}" ToolTip="Redo." />
+                    <Button Style="{StaticResource ToolIconButton}" Tag="&#xE7A7;" Command="{Binding UndoCommand}" ToolTip="UNDO the last change (Ctrl+Z)." />
+                    <Button Style="{StaticResource ToolIconButton}" Tag="&#xE7A6;" Command="{Binding RedoCommand}" ToolTip="REDO (Ctrl+Y)." />
                     <Border Style="{StaticResource ToolSeparator}" />
                     <Button Content="PLAN" Tag="&#xE80A;" Command="{Binding PlanViewCommand}" ToolTip="Plan view of the active level (F2). This is where you draw.">
                         <Button.Style>
@@ -234,43 +238,7 @@
                     <Button Style="{StaticResource ToolButton}" Tag="{Binding PlayGlyph}" Content="{Binding PlayText}" Command="{Binding PlayPauseCommand}"
                             ToolTip="Run or pause the study. The first PLAY checks it and builds the navigation; editing is locked until RESET." />
                     <Button Style="{StaticResource ToolButton}" Tag="&#xE893;" Content="STEP" Command="{Binding StepCommand}" ToolTip="Pause and advance one 0.1 s step." />
-                    <Button Style="{StaticResource ToolButton}" Tag="&#xE72C;" Content="RESET" Command="{Binding ResetRunCommand}" ToolTip="End the run, clear the agents and unlock editing." />
-                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="6,0,0,0">
-                        <ToggleButton Style="{StaticResource ChipToggle}" Content="×½" IsChecked="{Binding IsSpeedHalf, Mode=TwoWay}" ToolTip="Half real time." />
-                        <ToggleButton Style="{StaticResource ChipToggle}" Content="×1" IsChecked="{Binding IsSpeed1, Mode=TwoWay}" ToolTip="Real time." />
-                        <ToggleButton Style="{StaticResource ChipToggle}" Content="×2" IsChecked="{Binding IsSpeed2, Mode=TwoWay}" ToolTip="Twice real time." />
-                        <ToggleButton Style="{StaticResource ChipToggle}" Content="×4" IsChecked="{Binding IsSpeed4, Mode=TwoWay}" ToolTip="Four times real time." />
-                        <ToggleButton Style="{StaticResource ChipToggle}" Content="×8" IsChecked="{Binding IsSpeed8, Mode=TwoWay}" ToolTip="Eight times real time." />
-                        <ToggleButton Style="{StaticResource ChipToggle}" Content="MAX" IsChecked="{Binding IsSpeedMax, Mode=TwoWay}" ToolTip="As fast as the machine allows." />
-                    </StackPanel>
-                    <!-- COLOUR (D-146): profile colours or a stress ramp; works while paused. Stuck people always blink a red ring. -->
-                    <Border Style="{StaticResource ToolSeparator}" />
-                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="6,0,0,0">
-                        <ToggleButton Style="{StaticResource ChipToggle}" Content="PROFILE" IsChecked="{Binding IsColourProfile, Mode=TwoWay}" ToolTip="Colour people by profile (commuter, luggage…)." />
-                        <ToggleButton Style="{StaticResource ChipToggle}" Content="STRESS" IsChecked="{Binding IsColourStress, Mode=TwoWay}"
-                                      ToolTip="Colour people by stress: blue calm, yellow tense, red fed up. Builds after half their patience is spent held up below half speed." />
-                    </StackPanel>
-                    <!-- MAP (D-201): live heatmap on floors and stair flights while running; people are drawn smaller and dimmed over it. -->
-                    <Border Style="{StaticResource ToolSeparator}" />
-                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="6,0,0,0">
-                        <ToggleButton Style="{StaticResource ChipToggle}" Content="NO MAP" IsChecked="{Binding IsHeatOff, Mode=TwoWay}" ToolTip="No heatmap." />
-                        <ToggleButton Style="{StaticResource ChipToggle}" Content="DENSITY" IsChecked="{Binding IsHeatDensity, Mode=TwoWay}"
-                                      ToolTip="Live density: people per m², each person spread over 1 m and smoothed over about 5 s. Shows while running, in plan and 3D." />
-                        <ToggleButton Style="{StaticResource ChipToggle}" Content="LOS" IsChecked="{Binding IsHeatLos, Mode=TwoWay}"
-                                      ToolTip="Fruin Level of Service, A free to F critical: stair table on flights, queuing table in queues and dwell zones, walkway table elsewhere. Escalators aren't mapped." />
-                    </StackPanel>
-                    <!-- RUN maps (D-216, D-217): gathered after the warm-up while running, kept until RESET. -->
-                    <TextBlock Text="RUN" Margin="8,0,2,0" VerticalAlignment="Center" FontFamily="{DynamicResource RetroFont}" FontSize="15" Foreground="{StaticResource TextDimBrush}" />
-                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                        <ToggleButton Style="{StaticResource ChipToggle}" Content="MAX" IsChecked="{Binding IsHeatMax, Mode=TwoWay}"
-                                      ToolTip="Run map: the worst Level of Service each place reached after the warm-up (highest smoothed density, Fruin bands)." />
-                        <ToggleButton Style="{StaticResource ChipToggle}" Content="E+ TIME" IsChecked="{Binding IsHeatLosEOrWorse, Mode=TwoWay}"
-                                      ToolTip="Run map: how long each place spent at Level of Service E or worse after the warm-up, by the table for that place." />
-                        <ToggleButton Style="{StaticResource ChipToggle}" Content="MEAN" IsChecked="{Binding IsHeatMean, Mode=TwoWay}"
-                                      ToolTip="Run map: mean density after the warm-up, people per m²." />
-                        <ToggleButton Style="{StaticResource ChipToggle}" Content="TRAIL" IsChecked="{Binding IsHeatFootfall, Mode=TwoWay}"
-                                      ToolTip="Run map: footfall, how many people walked over each place after the warm-up. Shows the routes people actually take." />
-                    </StackPanel>
+                    <Button Style="{StaticResource ToolButton}" Tag="&#xE72C;" Content="{Binding ResetText}" Command="{Binding ResetRunCommand}" ToolTip="End the run, clear the agents and unlock editing. While a batch runs: CANCEL it." />
                 </StackPanel>
             </DockPanel>
         </Border>
@@ -353,7 +321,7 @@
                            Visibility="{Binding IsEditable, Converter={StaticResource BoolToVis}}" />
                 <TextBlock Grid.Column="2" Margin="16,0,12,0" VerticalAlignment="Center" Text="{Binding RunStatusText}" FontFamily="{DynamicResource RetroFont}" FontSize="17"
                            Foreground="{StaticResource AccentBrush}" Visibility="{Binding IsRunActive, Converter={StaticResource BoolToVis}}"
-                           ToolTip="Speed · agents walking · emitted · arrived · mean journey time · in device queues · stressed (stress 0.5 or more) · gave up (patience ran out, left) · stuck (no progress for 30 s; removed after 120 s)." />
+                           ToolTip="{Binding RunStatusDetail}" />
                 <Border Grid.Column="3" Background="#06090F" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Padding="10,1">
                     <TextBlock Text="{Binding ClockText}" FontFamily="{DynamicResource RetroFont}" FontSize="20" Foreground="{StaticResource GreenBrush}" ToolTip="Study clock: the run's time of day while running, otherwise the start time." />
                 </Border>
@@ -367,11 +335,16 @@
                 <ColumnDefinition Width="4" />
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="4" />
-                <ColumnDefinition Width="290" MinWidth="220" />
+                <ColumnDefinition Width="340" MinWidth="220" />
             </Grid.ColumnDefinitions>
+            <!-- Row 1 is the viewport's transport bar (round 022, D-368); the side panels span both rows. -->
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
 
             <!-- Left panel -->
-            <Grid Grid.Column="0" Background="{StaticResource PanelBrush}">
+            <Grid Grid.Column="0" Grid.RowSpan="2" Background="{StaticResource PanelBrush}">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="2*" MinHeight="120" />
@@ -572,7 +545,7 @@
                 </ScrollViewer>
             </Grid>
 
-            <GridSplitter Grid.Column="1" HorizontalAlignment="Stretch" ResizeBehavior="PreviousAndNext" />
+            <GridSplitter Grid.Column="1" Grid.RowSpan="2" HorizontalAlignment="Stretch" ResizeBehavior="PreviousAndNext" />
 
             <!-- Viewport -->
             <views:ViewportView x:Name="Viewport" Grid.Column="2" />
@@ -588,6 +561,35 @@
                     <KeyBinding Key="Escape" Command="{Binding CloseJourneyViewCommand}" />
                 </views:JourneyCanvas.InputBindings>
             </views:JourneyCanvas>
+
+            <!-- TRANSPORT BAR (round 022, D-368): how the run looks. SPEED, COLOUR and MAP drop-downs; the round 023 scrubber
+                 joins here. Always shown: the choices can be made before PLAY. -->
+            <Border Grid.Row="1" Grid.Column="2" Background="{StaticResource PanelAltBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0" Padding="8,3">
+                <DockPanel>
+                <StackPanel DockPanel.Dock="Left" Orientation="Horizontal">
+                    <TextBlock Text="SPEED" FontFamily="{DynamicResource RetroFont}" FontSize="16" Foreground="{StaticResource TextDimBrush}" VerticalAlignment="Center" Margin="0,0,6,0" />
+                    <ComboBox Width="74" VerticalAlignment="Center" ItemsSource="{Binding SpeedOptions}" DisplayMemberPath="Label" SelectedValuePath="Value"
+                              SelectedValue="{Binding SpeedChoice, Mode=TwoWay}" ToolTip="Simulated time per real second; MAX runs as fast as the machine allows." />
+                    <TextBlock Text="COLOUR" FontFamily="{DynamicResource RetroFont}" FontSize="16" Foreground="{StaticResource TextDimBrush}" VerticalAlignment="Center" Margin="14,0,6,0" />
+                    <ComboBox Width="104" VerticalAlignment="Center" ItemsSource="{Binding ColouringOptions}" DisplayMemberPath="Label" SelectedValuePath="Value"
+                              SelectedValue="{Binding AgentColoring, Mode=TwoWay}"
+                              ToolTip="PROFILE: each profile's colour. STRESS: blue calm, yellow tense, red fed up (builds after half their patience is spent held up below half speed). Stuck people always blink a red ring." />
+                    <TextBlock Text="MAP" FontFamily="{DynamicResource RetroFont}" FontSize="16" Foreground="{StaticResource TextDimBrush}" VerticalAlignment="Center" Margin="14,0,6,0" />
+                    <ComboBox Width="160" VerticalAlignment="Center" ItemsSource="{Binding HeatmapOptions}" DisplayMemberPath="Label" SelectedValuePath="Value"
+                              SelectedValue="{Binding HeatmapMode, Mode=TwoWay}"
+                              ToolTip="LIVE maps while a run plays: density (people per m², smoothed over about 5 s) and Fruin Level of Service. RUN maps gathered after the warm-up: peak LoS, time at LoS E or worse, mean density and footfall trail; with RESULTS ▸ SOURCE on a batch, the batch's." />
+                    <Border Width="1" Margin="12,3" Background="{StaticResource BorderBrush}" />
+                </StackPanel>
+                <!-- Scrubber (round 023, D-373-D-375): every PLAY records a frame each 0.5 s; drag to look back. -->
+                <Button DockPanel.Dock="Right" Margin="8,0,0,0" Padding="8,0" Content="LIVE" Command="{Binding LiveCommand}" VerticalAlignment="Center"
+                        FontFamily="{DynamicResource RetroFont}" FontSize="15" ToolTip="Back to the run as it stands now (PLAY then carries on)." />
+                <TextBlock DockPanel.Dock="Right" Margin="8,0,0,0" MinWidth="150" VerticalAlignment="Center" Text="{Binding ScrubTimeText}"
+                           FontFamily="{DynamicResource RetroFont}" FontSize="16" Foreground="{StaticResource GreenBrush}" />
+                <Slider VerticalAlignment="Center" Minimum="0" Maximum="{Binding ScrubMaximum}" Value="{Binding ScrubPositionS, Mode=TwoWay}"
+                        IsMoveToPointEnabled="True" IsEnabled="{Binding CanScrub}" SmallChange="0.5" LargeChange="10" Focusable="False"
+                        ToolTip="Drag to look back through the run (people, lifts, trains, clock). PLAY replays forward from here; ← → step 0.5 s, Shift 10 s." />
+                </DockPanel>
+            </Border>
 
             <!-- Heatmap legend (D-204): bottom right of the viewport while a map shows. -->
             <Border Grid.Column="2" Margin="0,0,14,14" Padding="8,6" HorizontalAlignment="Right" VerticalAlignment="Bottom" IsHitTestVisible="False"
@@ -611,10 +613,10 @@
                 </StackPanel>
             </Border>
 
-            <GridSplitter Grid.Column="3" HorizontalAlignment="Stretch" ResizeBehavior="PreviousAndNext" />
+            <GridSplitter Grid.Column="3" Grid.RowSpan="2" HorizontalAlignment="Stretch" ResizeBehavior="PreviousAndNext" />
 
             <!-- Right panel: SELECTION / LEVEL / STUDY tabs (D-045). Selecting anything switches to SELECTION. -->
-            <Grid Grid.Column="4" Background="{StaticResource PanelBrush}">
+            <Grid Grid.Column="4" Grid.RowSpan="2" Background="{StaticResource PanelBrush}">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
@@ -1611,6 +1613,10 @@
                                             FontFamily="{DynamicResource RetroFont}" FontSize="15" ToolTip="Pick a new random seed: same study, a different crowd." />
                                     <TextBox Text="{Binding Seed, Mode=TwoWay}" ToolTip="Same file + same seed = the same run." />
                                 </DockPanel>
+                                <!-- BATCH (round 021, D-352-D-365): several seeds headless and in parallel; RESULTS ▸ SOURCE shows the mean. -->
+                                <Button Margin="0,8,0,0" HorizontalAlignment="Left" Padding="6,0" Content="BATCH…" Command="{Binding BatchCommand}"
+                                        FontFamily="{DynamicResource RetroFont}" FontSize="15"
+                                        ToolTip="Run the study several times on consecutive seeds (this seed onwards), in parallel and without drawing. RESULTS then shows each number as the mean with the lowest and highest run." />
                                 <TextBlock Style="{StaticResource FieldLabel}" Text="Keep side" />
                                 <ComboBox ItemsSource="{Binding KeepSideOptions}" SelectedItem="{Binding KeepSide, Mode=TwoWay}"
                                           ToolTip="Which side people drift to when meeting oncoming flows. Escalators: stand on this side, walk on the other." />
@@ -1760,15 +1766,35 @@
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
 
-                    <!-- Table chips (D-232) and the summary line for the table showing. -->
+                    <!-- Source chips (round 021, D-363), table chips (D-232) and the summary line for the table showing. -->
                     <StackPanel>
-                        <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
-                            <TextBlock Text="TABLE" Margin="0,0,6,0" VerticalAlignment="Center" FontFamily="{DynamicResource RetroFont}" FontSize="15" Foreground="{StaticResource TextDimBrush}" />
-                            <ToggleButton Style="{StaticResource ChipToggle}" Content="DEVICES" IsChecked="{Binding IsTableDevices, Mode=TwoWay}" ToolTip="Served, waits, queues and utilisation per device, after the warm-up." />
-                            <ToggleButton Style="{StaticResource ChipToggle}" Content="ZONES" IsChecked="{Binding IsTableZones, Mode=TwoWay}" ToolTip="Occupancy and flow through each measurement zone, after the warm-up." />
-                            <ToggleButton Style="{StaticResource ChipToggle}" Content="JOURNEYS" IsChecked="{Binding IsTableJourneys, Mode=TwoWay}" ToolTip="Journey times per profile and journey, for people spawned after the warm-up." />
-                            <ToggleButton Style="{StaticResource ChipToggle}" Content="LIFTS" IsChecked="{Binding IsTableLifts, Mode=TwoWay}" ToolTip="Boardings, landing waits, rides and give-ups per lift bank, after the warm-up." />
-                        </StackPanel>
+                        <DockPanel Margin="0,0,0,6" Visibility="{Binding HasBatch, Converter={StaticResource BoolToVis}}">
+                            <TextBlock Text="SOURCE" Width="56" VerticalAlignment="Center" FontFamily="{DynamicResource RetroFont}" FontSize="15" Foreground="{StaticResource TextDimBrush}" />
+                            <ComboBox ItemsSource="{Binding SourceOptions}" DisplayMemberPath="Label" SelectedValuePath="Value" SelectedValue="{Binding SelectedSource, Mode=TwoWay}"
+                                      ToolTip="LAST RUN: the run in the viewport (PLAY). BATCH: every number as mean (lowest–highest run), graphs with a min–max band, run maps averaged (peak = highest run), journey overlay counts as means. Kept for this session." />
+                        </DockPanel>
+                        <!-- REPLAY a batch run (round 023, D-376): runs its seed into the viewport at MAX, ready to scrub. -->
+                        <DockPanel Margin="0,0,0,6" Visibility="{Binding IsSourceBatch, Converter={StaticResource BoolToVis}}">
+                            <TextBlock Text="RUN" Width="56" VerticalAlignment="Center" FontFamily="{DynamicResource RetroFont}" FontSize="15" Foreground="{StaticResource TextDimBrush}" />
+                            <Button DockPanel.Dock="Right" Margin="6,0,0,0" Padding="6,0" Content="REPLAY" Command="{Binding ReplayRunCommand}"
+                                    FontFamily="{DynamicResource RetroFont}" FontSize="15"
+                                    ToolTip="Run this batch run again on its seed in the viewport (at MAX, recording), then scrub it with the slider under the viewport. Ends any current run; the batch is kept." />
+                            <ComboBox ItemsSource="{Binding ReplayRunOptions}" DisplayMemberPath="Label" SelectedValuePath="Value" SelectedValue="{Binding SelectedReplayRun, Mode=TwoWay}" />
+                        </DockPanel>
+                        <Grid Margin="0,0,0,6">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="TABLE" Width="56" VerticalAlignment="Center" FontFamily="{DynamicResource RetroFont}" FontSize="15" Foreground="{StaticResource TextDimBrush}" />
+                            <ComboBox Grid.Column="1" ItemsSource="{Binding TableOptions}" DisplayMemberPath="Label" SelectedValuePath="Value" SelectedValue="{Binding SelectedTable, Mode=TwoWay}"
+                                      ToolTip="DEVICES: served, waits, queues, utilisation. ZONES: occupancy and flow through measurement zones. JOURNEYS: journey times per profile and journey. LIFTS: boardings, landing waits, rides. All after the warm-up." />
+                            <TextBlock Grid.Column="2" Text="GRAPH" Margin="10,0,6,0" VerticalAlignment="Center" FontFamily="{DynamicResource RetroFont}" FontSize="15" Foreground="{StaticResource TextDimBrush}" />
+                            <ComboBox Grid.Column="3" ItemsSource="{Binding GraphOptions}" DisplayMemberPath="Label" SelectedValuePath="Value" SelectedValue="{Binding SelectedGraph, Mode=TwoWay}"
+                                      ToolTip="PEOPLE in the model; QUEUES at the ticked devices (or the five longest); DENSITY peak over the walkway LoS bands; FLOW in and out per minute; ZONES occupancy (ticked or all)." />
+                        </Grid>
                         <TextBlock Margin="2,0,2,6" Style="{StaticResource DimText}" TextWrapping="Wrap" Text="{Binding ResultsSummary}" />
                     </StackPanel>
 
@@ -1854,23 +1880,17 @@
                         </DataGrid.Columns>
                     </DataGrid>
 
-                    <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,4">
-                        <TextBlock Text="GRAPH" Margin="0,0,6,0" VerticalAlignment="Center" FontFamily="{DynamicResource RetroFont}" FontSize="15" Foreground="{StaticResource TextDimBrush}" />
-                        <ToggleButton Style="{StaticResource ChipToggle}" Content="PEOPLE" IsChecked="{Binding IsGraphPeople, Mode=TwoWay}" ToolTip="People in the model over time." />
-                        <ToggleButton Style="{StaticResource ChipToggle}" Content="QUEUES" IsChecked="{Binding IsGraphQueues, Mode=TwoWay}" ToolTip="People in line at the ticked devices (or the five longest)." />
-                        <ToggleButton Style="{StaticResource ChipToggle}" Content="DENSITY" IsChecked="{Binding IsGraphDensity, Mode=TwoWay}" ToolTip="Highest density anywhere on the map, over the walkway Level of Service bands." />
-                        <ToggleButton Style="{StaticResource ChipToggle}" Content="FLOW" IsChecked="{Binding IsGraphFlow, Mode=TwoWay}" ToolTip="People arriving and leaving per minute." />
-                        <ToggleButton Style="{StaticResource ChipToggle}" Content="ZONES" IsChecked="{Binding IsGraphZones, Mode=TwoWay}" ToolTip="People in each measurement zone (the ticked ones, or all)." />
-                    </StackPanel>
+                    <Border Grid.Row="2" Height="8" />
 
                     <Border Grid.Row="3" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
-                        <views:TimeSeriesGraph Data="{Binding ResultsGraph}" />
+                        <views:TimeSeriesGraph Data="{Binding ResultsGraph}" CursorTimeS="{Binding GraphCursorS}" JumpCommand="{Binding JumpToTimeCommand}"
+                                               ToolTip="Click to replay the run from that time (round 023)." />
                     </Border>
 
                     <StackPanel Grid.Row="4" Orientation="Horizontal" Margin="0,8,0,0">
                         <Button Content="EXPORT CSV" Command="{Binding ExportResultsCommand}" Padding="6,0"
                                 FontFamily="{DynamicResource RetroFont}" FontSize="15"
-                                ToolTip="Write devices.csv, zones.csv, journeys.csv, lifts.csv (stats after the warm-up) and timeseries.csv (every 5 s from the start) into a folder you pick." />
+                                ToolTip="Write devices.csv, zones.csv, journeys.csv, lifts.csv, nodes.csv (stats after the warm-up) and timeseries.csv (every 5 s from the start) into a folder you pick. For a batch: a summary folder (mean, min, max) and a folder per run." />
                         <Button Margin="6,0,0,0" Content="EXPORT PNG" Command="{Binding ExportPngCommand}" Padding="6,0"
                                 FontFamily="{DynamicResource RetroFont}" FontSize="15"
                                 ToolTip="Save the view at twice its size, with the map legend and a title block." />

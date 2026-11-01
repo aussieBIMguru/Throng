@@ -84,9 +84,11 @@ public static class OfficeTowerBuilder
         // About 1,000 people over the hour, peaking around 08:30 (the AM peak curve on 16 a minute).
         Guid commuter = TemplateIds.FromKey("agent.commuter");
         Guid wheelchair = TemplateIds.FromKey(BuiltInLibrary.MobilityProfileKey);
+        Guid family = TemplateIds.FromKey(BuiltInLibrary.FamilyGroupKey);
         door.EmissionRules.Add(new EmissionRule
         {
-            Mix = [MixLine.Of(commuter, share: 97), MixLine.Of(wheelchair, share: 3)],
+            // Round 024 (D-392): 3% of people come as Family groups (visitors walking together to the lifts).
+            Mix = [MixLine.Of(commuter, share: 94), MixLine.Of(wheelchair, share: 3), MixLine.OfGroup(family, share: 3)],
             RatePerMinute = 16,
             Pattern = EmissionPattern.Poisson,
             RateCurve = RateCurves.PointsOf(RateCurvePreset.AmPeak),
@@ -152,7 +154,7 @@ public static class OfficeTowerBuilder
 
     private static void EmbedTemplates(Study study)
     {
-        foreach (string key in new[] { "agent.commuter", BuiltInLibrary.MobilityProfileKey })
+        foreach (string key in new[] { "agent.commuter", BuiltInLibrary.MobilityProfileKey, "agent.infrequent", "agent.child", BuiltInLibrary.FamilyGroupKey })
         {
             if (BuiltInLibrary.Instance.FindByKey(key) is { } template)
             {

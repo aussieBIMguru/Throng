@@ -181,7 +181,8 @@ public static class CapacityCheck
             }
 
             var flow = new Flow(Scale(series, line.Share / total), burst is { } b ? (b.Train, b.People * line.Share / total) : null);
-            SimProfile profile = model.Profiles[line.Profile];
+            // The profile that makes the line's choices: a group's merged one (D-387).
+            SimProfile profile = line.RouteProfile >= 0 && line.RouteProfile < model.RouteProfiles.Count ? model.RouteProfiles[line.RouteProfile] : model.Profiles[line.Profile];
             if (line.Journey < 0 || line.Journey >= model.Journeys.Count)
             {
                 ToRuleSinks(model, load, emitter, profile, emitter.Floor, start, flow);
@@ -464,7 +465,7 @@ public static class CapacityCheck
             double total = emitter.TotalShare;
             foreach (SimMixLine line in emitter.Lines)
             {
-                if (line.Journey != journey || (profile >= 0 && line.Profile != profile) || !(line.Share > 0) || !(total > 0))
+                if (line.Journey != journey || (profile >= 0 && !line.HasProfile(profile)) || !(line.Share > 0) || !(total > 0))
                 {
                     continue;
                 }

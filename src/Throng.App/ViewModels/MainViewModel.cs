@@ -438,8 +438,9 @@ public sealed partial class MainViewModel : ObservableObject
 
     private void LoadStudy(Study study, string? path, DateTime? createdUtc, string message)
     {
-        // A new study ends any run on the old one (D-097).
+        // A new study ends any run on the old one (D-097), and its batch results (session only, D-362).
         ResetRun();
+        ClearBatch();
         SetPredictionModel(null, string.Empty);
         _study = study;
         _filePath = path;
@@ -476,6 +477,7 @@ public sealed partial class MainViewModel : ObservableObject
     {
         // Anything from your library the change started using is embedded first (D-346).
         EmbedReferencedFromMine();
+        _batchStudyChanged |= _batch is not null;
         RefreshLevels();
         RefreshEditing();
         RefreshTrains();

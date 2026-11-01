@@ -14,6 +14,9 @@ namespace Throng.App;
 /// </summary>
 public partial class MainWindow : Window
 {
+    /// <summary>Window width at and above which the brand tagline shows (round 022).</summary>
+    private const double TaglineMinWindowWidth = 1600;
+
     private readonly MainViewModel _viewModel;
     private readonly string? _startupFile;
     private Point? _libraryPress;
@@ -22,6 +25,9 @@ public partial class MainWindow : Window
     public MainWindow(string? startupFile = null)
     {
         InitializeComponent();
+
+        // Round 022: the brand tagline gives its width to the toolbar on smaller windows.
+        SizeChanged += (_, _) => BrandTagline.Visibility = ActualWidth >= TaglineMinWindowWidth ? Visibility.Visible : Visibility.Collapsed;
         _startupFile = startupFile;
         _viewModel = new MainViewModel(new DialogService(this));
         DataContext = _viewModel;

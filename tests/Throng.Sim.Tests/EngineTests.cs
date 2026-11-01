@@ -106,7 +106,7 @@ public sealed class EngineTests
         Assert.IsTrue(buffer.Length >= n * SimEngine.FloatsPerAgent);
         Assert.AreEqual((float)engine.Agents.X[0], buffer[0]);
         Assert.AreEqual(0f, buffer[2], 1e-6f, "Ground floor height.");
-        Assert.AreEqual(11, SimEngine.FloatsPerAgent, "x, y, z, heading, r, g, b, radius, height, stuck, stress (D-145).");
+        Assert.AreEqual(12, SimEngine.FloatsPerAgent, "x, y, z, heading, r, g, b, radius, height, stuck, stress (D-145), group hue (D-391).");
         Assert.AreEqual(engine.Agents.Stress[0], buffer[10]);
     }
 }

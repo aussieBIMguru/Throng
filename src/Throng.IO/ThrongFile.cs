@@ -38,8 +38,10 @@ public static class ThrongFile
     /// v10: saved named views and ignored CHECK findings (round 016, D-272, D-276).
     /// v11: journeys as graphs of nodes and wires (round 018, D-302), profile default journeys and the mix line
     /// "(profile default)" flag (D-304).
+    /// v12: group templates in the study library and group mix lines (round 024, D-382, D-386); the one-wide-agent
+    /// Family profile's lines become Family group lines (D-385).
     /// </summary>
-    public const int CurrentFormatVersion = 11;
+    public const int CurrentFormatVersion = 12;
 
     /// <summary>Zip folder holding underlay images (§14.2, D-083).</summary>
     public const string UnderlayFolder = "underlays/";
@@ -167,6 +169,15 @@ public static class ThrongFile
         foreach (JourneyTemplate journey in study.Library.Journeys)
         {
             JourneyGraph.Ensure(journey);
+        }
+
+        // Group templates (round 024): no null entries or rows.
+        study.Library.Groups ??= [];
+        study.Library.Groups.RemoveAll(g => g is null);
+        foreach (GroupTemplate group in study.Library.Groups)
+        {
+            group.Members ??= [];
+            group.Members.RemoveAll(m => m is null);
         }
     }
 

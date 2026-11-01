@@ -105,7 +105,12 @@ public sealed partial class MainViewModel
             };
         }
 
-        string map = AgentColoring == AgentColoring.Stress ? "OFF · PEOPLE BY STRESS" : "OFF · PEOPLE BY PROFILE";
+        string map = AgentColoring switch
+        {
+            AgentColoring.Stress => "OFF · PEOPLE BY STRESS",
+            AgentColoring.Group => "OFF · PEOPLE BY GROUP",
+            _ => "OFF · PEOPLE BY PROFILE",
+        };
         List<PngLegendRow> legend = [];
         string title = string.Empty;
         if (_isRunActive && _runner is { } runner)
@@ -117,6 +122,18 @@ public sealed partial class MainViewModel
                 legend.Add(new PngLegendRow(Color.FromRgb(0x3B, 0x82, 0xF5), "Calm"));
                 legend.Add(new PngLegendRow(Color.FromRgb(0xFA, 0xCC, 0x14), "Tense"));
                 legend.Add(new PngLegendRow(Color.FromRgb(0xF0, 0x45, 0x45), "Fed up"));
+            }
+            else if (AgentColoring == AgentColoring.Group)
+            {
+                // Each group its own hue (D-391); a few sample hues and the grey for people on their own.
+                title = "GROUPS";
+                foreach (float hue in new[] { 1f, 86f, 171f })
+                {
+                    (float r, float g, float b) = GroupColours.Of(hue);
+                    legend.Add(new PngLegendRow(Color.FromRgb(ToByte(r), ToByte(g), ToByte(b)), hue == 1f ? "A group (each its own colour)" : "Another group"));
+                }
+
+                legend.Add(new PngLegendRow(Color.FromRgb(ToByte(GroupColours.Single), ToByte(GroupColours.Single), ToByte(GroupColours.Single)), "On their own"));
             }
             else
             {

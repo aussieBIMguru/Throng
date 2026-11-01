@@ -161,7 +161,7 @@ public sealed partial class SimEngine
             return double.PositiveInfinity;
         }
 
-        double radius = _model.Profiles[_agents.Profile[i]].Template.SightRadiusM;
+        double radius = RouteOf(i).Template.SightRadiusM;
         return double.IsFinite(radius) ? Math.Clamp(radius, 0, 1000) : AgentProfileTemplate.DefaultSightRadiusM;
     }
 
@@ -218,7 +218,7 @@ public sealed partial class SimEngine
             return;
         }
 
-        SimProfile profile = _model.Profiles[a.Profile[i]];
+        SimProfile profile = RouteOf(i);
         double cost = RoutePlanner.Choose(
             _routes, a.Surface[i], a.X[i], a.Y[i], a.Sink[i], profile.Mobility, profile.Template, null, out bool direct, out RouteOption option, _wait,
             BeltWalkSpeed(i), portal.Connector, StayBonusS, _tuning.StairEffort, _tuning.StandingRest, sight, priorityPenaltyS: _liftPriorityS, barredConnector: Barred(i));
@@ -263,7 +263,7 @@ public sealed partial class SimEngine
             return false;
         }
 
-        SimProfile profile = _model.Profiles[a.Profile[i]];
+        SimProfile profile = RouteOf(i);
         double sight = Sight(i);
         int best = current;
         double bestCost = double.PositiveInfinity;

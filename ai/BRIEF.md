@@ -1,8 +1,12 @@
-# Throng — Project Brief (v0.42)
+# Throng — Project Brief (v0.46)
 
 > Conceptual pedestrian simulation for architects. Sketch a space, drop in devices, press play, read the pressure.
 > Status: **all decisions locked** (see §18). Ready for M0. Items marked ⏳ are deliberately deferred to later rounds.
 >
+> **v0.46:** round 024 decided (D-378–D-392) and 024a built (unbuilt in sandbox): group movement. Group templates (member rows of profile + min–max, 2–8 people, a default journey; built-ins Couple, Family, Friends, Wheelchair user + companion, School party, Fans; new Child profile; the one-wide-agent Family profile removed and its lines switched to the Family group on load). A mix line's "who" is a profile or a group; shares and rates count people. Groups spawn side by side, walk at the slowest member's pace with a cohesion pull, follow one route, share every journey decision, queue at the same device and wait past it for each other, balk / give up as one, and board lifts and trains all at once. Hard needs of any member apply to all; soft preferences from the lead (first row). COLOUR ▸ GROUP; replay keeps it. Format v12. 024b: LIBRARY ▸ GROUPS editor, MINE, .thronglib, group results rows, hover tethers. Stadium pass decided ahead (D-379–D-381).
+> **v0.45:** round 023 built (unbuilt in sandbox): replay scrubbing (D-373–D-377). Every PLAY records a frame each 0.5 s (22 B per person, 1 GB cap, older half thins); the transport bar slider looks back through people, lift cars, trains, clock and counters; PLAY replays forward then carries on live; LIVE, ← / →, click the RESULTS graph to jump. RESULTS ▸ RUN + REPLAY re-runs a batch run on its seed into the viewport, ready to scrub. Session only; format v11; 375 tests.
+> **v0.44:** round 022 built (unbuilt in sandbox): UI fit (D-368–D-372). Top toolbar ~930 px (label-width buttons, icon-only UNDO / REDO, DEMO only in the File menu, smaller brand); SPEED / COLOUR / MAP drop-downs in a transport bar under the viewport (the round 023 scrubber goes there); RESULTS SOURCE / TABLE / GRAPH drop-downs, right panel 340 px; compact status line with the full line as tooltip. Batch scrubbing decided for 023: replay a chosen run on its seed (D-371).
+> **v0.43:** round 021 built (unbuilt in sandbox): seeded batch runs (D-352–D-367). STUDY ▸ RUN ▸ BATCH… runs N seeds (default 5, 2–20; base = the study seed) headless and in parallel on cores − 1, sharing one compiled model (reviewed read-only, D-366); each run equals PLAY on its seed. Editing locks, the status bar shows progress, RESET reads CANCEL. RESULTS ▸ SOURCE (LAST RUN / BATCH (N)) drives tables (mean with min–max), graphs (mean line + band), RUN maps (averaged; MAX = highest run) and the journey overlay (BATCH (N), mean counts). CSV: summary folder (X, XMin, XMax) + a folder per run. Session only; format stays v11. 370 tests.
 > **v0.42:** round 020 built (unbuilt in sandbox): your library across studies (D-340–D-351). `%AppData%\Throng\Library\library.json` (backup `library.bak.json`, unreadable files kept aside) holds agent profiles, device definitions and journeys. SAVE TO MY LIBRARY in SELECTION (a profile brings a changed default journey; asks before replacing; warns about picks), LIBRARY tabs list the study's own, then MINE, then built-ins, notes MINE / DIFFERS, right-click RENAME / DELETE; a MINE item is embedded in a study on first use under the same id (plus a safety net before save and run); DIFFERS FROM MY LIBRARY with UPDATE FROM MY LIBRARY (one undo step); EXPORT a ticked set to `.thronglib` (zip of manifest + library.json) and IMPORT with keep both / skip / replace. Journey nodes whose picks match nothing in a study use their type / tag (CHECK rule `journey-picks-fallback`, Info). Format stays v11.
 > **v0.41:** 019 confirmed. Round 020 queries answered (D-340–D-351): the cross-study library in %AppData%\Throng\Library: profiles, devices and journeys saved from a study (SAVE TO MY LIBRARY; a profile brings its default journey), listed as MINE in each LIBRARY tab, embedded in studies on first use under the same id, DIFFERS / UPDATE FROM MY LIBRARY by content, RENAME / DELETE with confirm and a backup, .thronglib export of a ticked set and import through the reconcile dialog; journey picks that match nothing in a study fall back to type / tag. Build next.
 > **v0.40:** round 019 built (unbuilt in sandbox): the run overlay on the JOURNEY canvas. Per profile × journey the engine counts people out of every node output and, per node, reached / finished, device waits (mean / 95th), gave up, balked, dwell time and the candidates people headed for; post-warm-up people only (D-338). Wires show "count · %" and thicken with their share, nodes a stats line, a strip gives ACTUAL / PREDICTED (capacity-model shares from the last PLAY or CHECK) and a profile filter; SELECTION ▸ node ▸ RUN lists each candidate's people, share and wait; nodes.csv joins the CSV export. LIBRARY ▸ JOURNEYS stays clickable while running (read-only). Format stays v11.
@@ -342,6 +346,15 @@ Simple instanced person: cylinder/capsule body + sphere head, body coloured by p
 
 ---
 
+### 8.7 Groups (round 024, D-382–D-392)
+People who arrive and move together: a **group template** lists member rows (profile + min–max count; 2–8 people) and a
+default journey. Mix lines spawn groups (rates and shares count people). Members walk at the slowest member's pace with
+a cohesion force (pull toward the group centre, the ones ahead easing off; after Moussaïd et al. 2010), follow one
+route, share every journey decision (made once per group), queue at the same device and wait just past it for the rest,
+balk and give up together, and board lifts and trains all at once or not at all. Hard needs (accessible devices,
+lift only) of any member apply to the whole group; soft preferences come from the lead (first row). Results stay per
+member profile, with group rows (time until the last member leaves, spread) in 024b.
+
 ## 9. Simulation clock and study modes
 
 - **Clock:** sim seconds since start + user-set **start time of day** → displayed as `07:42:15 AM` (with optional day counter).
@@ -511,7 +524,7 @@ study.throng (zip)
 | **M5** | Analytics v1 | Density/LoS heatmaps (floors and connectors), node stats, time-series graph, CSV export |
 | **M6** | Views polish | Isometric presets, cutaway clip planes/section box, exploded level spacing, agent LOD, frustration colouring. **Round 015:** ISO presets, clip above a level, section box, explode and agent LOD built (D-262–D-268); frustration colouring is the STRESS colouring from round 008 |
 | **M7** | Validation & profiles | Rule engine, static capacity check, profile import/export + reconcile. **Round 016:** built (D-270–D-279). **Round 017:** device and profile definition editing in the study, .throngdevice exchange (D-285–D-290); the M3 library-editor item is covered for devices and profiles. **Round 020:** your library across studies with `.thronglib` exchange (D-340–D-351) |
-| **M8** | Scale & replay | Performance pass toward stadium scale (§17), replay scrubbing, headless batch runs, presets library, PNG export, retro theme pass |
+| **M8** | Scale & replay | Performance pass toward stadium scale (§17), replay scrubbing, headless batch runs (done, round 021), replay scrubbing (done, round 023), presets library, PNG export, retro theme pass |
 
 The demo study grows with every milestone and is the acceptance test for each round: if a round's feature isn't visible in the demo, the round isn't done.
 

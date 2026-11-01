@@ -62,6 +62,7 @@ public sealed partial class MainViewModel
 
             UndoCommand.NotifyCanExecuteChanged();
             RedoCommand.NotifyCanExecuteChanged();
+            BatchCommand.NotifyCanExecuteChanged();
             OnPropertyChanged();
             OnPropertyChanged(nameof(IsEditable));
             OnPropertyChanged(nameof(RunStatusText));
@@ -73,8 +74,8 @@ public sealed partial class MainViewModel
     /// <summary>False while a run is active; the draw strip, LIBRARY and the right panel bind to it.</summary>
     public bool IsEditable => !_isRunActive;
 
-    /// <summary>True while the run is playing.</summary>
-    public bool IsPlaying => _runner?.IsPlaying == true;
+    /// <summary>True while the run is playing, or a replay is playing forward (round 023).</summary>
+    public bool IsPlaying => _runner?.IsPlaying == true || _replayPlaying;
 
     /// <summary>PLAY or PAUSE.</summary>
     public string PlayText => IsPlaying ? "PAUSE" : "PLAY";
@@ -104,6 +105,7 @@ public sealed partial class MainViewModel
             {
                 OnPropertyChanged(nameof(IsColourProfile));
                 OnPropertyChanged(nameof(IsColourStress));
+                OnPropertyChanged(nameof(IsColourGroup));
             }
         }
     }
@@ -120,6 +122,17 @@ public sealed partial class MainViewModel
         }
     }
 
+    /// <summary>COLOUR ▸ GROUP (round 024, D-391).</summary>
+    public bool IsColourGroup
+    {
+        get => _agentColoring == AgentColoring.Group;
+        set
+        {
+            AgentColoring = AgentColoring.Group;
+            OnPropertyChanged(nameof(IsColourGroup));
+        }
+    }
+
     /// <summary>COLOUR ▸ STRESS chip.</summary>
     public bool IsColourStress
     {
@@ -132,34 +145,53 @@ public sealed partial class MainViewModel
     }
 
     /// <summary>
-    /// Status-bar counters (D-104), with people queuing, stressed (stress ≥ 0.5) and given up (D-168), or a hint when
-    /// no run is active.
+    /// Status-bar counters (D-104), compact (round 022): speed, in model, in, out, queuing, stressed, stuck, and at
+    /// lifts / left behind when the study has them; a hint when no run is active. The full line is
+    /// <see cref="RunStatusDetail"/> (its tooltip).
     /// </summary>
-    public string RunStatusText
+    public string RunStatusText => RunStatus(compact: true);
+
+    /// <summary>The full status line (D-104, D-168): every counter, for the status bar's tooltip.</summary>
+    public string RunStatusDetail => RunStatus(compact: false);
+
+    private string RunStatus(bool compact)
     {
-        get
+        if (!_isRunActive)
         {
-            if (!_isRunActive)
-            {
-                return "PLAY to run";
-            }
-
-            if (_isPreparing)
-            {
-                return "COMPILING…";
-            }
-
-            CultureInfo c = CultureInfo.InvariantCulture;
-            TimeSpan journey = TimeSpan.FromSeconds(Math.Round(_stats.MeanJourneyS));
-            string speed = _speed.IsMax ? "MAX" : string.Create(c, $"×{_speed.Multiplier:0.#}");
-            string stuck = _stats.StuckRemoved > 0
-                ? string.Create(c, $"{_stats.StuckNow} (+{_stats.StuckRemoved} removed)")
-                : _stats.StuckNow.ToString(c);
-            string leftBehind = _runner?.Model.Trains.Count > 0 ? string.Create(c, $" · LEFT BEHIND {_stats.LeftBehind}") : string.Empty;
-            leftBehind += _runner?.Model.Lifts.Count > 0 ? string.Create(c, $" · AT LIFTS {_stats.AtLifts}") : string.Empty;
-            return string.Create(c,
-                $"{speed} · AGENTS {_stats.InSystem} · IN {_stats.Spawned} · OUT {_stats.Arrived} · JOURNEY {(int)journey.TotalMinutes}:{journey.Seconds:00} · QUEUING {_stats.Queuing} · STRESSED {_stats.Stressed} · GAVE UP {_stats.GaveUp}{leftBehind} · STUCK {stuck}");
+            return compact ? "PLAY to run" : "PLAY runs the study; STUDY ▸ RUN ▸ BATCH… runs several seeds.";
         }
+
+        if (_isBatching)
+        {
+            return BatchStatusText(compact);
+        }
+
+        if (_isPreparing)
+        {
+            return "COMPILING…";
+        }
+
+        CultureInfo c = CultureInfo.InvariantCulture;
+        TimeSpan journey = TimeSpan.FromSeconds(Math.Round(_stats.MeanJourneyS));
+        string speed = _speed.IsMax ? "MAX" : string.Create(c, $"×{_speed.Multiplier:0.#}");
+        string stuck = _stats.StuckRemoved > 0
+            ? string.Create(c, $"{_stats.StuckNow} (+{_stats.StuckRemoved} removed)")
+            : _stats.StuckNow.ToString(c);
+        string leftBehind = _runner?.Model.Trains.Count > 0 ? string.Create(c, $" · LEFT BEHIND {_stats.LeftBehind}") : string.Empty;
+        leftBehind += _runner?.Model.Lifts.Count > 0 ? string.Create(c, $" · AT LIFTS {_stats.AtLifts}") : string.Empty;
+        if (_scrubTimeS is not null)
+        {
+            speed = "REPLAY " + speed;
+        }
+
+        if (compact)
+        {
+            return string.Create(c,
+                $"{speed} · {_stats.InSystem} IN MODEL · {_stats.Spawned} IN · {_stats.Arrived} OUT · {_stats.Queuing} QUEUING · {_stats.Stressed} STRESSED{leftBehind} · {_stats.StuckNow + _stats.StuckRemoved} STUCK");
+        }
+
+        return string.Create(c,
+            $"{speed} · AGENTS {_stats.InSystem} · IN {_stats.Spawned} · OUT {_stats.Arrived} · JOURNEY {(int)journey.TotalMinutes}:{journey.Seconds:00} · QUEUING {_stats.Queuing} · STRESSED {_stats.Stressed} · GAVE UP {_stats.GaveUp}{leftBehind} · STUCK {stuck}");
     }
 
     // ------------------------------------------------------------------ STUDY ▸ RUN settings (D-103, D-105)
@@ -237,6 +269,13 @@ public sealed partial class MainViewModel
             if (visible)
             {
                 Array.Copy(_rawAgents, i * F, buffer, count * F, F);
+                if (_agentColoring == AgentColoring.Group)
+                {
+                    // COLOUR ▸ GROUP (D-391): the group's hue in place of the profile colour.
+                    int o = count * F;
+                    (buffer[o + 4], buffer[o + 5], buffer[o + 6]) = GroupColours.Of(buffer[o + 11]);
+                }
+
                 count++;
             }
         }
@@ -338,6 +377,19 @@ public sealed partial class MainViewModel
 
     private void PlayPause()
     {
+        if (_isBatching)
+        {
+            Ticker = "BATCH RUNNING ▸ wait for it, or CANCEL it first.";
+            return;
+        }
+
+        if (_scrubTimeS is not null)
+        {
+            // Looking back (D-375): PLAY replays the recording forward, then carries on live.
+            ToggleReplay();
+            return;
+        }
+
         if (_runner is { } runner)
         {
             if (runner.IsPlaying)
@@ -364,8 +416,16 @@ public sealed partial class MainViewModel
 
     private void StepRun()
     {
+        if (_isBatching)
+        {
+            Ticker = "BATCH RUNNING ▸ wait for it, or CANCEL it first.";
+            return;
+        }
+
         if (_runner is { } runner)
         {
+            // STEP from a replay goes back to the live run first (the live run steps, not the recording).
+            GoLive();
             runner.Pause();
             runner.Step();
             RefreshRunStatus();
@@ -379,11 +439,19 @@ public sealed partial class MainViewModel
     /// Locks editing, compiles the world on a worker thread (CHECK first, D-106) and starts the runner. Errors
     /// unlock again and show the findings.
     /// </summary>
-    private async Task StartRunAsync(bool play)
+    /// <param name="play">Play straight away (else take one step).</param>
+    /// <param name="seedOverride">A seed other than the study's (REPLAY of a batch run, D-376).</param>
+    /// <param name="durationOverride">A duration other than the study's (the batch's, for a replay).</param>
+    private async Task StartRunAsync(bool play, int? seedOverride = null, double? durationOverride = null)
     {
         if (_isPreparing)
         {
             return;
+        }
+
+        if (seedOverride is null)
+        {
+            _replayLabel = null;
         }
 
         _isPreparing = true;
@@ -437,7 +505,8 @@ public sealed partial class MainViewModel
 
         // The run's model gives the overlay's predicted shares too (D-334).
         SetPredictionModel(model, "PLAY");
-        var runner = new SimRunner(model) { Speed = _speed };
+        var runner = new SimRunner(model, seedOverride ?? model.Seed, durationOverride ?? model.DurationS) { Speed = _speed };
+        ClearScrub();
         runner.Faulted += ex => _dispatcher.InvokeAsync(() =>
         {
             AppLog.Error("Simulation step failed", ex);
@@ -446,16 +515,26 @@ public sealed partial class MainViewModel
         });
         runner.Finished += () => _dispatcher.InvokeAsync(() =>
         {
-            Ticker = "RUN FINISHED ▸ RESET to edit or run again.";
+            Ticker = _replayLabel is { } replayed
+                ? $"REPLAY READY ▸ {replayed} ▸ drag the slider under the viewport to look back (← → step 0.5 s, Shift 10 s)."
+                : "RUN FINISHED ▸ RESET to edit or run again. Drag the slider under the viewport to look back.";
             RefreshRunStatus();
         });
         _runner = runner;
+
+        // A new run's results show; a batch stays one click away on RESULTS ▸ SOURCE (D-363).
+        ShowLastRun();
 
         int warnings = result.Findings.Count(f => f.Severity == ValidationSeverity.Warning);
         string emitters = model.Emitters.Count == 0 ? "no emission rules, so no one will appear" : string.Create(CultureInfo.InvariantCulture, $"{model.Emitters.Count} emission rules");
         Ticker = string.Create(CultureInfo.InvariantCulture,
             $"{(play ? "RUNNING" : "READY")} ▸ {model.World.Surfaces.Count} surfaces, {model.World.Portals.Count} portals, {emitters}{(warnings > 0 ? $" ▸ {warnings} warnings (CHECK lists them)" : string.Empty)}");
-        AppLog.Info($"Run started: {model.World.Surfaces.Count} surfaces, {model.World.Portals.Count} portals, {model.Emitters.Count} emitters.");
+        if (_replayLabel is { } replaying)
+        {
+            Ticker = $"REPLAYING ▸ {replaying} at MAX, recording ▸ it pauses at the end, ready to scrub.";
+        }
+
+        AppLog.Info($"Run started: {model.World.Surfaces.Count} surfaces, {model.World.Portals.Count} portals, {model.Emitters.Count} emitters, seed {runner.Seed}.");
 
         if (play)
         {
@@ -470,12 +549,20 @@ public sealed partial class MainViewModel
         RefreshRunStatus();
     }
 
-    /// <summary>Stops the run, unlocks editing (D-097) and clears the agents.</summary>
+    /// <summary>Stops the run, unlocks editing (D-097) and clears the agents; while a batch runs, cancels it (D-357).</summary>
     private void ResetRun()
     {
+        if (_isBatching)
+        {
+            CancelBatch();
+            return;
+        }
+
         _setupCancel?.Cancel();
         _setupCancel = null;
         _isPreparing = false;
+        ClearScrub();
+        _replayLabel = null;
         _runner?.Dispose();
         _runner = null;
         _runTimer?.Stop();
@@ -510,6 +597,7 @@ public sealed partial class MainViewModel
         OnPropertyChanged(nameof(IsSpeed4));
         OnPropertyChanged(nameof(IsSpeed8));
         OnPropertyChanged(nameof(IsSpeedMax));
+        OnPropertyChanged(nameof(SpeedChoice));
         OnPropertyChanged(nameof(RunStatusText));
     }
 
@@ -590,12 +678,14 @@ public sealed partial class MainViewModel
 
     private void RefreshRunStatus()
     {
-        _stats = _runner?.LatestStats ?? default;
+        _stats = _runner?.ViewStats ?? default;
+        RefreshScrub();
         Editor?.RefreshRunHover();
         RefreshHeatTicker();
         RefreshResults();
         RefreshJourneyOverlay();
         OnPropertyChanged(nameof(RunStatusText));
+        OnPropertyChanged(nameof(RunStatusDetail));
         OnPropertyChanged(nameof(ClockText));
         OnPropertyChanged(nameof(IsPlaying));
         OnPropertyChanged(nameof(PlayText));

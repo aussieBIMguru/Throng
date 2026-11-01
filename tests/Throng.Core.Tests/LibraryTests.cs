@@ -9,13 +9,14 @@ public sealed class LibraryTests
     public void BuiltIns_HaveExpectedCounts()
     {
         TemplateLibrary lib = BuiltInLibrary.Build();
-        Assert.AreEqual(8, lib.AgentProfiles.Count, "Agent profiles");
+        Assert.AreEqual(8, lib.AgentProfiles.Count, "Agent profiles (round 024: Family / group out, Child in)");
         Assert.AreEqual(12, lib.Devices.Count, "Devices");
         Assert.AreEqual(9, lib.Connectors.Count, "Connectors");
         Assert.AreEqual(4, lib.Lifts.Count, "Lifts");
         Assert.AreEqual(13, lib.Schedules.Count, "Schedules");
         Assert.AreEqual(5, lib.Journeys.Count, "Journeys (round 018 adds gates then north or south train)");
-        Assert.AreEqual(51, lib.Count);
+        Assert.AreEqual(6, lib.Groups.Count, "Groups (round 024)");
+        Assert.AreEqual(57, lib.Count);
     }
 
     [TestMethod]

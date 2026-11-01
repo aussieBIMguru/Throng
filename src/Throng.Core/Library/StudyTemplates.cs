@@ -51,9 +51,49 @@ public static class StudyTemplates
     public static JourneyTemplate? JourneyFor(Study study, MixLine line) =>
         JourneyIdFor(study, line) is { } id ? FindJourney(study, id) : null;
 
-    /// <summary>The journey id a mix line follows (D-304), before looking it up; null = none.</summary>
-    public static Guid? JourneyIdFor(Study study, MixLine line) =>
-        line.UseProfileJourney ? ProfileOrFallback(study, line.ProfileId).DefaultJourneyId : line.JourneyId;
+    /// <summary>
+    /// The journey id a mix line follows (D-304), before looking it up; null = none. A group line's "(profile default)"
+    /// is the group's default journey (D-389); a group that can't be found falls back to Commuter's.
+    /// </summary>
+    public static Guid? JourneyIdFor(Study study, MixLine line)
+    {
+        if (!line.UseProfileJourney)
+        {
+            return line.JourneyId;
+        }
+
+        if (line.GroupId is { } groupId && FindGroup(study, groupId) is { } group)
+        {
+            return group.DefaultJourneyId;
+        }
+
+        return ProfileOrFallback(study, line.ProfileId).DefaultJourneyId;
+    }
+
+    /// <summary>The group template with this id (the study's, then <paramref name="mine"/>'s, then the built-in), or null (round 024).</summary>
+    public static GroupTemplate? FindGroup(Study study, Guid id, TemplateLibrary? mine = null) =>
+        study.Library.Find(id) as GroupTemplate ?? mine?.Find(id) as GroupTemplate ?? BuiltInLibrary.Instance.Find(id) as GroupTemplate;
+
+    /// <summary>
+    /// All group templates a study can use (round 024): its embedded ones, then <paramref name="mine"/>'s not embedded,
+    /// then built-ins not in either.
+    /// </summary>
+    public static IReadOnlyList<GroupTemplate> AvailableGroups(Study study, TemplateLibrary? mine = null) =>
+        Layered(study.Library.Groups ?? [], mine?.Groups, BuiltInLibrary.Instance.Groups);
+
+    /// <summary>
+    /// The profiles a mix line brings (D-386): its profile (or Commuter), or a group's member profiles in row order
+    /// (missing ones as Commuter); a group that can't be found counts as Commuter.
+    /// </summary>
+    public static IReadOnlyList<AgentProfileTemplate> LineProfiles(Study study, MixLine line)
+    {
+        if (line.GroupId is { } groupId && FindGroup(study, groupId) is { } group && group.Rows().Any())
+        {
+            return [.. group.Rows().Select(m => ProfileOrFallback(study, m.ProfileId))];
+        }
+
+        return [ProfileOrFallback(study, line.ProfileId)];
+    }
 
     private static JourneyTemplate? FindJourneyCore(Study study, Guid id) =>
         study.Library.Find(id) as JourneyTemplate ?? BuiltInLibrary.Instance.Find(id) as JourneyTemplate;

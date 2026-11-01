@@ -1,4 +1,5 @@
 using CommunityToolkit.Mvvm.ComponentModel;
+using Throng.Sim.Batch;
 using Throng.Sim.Engine;
 
 namespace Throng.App.ViewModels;
@@ -10,14 +11,14 @@ namespace Throng.App.ViewModels;
 public sealed class DeviceResultRow : ObservableObject
 {
     private readonly Action _graphedChanged;
-    private long _served;
-    private double _meanWaitS;
-    private double _p95WaitS;
-    private double _maxWaitS;
-    private int _maxQueue;
-    private double _utilisationPct;
-    private long _balked;
-    private long _gaveUp;
+    private StatCell _served;
+    private StatCell _meanWaitS;
+    private StatCell _p95WaitS;
+    private StatCell _maxWaitS;
+    private StatCell _maxQueue;
+    private StatCell _utilisationPct;
+    private StatCell _balked;
+    private StatCell _gaveUp;
     private bool _isGraphed;
 
     /// <summary>Creates a row for a device.</summary>
@@ -48,28 +49,28 @@ public sealed class DeviceResultRow : ObservableObject
     public string Type { get; }
 
     /// <summary>People served after the warm-up.</summary>
-    public long Served { get => _served; private set => SetProperty(ref _served, value); }
+    public StatCell Served { get => _served; private set => SetProperty(ref _served, value); }
 
     /// <summary>Mean wait, seconds.</summary>
-    public double MeanWaitS { get => _meanWaitS; private set => SetProperty(ref _meanWaitS, value); }
+    public StatCell MeanWaitS { get => _meanWaitS; private set => SetProperty(ref _meanWaitS, value); }
 
     /// <summary>95th percentile wait, seconds.</summary>
-    public double P95WaitS { get => _p95WaitS; private set => SetProperty(ref _p95WaitS, value); }
+    public StatCell P95WaitS { get => _p95WaitS; private set => SetProperty(ref _p95WaitS, value); }
 
     /// <summary>Longest wait, seconds.</summary>
-    public double MaxWaitS { get => _maxWaitS; private set => SetProperty(ref _maxWaitS, value); }
+    public StatCell MaxWaitS { get => _maxWaitS; private set => SetProperty(ref _maxWaitS, value); }
 
     /// <summary>Most people in line at once.</summary>
-    public int MaxQueue { get => _maxQueue; private set => SetProperty(ref _maxQueue, value); }
+    public StatCell MaxQueue { get => _maxQueue; private set => SetProperty(ref _maxQueue, value); }
 
     /// <summary>Share of lane time serving, percent.</summary>
-    public double UtilisationPct { get => _utilisationPct; private set => SetProperty(ref _utilisationPct, value); }
+    public StatCell UtilisationPct { get => _utilisationPct; private set => SetProperty(ref _utilisationPct, value); }
 
     /// <summary>People who left its line for another device.</summary>
-    public long Balked { get => _balked; private set => SetProperty(ref _balked, value); }
+    public StatCell Balked { get => _balked; private set => SetProperty(ref _balked, value); }
 
     /// <summary>People whose patience ran out in its line.</summary>
-    public long GaveUp { get => _gaveUp; private set => SetProperty(ref _gaveUp, value); }
+    public StatCell GaveUp { get => _gaveUp; private set => SetProperty(ref _gaveUp, value); }
 
     /// <summary>Ticked: its queue is on the graph (D-226).</summary>
     public bool IsGraphed
@@ -87,13 +88,26 @@ public sealed class DeviceResultRow : ObservableObject
     /// <summary>Copies the latest stats in.</summary>
     public void Update(DeviceResult result)
     {
-        Served = result.Served;
-        MeanWaitS = Math.Round(result.MeanWaitS, 1);
-        P95WaitS = Math.Round(result.P95WaitS, 1);
-        MaxWaitS = Math.Round(result.MaxWaitS, 1);
-        MaxQueue = result.MaxQueue;
-        UtilisationPct = Math.Round(result.Utilisation * 100, 1);
-        Balked = result.Balked;
-        GaveUp = result.GaveUp;
+        Served = StatCell.Single(result.Served);
+        MeanWaitS = StatCell.Single(Math.Round(result.MeanWaitS, 1));
+        P95WaitS = StatCell.Single(Math.Round(result.P95WaitS, 1));
+        MaxWaitS = StatCell.Single(Math.Round(result.MaxWaitS, 1));
+        MaxQueue = StatCell.Single(result.MaxQueue);
+        UtilisationPct = StatCell.Single(Math.Round(result.Utilisation * 100, 1));
+        Balked = StatCell.Single(result.Balked);
+        GaveUp = StatCell.Single(result.GaveUp);
+    }
+
+    /// <summary>Copies a batch's stats in: means with min–max (round 021, D-358).</summary>
+    public void Update(DeviceBatchResult result)
+    {
+        Served = StatCell.Batch(result.Served, 1);
+        MeanWaitS = StatCell.Batch(result.MeanWaitS, 1);
+        P95WaitS = StatCell.Batch(result.P95WaitS, 1);
+        MaxWaitS = StatCell.Batch(result.MaxWaitS, 1);
+        MaxQueue = StatCell.Batch(result.MaxQueue, 1);
+        UtilisationPct = StatCell.Batch(result.Utilisation, 1, 100);
+        Balked = StatCell.Batch(result.Balked, 1);
+        GaveUp = StatCell.Batch(result.GaveUp, 1);
     }
 }

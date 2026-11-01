@@ -91,11 +91,11 @@ public sealed class ThrongFileTests
     }
 
     [TestMethod]
-    public void Save_WritesFormatV11()
+    public void Save_WritesFormatV12()
     {
-        string path = Path.Combine(_folder, "v11" + ThrongFile.Extension);
+        string path = Path.Combine(_folder, "v12" + ThrongFile.Extension);
         Assert.IsTrue(ThrongFile.Save(DemoStudyBuilder.Build(), path).IsSuccess);
-        Assert.AreEqual(11, ThrongFile.ReadManifest(path).Value!.FormatVersion, "Journey graphs (round 018a, D-302).");
+        Assert.AreEqual(12, ThrongFile.ReadManifest(path).Value!.FormatVersion, "Group templates (round 024, D-392).");
     }
 
     [TestMethod]
@@ -213,7 +213,8 @@ public sealed class DemoStudyTests
     public void Demo_EmbedsTheTemplatesItUses()
     {
         Study demo = DemoStudyBuilder.Build();
-        Assert.AreEqual(5, demo.Library.AgentProfiles.Count);
+        Assert.AreEqual(6, demo.Library.AgentProfiles.Count, "Round 024 adds Child (for the Family group).");
+        Assert.AreEqual(1, demo.Library.Groups.Count, "The Family group (round 024, D-392).");
         Assert.AreEqual(5, demo.Library.Schedules.Count);
         Assert.AreEqual(3, demo.Library.Journeys.Count);
         Assert.IsTrue(demo.Library.All().All(t => t.Source == Core.Library.TemplateSource.Embedded));

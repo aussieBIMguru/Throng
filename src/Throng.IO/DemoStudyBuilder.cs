@@ -256,7 +256,7 @@ public static class DemoStudyBuilder
     /// Constant-rate flows across all three levels (D-109, D-155): each street entrance sends 20 people a minute to
     /// the twelve platform doors (equal weights): 70% commuters already holding a ticket, straight to the gates;
     /// 30% infrequent travellers, half of whom need a ticket from a machine first, and a third of whom browse the
-    /// retail first. Each door sends commuters back up through the gates to the entrances and the bus stop (west 40,
+    /// retail first. Since round 024, 6 of the 70 commuter points go to Family groups walking together. Each door sends commuters back up through the gates to the entrances and the bus stop (west 40,
     /// east 40, bus 20). Since round 010b the doors' rules say who gets off the trains (D-189) and the doors only
     /// take boarders while a train is in.
     /// </summary>
@@ -268,6 +268,7 @@ public static class DemoStudyBuilder
         Guid ticketGates = TemplateIds.FromKey("journey.ticket-gates");
         Guid browseGates = TemplateIds.FromKey("journey.browse-gates");
         Guid wheelchair = TemplateIds.FromKey(BuiltInLibrary.MobilityProfileKey);
+        Guid family = TemplateIds.FromKey(BuiltInLibrary.FamilyGroupKey);
         List<Region> doors = [.. study.Regions.Where(r => r.Name.Contains(" door ", StringComparison.Ordinal) && r.IsSink)];
         Region? west = study.Regions.FirstOrDefault(r => r.Name == "West entrance");
         Region? east = study.Regions.FirstOrDefault(r => r.Name == "East entrance");
@@ -280,12 +281,16 @@ public static class DemoStudyBuilder
         List<SinkWeight> toDoors = [.. doors.Select(d => new SinkWeight { SinkId = d.Id, Weight = 1 })];
         List<MixLine> inbound =
         [
-            MixLine.Of(commuter, ticketGates, 70, SpawnTag.Of(TicketTag)),
+            MixLine.Of(commuter, ticketGates, 64, SpawnTag.Of(TicketTag)),
             MixLine.Of(infrequent, ticketGates, 18, SpawnTag.Of(TicketTag, 50)),
             MixLine.Of(infrequent, browseGates, 10, SpawnTag.Of(TicketTag, 50)),
 
             // Round 013b (D-246, D-247): wheelchair users take the lifts and the accessible gate.
             MixLine.Of(wheelchair, ticketGates, 2, SpawnTag.Of(TicketTag)),
+
+            // Round 024 (D-392): 6% of people come as Family groups (1–2 adults, 1–3 children), half with tickets:
+            // they buy them together, go through the gates together and wait for each other past them.
+            MixLine.OfGroup(family, ticketGates, 6, SpawnTag.Of(TicketTag, 50)),
         ];
         foreach (Region entrance in new[] { west, east, bus })
         {
@@ -395,7 +400,7 @@ public static class DemoStudyBuilder
         TemplateLibrary builtIns = BuiltInLibrary.Instance;
         string[] keys =
         [
-            "agent.commuter", "agent.infrequent", "agent.luggage", "agent.mobility", "agent.staff",
+            "agent.commuter", "agent.infrequent", "agent.luggage", "agent.mobility", "agent.staff", "agent.child", BuiltInLibrary.FamilyGroupKey,
             "schedule.always-open", "schedule.am-peak", "schedule.train-6min", "schedule.bus-10min", "schedule.escalator-reversal",
             "journey.through-gates", "journey.ticket-gates", "journey.browse-gates",
         ];

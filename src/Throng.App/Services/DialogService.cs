@@ -78,6 +78,12 @@ public interface IDialogService
     /// <summary>Asks for one line of text (round 020: RENAME, D-345); null when cancelled.</summary>
     string? AskText(string title, string message, string initial, string okText);
 
+    /// <summary>
+    /// Asks how to run a batch (round 021, D-354, D-361): how many runs, and a duration when the study runs until
+    /// stopped (<paramref name="fixedDurationMinutes"/> null); null when cancelled.
+    /// </summary>
+    BatchRequest? AskBatch(int baseSeed, double? fixedDurationMinutes);
+
     /// <summary>Picks where to export a .thronglib (D-347); null when cancelled.</summary>
     string? PickLibrarySavePath(string suggestedFileName);
 
@@ -253,6 +259,10 @@ public sealed class DialogService : IDialogService
     /// <inheritdoc />
     public string? AskText(string title, string message, string initial, string okText) =>
         TextPromptDialog.Show(_owner, title, message, initial, okText);
+
+    /// <inheritdoc />
+    public BatchRequest? AskBatch(int baseSeed, double? fixedDurationMinutes) =>
+        BatchDialog.Show(_owner, baseSeed, fixedDurationMinutes);
 
     /// <inheritdoc />
     public string? PickLibrarySavePath(string suggestedFileName)
