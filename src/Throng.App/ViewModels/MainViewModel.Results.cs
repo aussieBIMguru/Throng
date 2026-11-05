@@ -23,7 +23,7 @@ namespace Throng.App.ViewModels;
 public sealed partial class MainViewModel
 {
     /// <summary>Right-panel tab index: RESULTS (D-219).</summary>
-    public const int PropertiesTabResults = 3;
+    public const int PropertiesTabResults = 4;
 
     private const int DefaultGraphedQueues = 5;
 
@@ -164,12 +164,18 @@ public sealed partial class MainViewModel
             }
         }
 
-        if (newRunner || !JourneyRowsMatch(results.Journeys))
+        if (newRunner || !JourneyRowsMatch(results.Journeys, results.Groups))
         {
             JourneyResultRows.Clear();
             foreach (JourneyResult journey in results.Journeys)
             {
                 JourneyResultRows.Add(new JourneyResultRow(journey.Profile, journey.Journey, journey.IsAll, journey.AcceptableS, journey.Sink));
+            }
+
+            // Group rows after the profile rows (round 024b, D-390).
+            foreach (GroupJourneyResult group in results.Groups)
+            {
+                JourneyResultRows.Add(JourneyResultRow.ForGroup(group.Label, group.Journey, group.AcceptableS));
             }
         }
 
@@ -204,6 +210,11 @@ public sealed partial class MainViewModel
         for (int j = 0; j < results.Journeys.Count && j < JourneyResultRows.Count; j++)
         {
             JourneyResultRows[j].Update(results.Journeys[j]);
+        }
+
+        for (int g = 0; g < results.Groups.Count && results.Journeys.Count + g < JourneyResultRows.Count; g++)
+        {
+            JourneyResultRows[results.Journeys.Count + g].Update(results.Groups[g]);
         }
 
         foreach (LiftResult lift in results.Lifts)
@@ -277,6 +288,13 @@ public sealed partial class MainViewModel
             JourneyResultRows.Add(row);
         }
 
+        foreach (GroupJourneyBatchResult group in batch.Groups)
+        {
+            JourneyResultRow row = JourneyResultRow.ForGroup(group.Label, group.Journey, group.AcceptableS);
+            row.Update(group);
+            JourneyResultRows.Add(row);
+        }
+
         LiftResultRows.Clear();
         foreach (LiftBatchResult lift in batch.Lifts)
         {
@@ -292,10 +310,10 @@ public sealed partial class MainViewModel
         RefreshJourneyOverlay();
     }
 
-    /// <summary>True when the journey rows are the same rows, in the same order, as <paramref name="journeys"/>.</summary>
-    private bool JourneyRowsMatch(IReadOnlyList<JourneyResult> journeys)
+    /// <summary>True when the journey rows are the same rows, in the same order, as <paramref name="journeys"/> then <paramref name="groups"/>.</summary>
+    private bool JourneyRowsMatch(IReadOnlyList<JourneyResult> journeys, IReadOnlyList<GroupJourneyResult> groups)
     {
-        if (JourneyResultRows.Count != journeys.Count)
+        if (JourneyResultRows.Count != journeys.Count + groups.Count)
         {
             return false;
         }
@@ -303,6 +321,14 @@ public sealed partial class MainViewModel
         for (int j = 0; j < journeys.Count; j++)
         {
             if (!JourneyResultRows[j].Matches(journeys[j]))
+            {
+                return false;
+            }
+        }
+
+        for (int g = 0; g < groups.Count; g++)
+        {
+            if (!JourneyResultRows[journeys.Count + g].Matches(groups[g]))
             {
                 return false;
             }

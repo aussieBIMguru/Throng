@@ -104,4 +104,4 @@ public interface IEditorHost
 /// <param name="Box">The train's outline along the platform edge.</param>
 /// <param name="Doors">Door zone outlines (lit while the doors are open).</param>
 /// <param name="Boarding">True once people are boarding.</param>
-public sealed record RunTrainView(IReadOnlyList<Point2> Box, IReadOnlyList<IReadOnlyList<Point2>> Doors, bool Boarding);
+public sealed record RunTrainView(IReadOnlyList<Point2> Box, IReadOnlyList<IReadOnlyList<Point2>> Doors, bool Boarding, string Badge = "");

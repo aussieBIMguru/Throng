@@ -21,7 +21,7 @@ namespace Throng.App.ViewModels;
 public sealed partial class MainViewModel
 {
     /// <summary>Index of the CHECK tab.</summary>
-    public const int PropertiesTabCheck = 4;
+    public const int PropertiesTabCheck = 5;
 
     /// <summary>Half the size of the area shown round a finding about a place, metres.</summary>
     private const double PlaceZoomM = 6;

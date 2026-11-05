@@ -22,6 +22,24 @@ public static class GroupColours
     /// <summary>Grey for people on their own.</summary>
     public const float Single = 0.42f;
 
+    /// <summary>
+    /// The hue (1–255) of a group tag (the snapshot's float 11, round 024b; 0 = on their own → 0): golden-ratio steps
+    /// round the colour wheel, so groups that spawn one after another look different.
+    /// </summary>
+    public static float HueOfTag(float tag)
+    {
+        if (!(tag >= 0.5f))
+        {
+            return 0;
+        }
+
+        double turn = (Math.Round(tag) * 0.6180339887498949) % 1.0;
+        return 1 + (int)(turn * 254);
+    }
+
+    /// <summary>The colour for a group tag (snapshot float 11; 0 = on their own) as red, green, blue in 0–1.</summary>
+    public static (float R, float G, float B) OfTag(float tag) => Of(HueOfTag(tag));
+
     /// <summary>The colour for a group hue (1–255; 0 = on their own) as red, green, blue in 0–1.</summary>
     public static (float R, float G, float B) Of(float hue)
     {

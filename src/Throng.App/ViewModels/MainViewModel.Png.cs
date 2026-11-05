@@ -29,6 +29,7 @@ public sealed partial class MainViewModel
         {
             _captureViewport = value;
             ExportPngCommand.NotifyCanExecuteChanged();
+            ExportPdfCommand.NotifyCanExecuteChanged();
         }
     }
 

@@ -46,6 +46,18 @@ public sealed record SimTuning
     /// <summary>Weaker crowd push between people going the same way on a stair or ramp landing (D-135).</summary>
     public bool LandingSqueeze { get; init; } = true;
 
+    /// <summary>
+    /// Same squeeze within 3 m of a stair or ramp end (floor side and flight side), plus an 85 % contact size, so big
+    /// crowds pack into the mouth instead of walling it off (r026b, D-419–D-422).
+    /// </summary>
+    public bool StairEndSqueeze { get; init; } = true;
+
+    /// <summary>
+    /// Round 027 (D-423, D-426): a held crowd at a connector is seen from further (+0.25 m per held person, up to
+    /// +50 m), and people already heading for a connector count towards its wait even out of sight. Off = D-179 sight only.
+    /// </summary>
+    public bool CrowdSight { get; init; } = true;
+
     /// <summary>People without progress for 4 s drop the keep-side push and push others softly (D-136).</summary>
     public bool StallEscape { get; init; } = true;
 

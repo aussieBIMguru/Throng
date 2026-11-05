@@ -43,7 +43,7 @@ public sealed partial class SimEngine
     private int _groupSlots;
     private int[] _gAlive = [];
     private int[][] _gChoice = [];
-    private byte[] _gHue = [];
+    private ushort[] _gTag = [];
     private readonly Stack<int> _gFree = new();
     private long _groupNumber;
 
@@ -63,8 +63,15 @@ public sealed partial class SimEngine
     /// <summary>Groups in the study now (diagnostics and tests).</summary>
     public int GroupCount => _groupSlots - _gFree.Count;
 
-    /// <summary>The colour hue (1–255) of an agent's group, or 0 for people on their own (D-391).</summary>
-    public byte GroupHue(int i) => _agents.Group[i] is int g and >= 0 && g < _gHue.Length ? _gHue[g] : (byte)0;
+    /// <summary>Most group tags before they wrap round (round 024b).</summary>
+    public const int MaxGroupTag = ushort.MaxValue;
+
+    /// <summary>
+    /// The tag of an agent's group (1–65535, the group's number counted from the start of the run, wrapping), or 0 for
+    /// people on their own (round 024b). It goes in the snapshot and the replay: mates share it, so hover tethers find
+    /// them, and COLOUR ▸ GROUP turns it into a hue (D-391).
+    /// </summary>
+    public ushort GroupTag(int i) => _agents.Group[i] is int g and >= 0 && g < _gTag.Length ? _gTag[g] : (ushort)0;
 
     /// <summary>The profile that makes agent <paramref name="i"/>'s choices (D-387).</summary>
     private SimProfile RouteOf(int i)
@@ -106,7 +113,8 @@ public sealed partial class SimEngine
                 int size = Math.Max(16, _gAlive.Length * 2);
                 Array.Resize(ref _gAlive, size);
                 Array.Resize(ref _gChoice, size);
-                Array.Resize(ref _gHue, size);
+                Array.Resize(ref _gTag, size);
+                EnsureGroupResultSlots(size);
             }
         }
 
@@ -119,9 +127,8 @@ public sealed partial class SimEngine
         Array.Fill(_gChoice[g], NoChoice);
         _gAlive[g] = 0;
 
-        // Golden-ratio steps round the colour wheel so neighbouring groups look different (D-391).
-        double hue = (++_groupNumber * 0.6180339887498949) % 1.0;
-        _gHue[g] = (byte)(1 + (int)(hue * 254));
+        // A tag per group, unique among any 65535 in a row; the app turns it into a hue (D-391).
+        _gTag[g] = (ushort)(1 + (_groupNumber++ % MaxGroupTag));
         return g;
     }
 
@@ -337,6 +344,8 @@ public sealed partial class SimEngine
             _spawned++;
         }
 
+        // Group results (round 024b, D-390): timed from now until the last member leaves.
+        StartGroupResults(g, line, _placing.Count);
         return _placing.Count;
     }
 

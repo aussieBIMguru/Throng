@@ -28,6 +28,7 @@ public static class BatchAverager
         List<ZoneBatchResult> zones = Zones(runs);
         List<JourneyBatchResult> journeys = Journeys(runs);
         List<LiftBatchResult> lifts = Lifts(runs);
+        List<GroupJourneyBatchResult> groups = Groups(runs);
 
         int samples = 0;
         foreach (BatchRun run in runs)
@@ -55,7 +56,7 @@ public static class BatchAverager
         }
 
         double measured = Average(runs, r => r.MeasuredS);
-        RunResults mean = MeanResults(runs, devices, zones, journeys, lifts, times, inModel, arrivals, exits, peak, queues, occupancy, measured);
+        RunResults mean = MeanResults(runs, devices, zones, journeys, lifts, groups, times, inModel, arrivals, exits, peak, queues, occupancy, measured);
         return new BatchResults
         {
             Options = options,
@@ -69,6 +70,7 @@ public static class BatchAverager
             Zones = zones,
             Journeys = journeys,
             Lifts = lifts,
+            Groups = groups,
             Times = times,
             InModel = inModel,
             ArrivalsPerMin = arrivals,
@@ -234,6 +236,58 @@ public static class BatchAverager
         return rows;
     }
 
+    /// <summary>Group × journey rows (round 024b) matched by group and journey, in the first run's order then later runs' new rows.</summary>
+    private static List<GroupJourneyBatchResult> Groups(IReadOnlyList<BatchRun> runs)
+    {
+        var keys = new List<(string Group, string Journey)>();
+        var acceptable = new Dictionary<(string, string), double>();
+        foreach (BatchRun run in runs)
+        {
+            foreach (GroupJourneyResult g in run.Results.Groups)
+            {
+                if (acceptable.TryAdd((g.Group, g.Journey), g.AcceptableS))
+                {
+                    keys.Add((g.Group, g.Journey));
+                }
+            }
+        }
+
+        var rows = new List<GroupJourneyBatchResult>(keys.Count);
+        foreach (var key in keys)
+        {
+            GroupJourneyResult? At(RunResults r)
+            {
+                foreach (GroupJourneyResult g in r.Groups)
+                {
+                    if (string.Equals(g.Group, key.Group, StringComparison.Ordinal) && string.Equals(g.Journey, key.Journey, StringComparison.Ordinal))
+                    {
+                        return g;
+                    }
+                }
+
+                return null;
+            }
+
+            double? Timed1(RunResults r, Func<GroupJourneyResult, double> pick) => At(r) is { Finished: > 0 } x ? pick(x) : null;
+            rows.Add(new GroupJourneyBatchResult(
+                key.Group, key.Journey, acceptable[key],
+                Count(runs, r => At(r)?.Finished ?? 0),
+                Timed(runs, r => Timed1(r, x => x.MeanS)),
+                Timed(runs, r => Timed1(r, x => x.P95S)),
+                Timed(runs, r => Timed1(r, x => x.WithinAcceptablePct)),
+                Timed(runs, r => Timed1(r, x => x.LongWaitPct)),
+                Count(runs, r => At(r)?.GaveUp ?? 0),
+                Count(runs, r => At(r)?.Stuck ?? 0),
+                Count(runs, r => At(r)?.InProgress ?? 0),
+                Timed(runs, r => Timed1(r, x => x.MeanSize)),
+                Count(runs, r => At(r)?.People ?? 0),
+                Timed(runs, r => Timed1(r, x => x.MeanSpreadS)),
+                Timed(runs, r => Timed1(r, x => x.SpreadPct))));
+        }
+
+        return rows;
+    }
+
     /// <summary>A series over the runs: sample <c>s</c> counts the runs whose <paramref name="length"/> passes it.</summary>
     private static BatchSeries Series(IReadOnlyList<BatchRun> runs, int samples, Func<RunResults, int> length, Func<RunResults, int, double> value)
     {
@@ -269,7 +323,7 @@ public static class BatchAverager
     /// <summary>The batch means in <see cref="RunResults"/> form, counts rounded to whole people (D-364).</summary>
     private static RunResults MeanResults(
         IReadOnlyList<BatchRun> runs, List<DeviceBatchResult> devices, List<ZoneBatchResult> zones, List<JourneyBatchResult> journeys, List<LiftBatchResult> lifts,
-        double[] times, BatchSeries inModel, BatchSeries arrivals, BatchSeries exits, BatchSeries peak, BatchSeries[] queues, BatchSeries[] occupancy, double measured)
+        List<GroupJourneyBatchResult> groups, double[] times, BatchSeries inModel, BatchSeries arrivals, BatchSeries exits, BatchSeries peak, BatchSeries[] queues, BatchSeries[] occupancy, double measured)
     {
         RunResults first = runs[0].Results;
         int samples = times.Length;
@@ -321,6 +375,9 @@ public static class BatchAverager
             ZoneOccupancy = zoneValues,
             Journeys = [.. journeys.Select(j => new JourneyResult(j.Profile, j.Journey, j.IsAll, j.Finished.RoundedMean, j.MeanS.Mean, j.P95S.Mean, j.AcceptableS,
                 j.WithinAcceptablePct.Mean, j.LongWaitPct.Mean, j.GaveUp.RoundedMean, j.Stuck.RoundedMean, (int)j.InProgress.RoundedMean, j.Sink))],
+            Groups = [.. groups.Select(g => new GroupJourneyResult(g.Group, g.Journey, g.Finished.RoundedMean, g.MeanS.Mean, g.P95S.Mean, g.AcceptableS,
+                g.WithinAcceptablePct.Mean, g.LongWaitPct.Mean, g.GaveUp.RoundedMean, g.Stuck.RoundedMean, (int)g.InProgress.RoundedMean, g.MeanSize.Mean,
+                g.People.RoundedMean, g.MeanSpreadS.Mean, g.SpreadPct.Mean))],
             Lifts = [.. lifts.Select(l => new LiftResult(l.Lift, l.Name, l.Cars, l.Boarded.RoundedMean, l.MeanWaitS.Mean, l.P95WaitS.Mean, l.MaxWaitS.Mean, l.Rides.RoundedMean,
                 l.MeanRideS.Mean, l.GaveUp.RoundedMean))],
             Flows = Flows(runs),

@@ -273,7 +273,7 @@ public sealed partial class MainViewModel
                 {
                     // COLOUR ▸ GROUP (D-391): the group's hue in place of the profile colour.
                     int o = count * F;
-                    (buffer[o + 4], buffer[o + 5], buffer[o + 6]) = GroupColours.Of(buffer[o + 11]);
+                    (buffer[o + 4], buffer[o + 5], buffer[o + 6]) = GroupColours.OfTag(buffer[o + 11]);
                 }
 
                 count++;
@@ -653,6 +653,22 @@ public sealed partial class MainViewModel
         return views;
     }
 
+    /// <summary>True while the PERF overlay shows (round 025, D-380; F8). Session only.</summary>
+    public bool ShowPerf { get; private set; }
+
+    /// <summary>The running simulation's PERF window, or <see cref="PerfSample.Empty"/> without a run.</summary>
+    public PerfSample CurrentPerf => _runner?.Perf ?? PerfSample.Empty;
+
+    /// <summary>F8 / View ▸ Performance Overlay: shows or hides PERF.</summary>
+    public RelayCommand TogglePerfCommand => _togglePerfCommand ??= new RelayCommand(() =>
+    {
+        ShowPerf = !ShowPerf;
+        OnPropertyChanged(nameof(ShowPerf));
+        Ticker = ShowPerf ? "PERF ▸ on (F8 hides it)" : "PERF ▸ off";
+    });
+
+    private RelayCommand? _togglePerfCommand;
+
     /// <summary>Trains in on a level while running, for the plan overlay (D-190).</summary>
     public IReadOnlyList<RunTrainView> RunTrains(Guid levelId)
     {
@@ -670,7 +686,9 @@ public sealed partial class MainViewModel
             }
 
             List<IReadOnlyList<Point2>> doors = [.. train.DoorRegionIds.Select(_study.FindRegion).OfType<Region>().Select(r => (IReadOnlyList<Point2>)r.Outline)];
-            views.Add(new RunTrainView(train.Box, doors, boarding));
+            // The service's kind labels the vehicle in plan (round 025, D-398): TRAIN, PLANE, BUS, RIDE.
+            ServiceKind kind = _study.TrainServices.FirstOrDefault(s => s?.Id == train.ServiceId)?.Kind ?? ServiceKind.Train;
+            views.Add(new RunTrainView(train.Box, doors, boarding, ServiceKinds.Badge(kind)));
         }
 
         return views;

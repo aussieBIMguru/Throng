@@ -35,6 +35,7 @@ public partial class MainWindow : Window
         Viewport.Agents = _viewModel.FetchAgents;
         Viewport.Heat = _viewModel.FetchHeat;
         Viewport.LiftCars = _viewModel.FetchLiftCars3D;
+        Viewport.PerfSource = () => _viewModel.ShowPerf ? _viewModel.CurrentPerf : null;
         _viewModel.CaptureViewport = Viewport.CaptureAsync;
         Viewport.TemplateDropped += OnTemplateDropped;
         Viewport.ViewInPlanRequested += (_, id) => _viewModel.ViewInPlan(id);
@@ -143,7 +144,7 @@ public partial class MainWindow : Window
 
         // A single click on a journey opens it in SELECTION (D-162); on a profile or a device, opens its definition there
         // (round 017, D-286) and picks it for EXPORT (D-275, D-290).
-        if (e.ClickCount == 1 && sender is FrameworkElement { DataContext: TemplateItemViewModel { Template: Throng.Core.Library.JourneyTemplate or Throng.Core.Library.AgentProfileTemplate or Throng.Core.Library.DeviceTemplate } item2 })
+        if (e.ClickCount == 1 && sender is FrameworkElement { DataContext: TemplateItemViewModel { Template: Throng.Core.Library.JourneyTemplate or Throng.Core.Library.AgentProfileTemplate or Throng.Core.Library.DeviceTemplate or Throng.Core.Library.GroupTemplate } item2 })
         {
             _viewModel.SelectLibraryItem(item2);
         }

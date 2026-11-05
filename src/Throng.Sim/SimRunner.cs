@@ -79,6 +79,15 @@ public sealed class SimRunner : IDisposable
     private const long ResultsIntervalMs = 500;
     private readonly Stopwatch _resultsClock = Stopwatch.StartNew();
     private RunResults _frontResults = RunResults.Empty;
+
+    // PERF (round 025, D-380): a window of step timings, published about once a second.
+    private const double PerfWindowS = 1.0;
+    private readonly long[] _perfTicks = new long[SimEngine.PerfPhases.Count];
+    private readonly long[] _perfLastTicks = new long[SimEngine.PerfPhases.Count];
+    private long _perfLastSteps;
+    private double _perfLastWallS;
+    private readonly Stopwatch _perfClock = Stopwatch.StartNew();
+    private PerfSample _perf = PerfSample.Empty;
     private long _publishedResultsVersion = -1;
 
     /// <summary>Creates a paused runner on the model's seed and end, and starts its thread.</summary>
@@ -530,8 +539,59 @@ public sealed class SimRunner : IDisposable
         return result;
     }
 
+    /// <summary>The latest PERF window (round 025, D-380); <see cref="PerfSample.Empty"/> before the first.</summary>
+    public PerfSample Perf
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _perf;
+            }
+        }
+    }
+
+    /// <summary>Folds the engine's step timings into a new PERF window once a second (simulation thread).</summary>
+    private void UpdatePerf()
+    {
+        double wall = _perfClock.Elapsed.TotalSeconds;
+        double span = wall - _perfLastWallS;
+        if (span < PerfWindowS)
+        {
+            return;
+        }
+
+        _engine.CopyPhaseTicks(_perfTicks);
+        long steps = _engine.PerfSteps - _perfLastSteps;
+        if (steps < 0)
+        {
+            // The engine was reset: start a new window.
+            steps = 0;
+            Array.Clear(_perfLastTicks);
+        }
+
+        var phases = new double[_perfTicks.Length];
+        double total = 0;
+        for (int p = 0; p < phases.Length; p++)
+        {
+            long ticks = _perfTicks[p] - _perfLastTicks[p];
+            phases[p] = steps > 0 ? ticks * 1000.0 / Stopwatch.Frequency / steps : 0;
+            total += phases[p];
+            _perfLastTicks[p] = _perfTicks[p];
+        }
+
+        var sample = new PerfSample(phases, total, steps * _engine.Model.TimeStepS / span, _engine.Agents.Count);
+        _perfLastSteps = _engine.PerfSteps;
+        _perfLastWallS = wall;
+        lock (_gate)
+        {
+            _perf = sample;
+        }
+    }
+
     private void Publish()
     {
+        UpdatePerf();
         int count = _engine.WriteSnapshot(ref _back);
         SimStats stats = _engine.Stats;
         int connectors = _engine.Model.World.Connectors.Count;

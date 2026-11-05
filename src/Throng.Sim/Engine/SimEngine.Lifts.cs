@@ -450,7 +450,7 @@ public sealed partial class SimEngine
         double cost = RoutePlanner.Choose(
             _routes, a.Surface[i], a.X[i], a.Y[i], a.Sink[i], profile.Mobility, profile.Template, null, out bool direct, out RouteOption option, _wait,
             BeltWalkSpeed(i), stairEffort: _tuning.StairEffort, standingRest: _tuning.StandingRest, sightRadius: Sight(i), priorityPenaltyS: _liftPriorityS,
-            barredConnector: bank.Connector);
+            barredConnector: bank.Connector, seenFromM: _seenFromM, pendingWaitS: _pendingS, stayWaitShare: StayWaitShare);
         if (!double.IsFinite(cost))
         {
             a.LiftGiveUpAt[i] = TimeS + patience;

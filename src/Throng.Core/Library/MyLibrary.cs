@@ -4,7 +4,8 @@ using Throng.Core.Model;
 namespace Throng.Core.Library;
 
 /// <summary>
-/// Your library (MINE, round 020, D-340–D-351): agent profiles, device definitions and journeys kept across studies in
+/// Your library (MINE, round 020, D-340–D-351): agent profiles, device definitions, journeys and (round 024b, D-388)
+/// group templates kept across studies in
 /// one <see cref="TemplateLibrary"/>. Studies keep their own embedded copies (D-016); a MINE item is embedded under its
 /// library id the first time a study uses it (D-346), so UPDATE FROM MY LIBRARY can match it by id, and two copies
 /// "differ" when their values differ (D-351). Nothing here reads or writes files or touches a study's undo stack: the
@@ -13,7 +14,7 @@ namespace Throng.Core.Library;
 public static class MyLibrary
 {
     /// <summary>True for the kinds your library holds (D-341).</summary>
-    public static bool Holds(TemplateBase template) => template is AgentProfileTemplate or DeviceTemplate or JourneyTemplate;
+    public static bool Holds(TemplateBase template) => template is AgentProfileTemplate or DeviceTemplate or JourneyTemplate or GroupTemplate;
 
     /// <summary>The item with this id in your library (library kinds only), or null.</summary>
     public static TemplateBase? Find(TemplateLibrary? mine, Guid id) =>
@@ -41,7 +42,8 @@ public static class MyLibrary
 
     /// <summary>
     /// Safety net (D-346): embeds every item of your library the study refers to but doesn't hold yet — mix line
-    /// profiles and journeys, profiles' default journeys, placed devices' definitions — so the saved file and the
+    /// profiles, groups (and their members) and journeys, profiles' and groups' default journeys, placed devices'
+    /// definitions — so the saved file and the
     /// simulation never depend on your library. Built-ins are left to their own first-use paths. Returns what was added.
     /// </summary>
     public static IReadOnlyList<TemplateBase> EmbedReferenced(Study study, TemplateLibrary? mine)
@@ -64,6 +66,11 @@ public static class MyLibrary
                     }
 
                     Embed(study, mine, line.ProfileId, fromMineOnly: true, added);
+                    if (line.GroupId is { } groupId)
+                    {
+                        Embed(study, mine, groupId, fromMineOnly: true, added);
+                    }
+
                     if (line.JourneyId is { } journeyId)
                     {
                         Embed(study, mine, journeyId, fromMineOnly: true, added);
@@ -75,6 +82,25 @@ public static class MyLibrary
         foreach (AgentProfileTemplate profile in study.Library.AgentProfiles.ToList())
         {
             if (profile?.DefaultJourneyId is { } journeyId)
+            {
+                Embed(study, mine, journeyId, fromMineOnly: true, added);
+            }
+        }
+
+        foreach (GroupTemplate group in (study.Library.Groups ?? []).ToList())
+        {
+            if (group is null)
+            {
+                continue;
+            }
+
+            // A group the study holds may list members or a journey that are only in your library (round 024b).
+            foreach (GroupMember member in group.Rows())
+            {
+                Embed(study, mine, member.ProfileId, fromMineOnly: true, added);
+            }
+
+            if (group.DefaultJourneyId is { } journeyId)
             {
                 Embed(study, mine, journeyId, fromMineOnly: true, added);
             }
@@ -93,7 +119,8 @@ public static class MyLibrary
 
     /// <summary>
     /// What SAVE TO MY LIBRARY (D-342) would write for <paramref name="template"/> as the study sees it: a copy of it,
-    /// plus a profile's default journey (D-350) unless that's an unchanged built-in (built-ins are everywhere already).
+    /// plus a profile's default journey (D-350) unless that's an unchanged built-in (built-ins are everywhere already);
+    /// a group (round 024b, D-388) brings its member profiles, their default journeys and its own, on the same terms.
     /// Items your library already holds with the same values are left out; the plan lists those it would replace and the
     /// journeys whose nodes pick specific devices or zones (D-349), so the app can ask first.
     /// </summary>
@@ -129,12 +156,42 @@ public static class MyLibrary
             items.Add(copy);
         }
 
-        Take(template);
-        if (template is AgentProfileTemplate { DefaultJourneyId: { } journeyId }
-            && StudyTemplates.FindJourney(study, journeyId, mine) is { } defaultJourney
-            && !IsPristineBuiltIn(defaultJourney))
+        var taken = new HashSet<Guid>();
+
+        void TakeOnce(TemplateBase source)
         {
-            Take(defaultJourney);
+            if (taken.Add(source.Id))
+            {
+                Take(source);
+            }
+        }
+
+        void TakeJourney(Guid? journeyId)
+        {
+            if (journeyId is { } id && StudyTemplates.FindJourney(study, id, mine) is { } journey && !IsPristineBuiltIn(journey))
+            {
+                TakeOnce(journey);
+            }
+        }
+
+        TakeOnce(template);
+        if (template is AgentProfileTemplate profile)
+        {
+            TakeJourney(profile.DefaultJourneyId);
+        }
+
+        if (template is GroupTemplate group)
+        {
+            foreach (GroupMember member in group.Rows())
+            {
+                if (StudyTemplates.FindProfile(study, member.ProfileId, mine) is { } memberProfile && !IsPristineBuiltIn(memberProfile))
+                {
+                    TakeOnce(memberProfile);
+                    TakeJourney(memberProfile.DefaultJourneyId);
+                }
+            }
+
+            TakeJourney(group.DefaultJourneyId);
         }
 
         List<JourneyTemplate> withPicks = [.. items.OfType<JourneyTemplate>().Where(j => (j.Nodes ?? []).Any(n => n is { HasPicks: true }))];
@@ -164,6 +221,9 @@ public static class MyLibrary
             case JourneyTemplate journey:
                 PutIn(mine.Journeys ??= [], journey);
                 break;
+            case GroupTemplate group:
+                PutIn(mine.Groups ??= [], group);
+                break;
         }
     }
 
@@ -171,7 +231,8 @@ public static class MyLibrary
     public static bool Remove(TemplateLibrary mine, Guid id) =>
         mine.AgentProfiles.RemoveAll(t => t?.Id == id)
         + mine.Devices.RemoveAll(t => t?.Id == id)
-        + (mine.Journeys?.RemoveAll(t => t?.Id == id) ?? 0) > 0;
+        + (mine.Journeys?.RemoveAll(t => t?.Id == id) ?? 0)
+        + (mine.Groups?.RemoveAll(t => t?.Id == id) ?? 0) > 0;
 
     /// <summary>Renames the item with this id in your library (D-345); false when it isn't there or the name is blank.</summary>
     public static bool Rename(TemplateLibrary mine, Guid id, string name)
@@ -188,17 +249,41 @@ public static class MyLibrary
 
     /// <summary>
     /// The .thronglib content for a ticked set of your items (D-347): copies of them, plus each ticked profile's default
-    /// journey when your library holds it (so the profile works where it's imported).
+    /// journey when your library holds it (so the profile works where it's imported); a ticked group (round 024b) brings
+    /// the member profiles and journeys your library holds the same way.
     /// </summary>
     public static TemplateLibrary BuildExport(TemplateLibrary mine, IEnumerable<Guid> ids)
     {
         var export = new TemplateLibrary();
         var wanted = new List<Guid>(ids);
+
+        void Want(Guid? id)
+        {
+            if (id is { } value && Find(mine, value) is not null && !wanted.Contains(value))
+            {
+                wanted.Add(value);
+            }
+        }
+
+        // Groups first add their members, then every profile (ticked or brought) adds its journey.
         foreach (Guid id in wanted.ToList())
         {
-            if (Find(mine, id) is AgentProfileTemplate { DefaultJourneyId: { } journeyId } && Find(mine, journeyId) is JourneyTemplate && !wanted.Contains(journeyId))
+            if (Find(mine, id) is GroupTemplate group)
             {
-                wanted.Add(journeyId);
+                foreach (GroupMember member in group.Rows())
+                {
+                    Want(member.ProfileId);
+                }
+
+                Want(group.DefaultJourneyId);
+            }
+        }
+
+        foreach (Guid id in wanted.ToList())
+        {
+            if (Find(mine, id) is AgentProfileTemplate { DefaultJourneyId: { } journeyId } && Find(mine, journeyId) is JourneyTemplate)
+            {
+                Want(journeyId);
             }
         }
 
@@ -215,7 +300,7 @@ public static class MyLibrary
 
     /// <summary>
     /// The incoming items (library kinds) whose ids your library holds with different values, in the order the import
-    /// dialog lists them (profiles, devices, journeys): one <see cref="ReconcileKind.LibraryItem"/> each (D-347).
+    /// dialog lists them (profiles, devices, journeys, groups): one <see cref="ReconcileKind.LibraryItem"/> each (D-347).
     /// Items you hold with the same values, and new ids, need no answer.
     /// </summary>
     public static List<ReconcileItem> FindImportClashes(TemplateLibrary mine, TemplateLibrary incoming)
@@ -239,7 +324,7 @@ public static class MyLibrary
     /// Imports a .thronglib into your library (D-347): new ids are added, items you hold with the same values are left,
     /// and each clash follows its answer (one per <see cref="FindImportClashes"/> item, in order; missing answers keep
     /// both). Keeping both adds the incoming item as a copy with a new id, key and "(imported)" name; a profile whose
-    /// default journey came in as such a copy follows it.
+    /// default journey came in as such a copy follows it, and so does a group whose members or journey did (round 024b).
     /// </summary>
     public static LibraryImportResult ApplyImport(TemplateLibrary mine, TemplateLibrary incoming, IReadOnlyList<ReconcileChoice> choices)
     {
@@ -258,9 +343,10 @@ public static class MyLibrary
         int added = 0, replaced = 0, skipped = 0, unchanged = 0;
         var newIds = new Dictionary<Guid, Guid>();
 
-        // Journeys first, so profiles can follow a journey that came in as a copy.
+        // Journeys first, so profiles can follow a journey that came in as a copy; groups last, to follow both.
         IEnumerable<TemplateBase> ordered = LibraryItems(incoming).OfType<JourneyTemplate>().Cast<TemplateBase>()
-            .Concat(LibraryItems(incoming).Where(t => t is not JourneyTemplate));
+            .Concat(LibraryItems(incoming).Where(t => t is not JourneyTemplate and not GroupTemplate))
+            .Concat(LibraryItems(incoming).OfType<GroupTemplate>());
         foreach (TemplateBase source in ordered)
         {
             TemplateBase item = TemplateCloner.Clone(source);
@@ -273,6 +359,15 @@ public static class MyLibrary
             if (item is AgentProfileTemplate { DefaultJourneyId: { } journeyId } profile && newIds.TryGetValue(journeyId, out Guid moved))
             {
                 profile.DefaultJourneyId = moved;
+            }
+
+            if (item is GroupTemplate group)
+            {
+                group.Members = [.. group.Rows().Select(m => newIds.TryGetValue(m.ProfileId, out Guid to) ? m with { ProfileId = to } : m)];
+                if (group.DefaultJourneyId is { } groupJourney && newIds.TryGetValue(groupJourney, out Guid movedJourney))
+                {
+                    group.DefaultJourneyId = movedJourney;
+                }
             }
 
             if (Find(mine, item.Id) is null)
@@ -312,24 +407,26 @@ public static class MyLibrary
         return new LibraryImportResult(added, replaced, skipped, unchanged);
     }
 
-    /// <summary>"Agent profile", "Device" or "Journey", for dialogs.</summary>
+    /// <summary>"Agent profile", "Device", "Journey" or "Group", for dialogs.</summary>
     public static string KindName(TemplateBase template) => template switch
     {
         AgentProfileTemplate => "Agent profile",
         DeviceTemplate => "Device",
         JourneyTemplate => "Journey",
+        GroupTemplate => "Group",
         _ => "Item",
     };
 
-    /// <summary>True for a journey that is a built-in, or the study's unchanged copy of one.</summary>
-    private static bool IsPristineBuiltIn(JourneyTemplate journey) =>
-        BuiltInLibrary.Instance.Find(journey.Id) is JourneyTemplate builtIn && StudyDefinitions.SameValues(journey, builtIn);
+    /// <summary>True for a built-in (journey or profile), or the study's unchanged copy of one.</summary>
+    private static bool IsPristineBuiltIn(TemplateBase template) =>
+        BuiltInLibrary.Instance.Find(template.Id) is { } builtIn && StudyDefinitions.SameValues(template, builtIn);
 
-    /// <summary>The library kinds of <paramref name="library"/>, in dialog order: profiles, devices, journeys.</summary>
+    /// <summary>The library kinds of <paramref name="library"/>, in dialog order: profiles, devices, journeys, groups.</summary>
     private static IEnumerable<TemplateBase> LibraryItems(TemplateLibrary library) =>
         library.AgentProfiles.Where(t => t is not null).Cast<TemplateBase>()
             .Concat(library.Devices.Where(t => t is not null))
-            .Concat((library.Journeys ?? []).Where(t => t is not null));
+            .Concat((library.Journeys ?? []).Where(t => t is not null))
+            .Concat((library.Groups ?? []).Where(t => t is not null));
 
     private static void Embed(Study study, TemplateLibrary? mine, Guid id, bool fromMineOnly, List<TemplateBase> added)
     {
@@ -366,10 +463,15 @@ public static class MyLibrary
             }
         }
 
-        // A profile from your library brings its default journey from there too (D-350), so it works as saved.
+        // A profile or group from your library brings its default journey from there too (D-350), so it works as saved.
         if (fromMine is AgentProfileTemplate { DefaultJourneyId: { } journeyId })
         {
             Embed(study, mine, journeyId, fromMineOnly: true, added);
+        }
+
+        if (fromMine is GroupTemplate { DefaultJourneyId: { } groupJourneyId })
+        {
+            Embed(study, mine, groupJourneyId, fromMineOnly: true, added);
         }
     }
 
@@ -394,6 +496,7 @@ public static class MyLibrary
         {
             AgentProfileTemplate => "agent",
             DeviceTemplate => "device",
+            GroupTemplate => "group",
             _ => "journey",
         };
         Guid id = Guid.NewGuid();
@@ -404,6 +507,7 @@ public static class MyLibrary
         {
             AgentProfileTemplate => mine.AgentProfiles.Select(t => t.Name),
             DeviceTemplate => mine.Devices.Select(t => t.Name),
+            GroupTemplate => (mine.Groups ?? []).Select(t => t.Name),
             _ => (mine.Journeys ?? []).Select(t => t.Name),
         };
         var taken = names.ToHashSet(StringComparer.OrdinalIgnoreCase);

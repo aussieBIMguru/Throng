@@ -1,5 +1,81 @@
 # Throng — Handover to the next chat
 
+**Written:** 2026-11-05, end of round 026 (installer, v1.0.0). State = **Throng-r028** (026 installer + 026b stair-end squeeze + 027 route choice + 028 GitHub docs and Slow tests; all in round-026.md), **unbuilt in the sandbox**
+(no SDK, Inno Setup or PowerShell here). **Brief:** v0.49. **Decisions:** D-001–D-430. **409 test methods; format v12.**
+Next free decision: **D-431**. v1 ships via git (github.com/aussieBIMguru/Throng); screenshots replace docs/images placeholders. Then: tune 027's constants from Gavin's runs, backlog.
+**Round 025 status:** confirmed; the PDF font fix works. **Performance tuning is parked until after v1** (PERF F8 and
+bench.bat stay; if resumed, start with nav compile time).
+**Round 026 recap:** `publish.bat` → `build\publish.ps1` (version from `Directory.Build.props` `<Version>` = 1.0.0;
+`dotnet test` without the bench; self-contained win-x64 folder publish to `artifacts\app\`; checks LICENSE / notices /
+`Assets\Fonts\OFL.txt`; optional `-Sign -CertThumbprint`; ISCC from `-InnoCompiler`, Inno Setup 6 folders or PATH;
+SHA-256) → `installer\Throng.iss` (AppId {4F693B47-3FE5-43E3-B724-77382442AD08}, per user in
+`%LocalAppData%\Programs\Throng`, LICENSE info page, optional desktop shortcut, HKCU `.throng` → `Throng.Study`,
+running-Throng check via WMI, `[InstallDelete] {app}\*`, uninstall deletes only `{app}`). Mirrors BimGo's
+publish.ps1 / BimGo.iss minus the Revit bundle and the app-owned `--register`.
+**Next chat = (1) fix any publish / ISCC errors from Gavin's first `publish.bat` run, (2) confirm with
+`ai/rounds/round-026.md`'s 11 steps (install, About = 1.0.0, double-click .throng, PDF from the installed copy,
+upgrade 1.0.1 over 1.0.0, running check, uninstall keeps library), (3) then backlog: performance (nav compile),
+replay video / GIF, across-runs nodes CSV, fuller SERVICES, signing, Explorer-open for the other Throng file types.**
+Still open: PDFsharp transitive *(verify)* lines in THIRD-PARTY-NOTICES (ask for `dotnet list src\Throng.App package
+--include-transitive`).
+**Previous round's notes follow.**
+
+**Written:** 2026-11-05, after round 025 testing — state = **Throng-r025b-fix**. Next free decision: **D-407**.
+**Round 025 status:** built and run by Gavin. Two fix-ups already in r025b-fix (round-025.md ▸ fix-up): the CHECK
+headway wording (`Round010bFileTests` passes again) and the PDF font resolver (`Services/ReportFontResolver.cs`, Arial +
+Consolas read from the Windows fonts folder; **PDF export after this fix not yet confirmed** — ask first). The 6-sector
+stadium starts, but slowly (nav compile in Debug while the bench ran); RESET during COMPILING throws a caught
+`OperationCanceledException` that VS shows as user-unhandled (expected; Continue). `bench.bat` ran 10+ minutes without
+finishing; Gavin stopped there. **Gavin's call: the app is robust at typical project scales; performance tuning is
+parked** (keep PERF/bench for later; if ever resumed, start with the nav compile time: flow fields per target over whole
+floors).
+**Next chat = round 026 Query phase: an installer / publisher "using a similar approach to BimGo's (makes its own Inno
+Setup installer)".** Ask Gavin to attach BimGo's publish script and `.iss` (or describe them) so Throng matches, then ask
+in staged multiple-choice batches (recommended first), for example: framework-dependent vs self-contained .NET 10
+(BimGo: framework-dependent shared install, net8); per-user vs per-machine install; one script that runs
+`dotnet publish -c Release -r win-x64` then `ISCC` (where Inno Setup lives, script name/location e.g. `installer/`,
+output folder); version source (`Directory.Build.props` → app, installer and file names) and AppId GUID; file
+associations for `.throng` / `.throngprofile` / `.thronglib` / `.throngdevice` (open in Throng, icons) and whether the app
+must handle a path on the command line (`App.OnStartup` already opens a `.throng` argument; `.thronglib` / `.throngprofile` /
+`.throngdevice` arguments would need handling, or no association for them); Start menu / desktop shortcuts; licence page
+(LICENSE) and THIRD-PARTY-NOTICES + OFL shipped beside Throng.exe (§20.3; the PDFsharp audit lines are still *verify*);
+uninstall keeps `%AppData%\Throng\Library` and logs; code signing (optional / later); a test checklist (install,
+open by double-click, upgrade over an older install, uninstall). Inno Setup is free to use (its own licence, not
+shipped inside Throng); record that in THIRD-PARTY-NOTICES as a build tool.
+**Previous round's notes follow.**
+
+**Written:** 2026-11-05, end of round 025 (SERVICES, PDF report, PERF, stadium demo + bench) — **unbuilt in the sandbox**.
+**Brief:** v0.48. **Decisions:** D-001–D-406. **409 test methods; format v12.** 024b confirmed by Gavin (no issues).
+**New package:** PDFsharp 6.2.4 (MIT) in Throng.App — record the transitive audit Gavin pastes in THIRD-PARTY-NOTICES.
+**Next chat = (1) fix any 025 build errors (PDFsharp calls were written from its docs: check `Services/PdfReport.cs`
+first), (2) confirm 025 with `ai/rounds/round-025.md`'s 13 steps, (3) round 026 = tuning from Gavin's `bench.bat`
+output (D-405: report only) — read which phases dominate at 20k+ people and fix those, adding SimTuning switches where
+behaviour changes.** Then backlog: replay video / GIF export, across-runs nodes CSV, fuller SERVICES (boarding-only,
+batches, call-to-board). Next free decision: D-407.
+**Round 025 recap:** `Core/Model/ServiceKind.cs` + `TrainService.{Kind, Create, WithKind}` (the type keeps its name),
+SERVICES tab (`PropertiesTabServices = 3`, RESULTS 4, CHECK 5) with the old STUDY ▸ TRAINS block and a Kind drop-down,
+`RunTrainView.Badge`; `App/Services/{ReportData, PdfReport}.cs`, `Views/ReportDialog`, `ViewModels/MainViewModel.Report.cs`
+(captures each level in plan, restores the view); `Sim/Engine/SimEngine.Perf.cs` (nine phases, `Lap` in `Step`),
+`Sim/PerfSample.cs`, `SimRunner.Perf`, `Views/ViewportView.Perf.cs` (F8); `IO/{StadiumBuilder, StadiumScenario}.cs`,
+New from Demo ▸ Stadium sector / Stadium (6 sectors); `Round025Tests.Bench_Stadium` + `bench.bat` (THRONG_BENCH=1).
+(024b handover follows.)
+**Written:** 2026-11-05, end of round 024b (groups: editor, library, results, tethers) — **unbuilt in the sandbox**.
+**Brief:** v0.47. **Decisions:** D-001–D-397. **400 test methods; format v12.** 024a confirmed (r024a-fix).
+**Next chat = (1) fix any 024b build errors, (2) confirm 024b with `ai/rounds/round-024.md` ▸ "How to test (024b)"
+(13 steps), (3) round 025 Query phase: stadium pass (D-379–D-381 decided) + one-page PDF report, one round, no split
+(D-396).** Queries to ask: PDF contents / layout, how it's made (permissive library such as PDFsharp, MIT, vs WPF
+XPS/print), bench pass marks, sector count / seats for the stadium demo. Watch in the stadium pass: batch memory (cores − 1
+engines), replay memory (now 24 B × people × frames, 1 GB cap), `FollowGuide` and `MeasureGroupSpread` per step, tether
+hit-testing (O(n) per frame while hovering). Next free decision: D-398.
+**Round 024b recap:** groups in `MyLibrary` (PlanSave brings member profiles + journeys, export / import, embed),
+`StudyDefinitions.{CreateGroupCopy, CreateNewGroup, GroupUseCount, GroupsWithMember}`, `GroupTemplate.Summarise(name)`;
+App `ViewModels/GroupDefinitionViewModel.cs`, `MainViewModel.EditGroupDefinition` + group cases in Definitions /
+MyLibrary, LIBRARY ▸ GROUPS (`LibraryBrowserViewModel.SetGroups`, Tabs[1]; DEVICES is Tabs[2]); results
+`Engine/{GroupJourneyResult, SimEngine.GroupResults}.cs`, `RunResults.Groups`, `Batch/GroupJourneyBatchResult.cs`,
+`BatchAverager.Groups`, journeys.csv four trailing group columns, `JourneyResultRow.ForGroup`; tags
+`SimEngine.GroupTag` (snapshot float 11), `PackedAgent.GroupTag`, `GroupColours.OfTag`; tethers
+`Views/{TetherLayer, ViewportView.Tethers}.cs`.
+(024a handover follows.)
 **Written:** 2026-11-01, end of round 024a (group movement: model, format v12, simulation) — **unbuilt in the sandbox**.
 **Brief:** v0.46. **Decisions:** D-001–D-393. **390 test methods; format v12.** 023 confirmed.
 **Next chat = (1) fix any 024a build errors, (2) confirm 024a with `ai/rounds/round-024.md`'s 15-step checklist,
@@ -268,16 +344,24 @@ served level** (D-068). Shafts already carry "no stop" levels (D-087) for that.
 | Batch runs (021) | `Sim/Engine/SimEngine.cs` (seed + duration constructor), `Sim/Batch/{BatchOptions, BatchRunner, BatchAverager, BatchResults, BatchRun, BatchStat, BatchSeries, BatchProgress, BatchDensity, DensityFold, DeviceBatchResult, ZoneBatchResult, JourneyBatchResult, LiftBatchResult}.cs`, `Analysis/BatchCsv.cs`, `App/ViewModels/{MainViewModel.Batch, StatCell}.cs`, `App/Views/BatchDialog.xaml(.cs)`, `App/Services/BatchRequest.cs`, `IDialogService.AskBatch`, batch paths in `MainViewModel.{Results, Heatmap, JourneyFlow, Run}.cs`, `GraphLine.{Low, High}` + `TimeSeriesGraph.DrawBand`, SOURCE chips + BATCH… in `MainWindow.xaml` |
 | UI fit (022) | `Themes/Theme.xaml` (`ToolButton` MinWidth, `ToolIconButton`), transport bar + RESULTS drop-downs in `MainWindow.xaml`, `MainWindow.xaml.cs` (tagline), `App/ViewModels/MainViewModel.Choices.cs`, `MainViewModel.Run.RunStatus(compact)` |
 | Replay (023) | `Sim/Engine/AgentStore.Serial`, `Sim/Replay/{ReplayRecording, ReplayState, ReplayFrame, PackedAgent, AgentLook}.cs`, `SimRunner.{Recording, ViewTimeS, ViewStats, Seed}` + seed constructor, `App/ViewModels/MainViewModel.Replay.cs`, `TimeSeriesGraph.{CursorTimeS, JumpCommand}`, scrubber + RESULTS ▸ RUN / REPLAY + arrow keys in `MainWindow.xaml` |
+| Services, report, PERF, stadium (025) | `Core/Model/{ServiceKind, TrainService}.cs`, `App/ViewModels/{TrainServiceViewModels, MainViewModel.Trains}.cs`, SERVICES tab in `MainWindow.xaml`, `EditorOverlay.DrawTrains` (badge); `App/Services/{ReportData, PdfReport}.cs`, `App/Views/ReportDialog.xaml(.cs)`, `App/ViewModels/MainViewModel.Report.cs`, `IDialogService.{PickPdfSavePath, AskReportMap}`; `Sim/Engine/SimEngine.Perf.cs`, `Sim/PerfSample.cs`, `SimRunner.Perf`, `App/Views/ViewportView.Perf.cs`; `IO/{StadiumBuilder, StadiumScenario}.cs`, `tests/Throng.Sim.Tests/Round025Tests.cs` (bench), `bench.bat` |
+| Groups (024b) | `Core/Library/{MyLibrary, StudyDefinitions, GroupTemplate}.cs` (groups in MINE, copies, use counts, summaries), `App/ViewModels/{GroupDefinitionViewModel, MainViewModel.Definitions, MainViewModel.MyLibrary, LibraryViewModels, JourneyResultRow}.cs`, SELECTION ▸ GROUP + LIBRARY ▸ GROUPS in `MainWindow.xaml`, `Sim/Engine/{GroupJourneyResult, SimEngine.GroupResults}.cs`, `Sim/Batch/GroupJourneyBatchResult.cs`, `BatchAverager.Groups`, `Analysis/{ResultsCsv, BatchCsv}.JourneysCsv`, `SimEngine.GroupTag`, `Replay/PackedAgent.GroupTag`, `Render/Gl/AgentColoring.cs` (`GroupColours.OfTag`), `App/Views/{TetherLayer, ViewportView.Tethers}.cs` |
 | Groups (024a) | `Core/Library/GroupTemplate.cs`, `TemplateLibrary.Groups`, `MixLine.GroupId`, `StudyTemplates.{FindGroup, AvailableGroups, LineProfiles}`, `BuiltInLibrary.AddGroups`, `FormatMigrations.UpgradeV11ToV12`, `SimSetup` (group lines, `GroupRouteTemplate`), `Sim/SimJourneys.cs` (`SimMixLine.{RouteProfile, Members, PickWeight}`), `SimModel.RouteProfiles`, `AgentStore.{Route, Group, LastDevice}`, `Sim/Engine/SimEngine.Groups.cs`, `AgentPhase.Regroup`, `Replay/PackedAgent.GroupHue`, `Render/Gl/AgentColoring.cs` (`Group`, `GroupColours`), `MainViewModel.Run.FetchAgents`, `MixLineViewModel.ProfileId` |
 | Clean script | `clean.bat` (repo root) |
 
 ## 8. Don't regress
 
-- Demo loads clean (0 errors, 0 warnings) and all tests pass (390 methods on 024a; the wheelchair test expects > 95 % at the accessible gate, D-213).
+- Step timings (`Lap`, round 025) only read the clock: nothing the simulation reads may depend on them.
+- `TrainService` keeps its name in code and files; the app says "service" everywhere (kinds only change words and
+  starting values, D-398).
+- Demo loads clean (0 errors, 0 warnings) and all tests pass (409 methods on 025; the wheelchair test expects > 95 % at the accessible gate, D-213).
 - Studies without group lines draw exactly the same random numbers as before round 024 (`Recall` is false for people on
   their own; `PickWeight` = share for single lines); group members' choices go through `RouteOf(i)`, their body,
   colour and results rows through their own `Profile[i]`.
 - Group members are found through the per-step index (`IndexGroups`), never stored agent indices (the store swap-removes).
+- Group results (024b) never draw a random number; a group is filed only when its last member leaves (`NoteGroupLeave`
+  runs before `LeaveGroup`). Snapshot float 11 is the group **tag** (mates share it), not a hue: anything reading it for
+  colour goes through `GroupColours.OfTag`.
 - The compiled `SimModel` is never written during a run (D-366): batches share it across threads. Anything new a run
   changes belongs in `SimEngine`, never on model objects; `Round021Tests.BatchRun_IsPlayOnItsSeed` guards it.
 - Recording only reads the engine (`Round023Tests.Recording_NeverChangesTheRun`); `AgentStore.Serial` must never feed the

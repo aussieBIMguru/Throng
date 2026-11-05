@@ -236,6 +236,7 @@ public sealed partial class SimEngine
             Queues = [.. _seriesQueues],
             LongWaitS = _model.LongWaitS,
             Zones = CopyZoneResults(),
+            Groups = CopyGroupResults(),
             ZoneNames = zoneNames,
             ZoneOccupancy = [.. _seriesZones],
             Journeys = CopyJourneyResults(),

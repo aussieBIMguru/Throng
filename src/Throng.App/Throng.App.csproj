@@ -16,6 +16,8 @@
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageReference Include="OpenTK.GLWpfControl" Version="4.3.6" />
+    <!-- One-page PDF report (round 025, D-401): PDFsharp Core build, MIT. -->
+    <PackageReference Include="PDFsharp" Version="6.2.4" />
   </ItemGroup>
 
   <ItemGroup>

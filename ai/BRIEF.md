@@ -1,8 +1,11 @@
-# Throng — Project Brief (v0.46)
+# Throng — Project Brief (v0.49)
 
 > Conceptual pedestrian simulation for architects. Sketch a space, drop in devices, press play, read the pressure.
 > Status: **all decisions locked** (see §18). Ready for M0. Items marked ⏳ are deliberately deferred to later rounds.
 >
+> **v0.49:** 025 confirmed (PDF font fix works); performance tuning parked until after v1. Round 026 built (unbuilt in sandbox, D-407–D-418): **version 1.0.0** and an **installer** in BimGo's style: `publish.bat` → `build\publish.ps1` (tests, self-contained win-x64 publish, optional signing, Inno Setup 6) → `artifacts\Throng-Setup-1.0.0.exe`; per-user, no admin; `.throng` opens on double-click; Start menu + optional desktop shortcut; uninstall keeps your library and logs.
+> **v0.48:** 024b confirmed; round 025 built (unbuilt in sandbox, D-398–D-406): trains became **SERVICES** in their own right-panel tab, each with a kind (Train, Plane, Bus / coach, Ride, Other) for words, plan label and starting timetable (same engine, additive v12); a one-page **PDF report** (PDFsharp, MIT; A3 landscape: headline numbers, every level in plan with a map picked in a dialog, people graph, CHECK findings; more pages past six levels); a **PERF overlay** (F8: step ms by phase, ×real time, fps / render ms); **stadium demos** (one sector ≈ 5,000 seats, six sectors ≈ 30,000: turnstiles, stairs and escalators, concourse food and toilets, vomitories, event-surge ingress, egress from minute 70) and a report-only **stadium bench** (bench.bat). Tuning follows from the bench.
+> **v0.47:** 024a confirmed; 024b built (unbuilt in sandbox, D-394–D-397): LIBRARY ▸ GROUPS tab and SELECTION ▸ GROUP editor (member rows like mix lines, the top row leads; built-ins edited as overrides with RESET; DUPLICATE, NEW, DELETE when unused), groups in your library (SAVE TO MY LIBRARY brings member profiles and journeys; .thronglib export / import), group × journey rows in RESULTS ▸ JOURNEYS, journeys.csv and batches (time until the last member leaves, mean / 95th, size, people, spread over 5 m), and hover / click tethers to group mates in plan, 3D and replay (snapshot float 11 is now a group tag; replay 24 B per person). Round 025 = stadium pass + one-page PDF report, one round (D-396).
 > **v0.46:** round 024 decided (D-378–D-392) and 024a built (unbuilt in sandbox): group movement. Group templates (member rows of profile + min–max, 2–8 people, a default journey; built-ins Couple, Family, Friends, Wheelchair user + companion, School party, Fans; new Child profile; the one-wide-agent Family profile removed and its lines switched to the Family group on load). A mix line's "who" is a profile or a group; shares and rates count people. Groups spawn side by side, walk at the slowest member's pace with a cohesion pull, follow one route, share every journey decision, queue at the same device and wait past it for each other, balk / give up as one, and board lifts and trains all at once. Hard needs of any member apply to all; soft preferences from the lead (first row). COLOUR ▸ GROUP; replay keeps it. Format v12. 024b: LIBRARY ▸ GROUPS editor, MINE, .thronglib, group results rows, hover tethers. Stadium pass decided ahead (D-379–D-381).
 > **v0.45:** round 023 built (unbuilt in sandbox): replay scrubbing (D-373–D-377). Every PLAY records a frame each 0.5 s (22 B per person, 1 GB cap, older half thins); the transport bar slider looks back through people, lift cars, trains, clock and counters; PLAY replays forward then carries on live; LIVE, ← / →, click the RESULTS graph to jump. RESULTS ▸ RUN + REPLAY re-runs a batch run on its seed into the viewport, ready to scrub. Session only; format v11; 375 tests.
 > **v0.44:** round 022 built (unbuilt in sandbox): UI fit (D-368–D-372). Top toolbar ~930 px (label-width buttons, icon-only UNDO / REDO, DEMO only in the File menu, smaller brand); SPEED / COLOUR / MAP drop-downs in a transport bar under the viewport (the round 023 scrubber goes there); RESULTS SOURCE / TABLE / GRAPH drop-downs, right panel 340 px; compact status line with the full line as tooltip. Batch scrubbing decided for 023: replay a chosen run on its seed (D-371).
@@ -424,7 +427,8 @@ Each cell uses the table appropriate to what it is (walkable / queue zone / conn
 ### 11.5 Export
 - CSV of all statistics and time series (011c: devices.csv + timeseries.csv; 012: + zones.csv, journeys.csv, zone columns)
 - PNG of current view / heatmaps (with legend and study title block). Built in 012 at 2× the viewport (D-234)
-- ⏳ One-page PDF summary report — later round
+- One-page PDF report — built in round 025 (D-400–D-403): A3 landscape, headline numbers, every level in plan with
+  a chosen map, people graph, CHECK findings; PDFsharp (MIT)
 
 ### 11.6 Replay
 Agent positions recorded at a coarser interval (e.g. 0.5 s) into the results block so a run can be scrubbed without re-simulating. Stored in the file optionally (can be large).
@@ -509,6 +513,9 @@ study.throng (zip)
   - Root `README.md` and `THIRD-PARTY-NOTICES.md` updated
 - You build and test in Visual Studio and report back errors/feedback; I fix in the next round.
 - The project must build clean with zero warnings treated as goal (not enforced initially).
+- **Releases** (round 026): `publish.bat` (→ `build\publish.ps1`) reads `<Version>` from `Directory.Build.props`, runs the tests
+  (not the bench), publishes Throng.App self-contained for win-x64 and compiles `installer\Throng.iss` with Inno Setup 6
+  into `artifacts\Throng-Setup-<version>.exe` (D-407–D-418). Bump the version in the props only.
 
 ---
 
@@ -524,6 +531,7 @@ study.throng (zip)
 | **M5** | Analytics v1 | Density/LoS heatmaps (floors and connectors), node stats, time-series graph, CSV export |
 | **M6** | Views polish | Isometric presets, cutaway clip planes/section box, exploded level spacing, agent LOD, frustration colouring. **Round 015:** ISO presets, clip above a level, section box, explode and agent LOD built (D-262–D-268); frustration colouring is the STRESS colouring from round 008 |
 | **M7** | Validation & profiles | Rule engine, static capacity check, profile import/export + reconcile. **Round 016:** built (D-270–D-279). **Round 017:** device and profile definition editing in the study, .throngdevice exchange (D-285–D-290); the M3 library-editor item is covered for devices and profiles. **Round 020:** your library across studies with `.thronglib` exchange (D-340–D-351) |
+| **M9** | Release 1.0 | **Round 026:** version 1.0.0, self-contained per-user Inno Setup installer, `.throng` association (D-407–D-418). Performance tuning parked until after v1 |
 | **M8** | Scale & replay | Performance pass toward stadium scale (§17), replay scrubbing, headless batch runs (done, round 021), replay scrubbing (done, round 023), presets library, PNG export, retro theme pass |
 
 The demo study grows with every milestone and is the acceptance test for each round: if a round's feature isn't visible in the demo, the round isn't done.
@@ -620,7 +628,7 @@ None. New questions get added here as they come up.
 
 ### 20.3 Rules
 1. Every shipped dependency, **including transitive packages and native binaries** (e.g. anything OpenTK pulls in), is listed in `THIRD-PARTY-NOTICES.md` with name, version, licence, URL and full licence text.
-2. `THIRD-PARTY-NOTICES.md` ships next to `Throng.exe` in every build output and release, alongside the font's OFL text.
+2. `THIRD-PARTY-NOTICES.md` ships next to `Throng.exe` in every build output and release, alongside the font's OFL text. Releases are self-contained (D-407), so the .NET runtime and WPF (MIT) ship too and are listed; build tools that don't ship (Inno Setup) are recorded as such.
 3. A licence audit (`dotnet list package --include-transitive`) runs in any round that adds or bumps a package, and is recorded in that round's notes.
 4. Papers, algorithms and design inspirations go in an "Acknowledgements" section of the same file. They carry no legal obligation; it's courtesy.
 5. Test-only packages (MSTest) never ship and need no notice, but are listed for completeness.

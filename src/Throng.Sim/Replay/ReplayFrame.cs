@@ -11,5 +11,5 @@ namespace Throng.Sim.Replay;
 internal sealed record ReplayFrame(double TimeS, SimStats Stats, PackedAgent[] Agents, double[] Cars, byte[] Trains)
 {
     /// <summary>Approximate memory held, bytes.</summary>
-    public long Bytes => 64 + (Agents.Length * 23L) + (Cars.Length * 8L) + Trains.Length;
+    public long Bytes => 64 + (Agents.Length * 24L) + (Cars.Length * 8L) + Trains.Length;
 }

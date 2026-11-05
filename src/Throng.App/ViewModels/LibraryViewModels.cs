@@ -23,6 +23,7 @@ public sealed class LibraryBrowserViewModel : ObservableObject
         Tabs =
         [
             new LibraryTabViewModel("AGENTS", library.AgentProfiles),
+            new LibraryTabViewModel("GROUPS", library.Groups ?? []),
             new LibraryTabViewModel("DEVICES", library.Devices),
             new LibraryTabViewModel("VERTICAL", library.Connectors),
             new LibraryTabViewModel("LIFTS", library.Lifts),
@@ -77,7 +78,21 @@ public sealed class LibraryBrowserViewModel : ObservableObject
     public void SetProfiles(IEnumerable<AgentProfileTemplate> profiles) => SetTab(Tabs[0], profiles);
 
     /// <summary>Replaces the DEVICES tab's rows with the study's device definitions (its own and copies first; round 017).</summary>
-    public void SetDevices(IEnumerable<DeviceTemplate> devices) => SetTab(Tabs[1], devices);
+    public void SetDevices(IEnumerable<DeviceTemplate> devices) => SetTab(Tabs[2], devices);
+
+    /// <summary>
+    /// Replaces the GROUPS tab's rows with the study's group templates (its own and copies first, then yours, then
+    /// built-ins; round 024b), naming members with <paramref name="profileName"/> (a study's own profiles aren't built-ins).
+    /// </summary>
+    public void SetGroups(IEnumerable<GroupTemplate> groups, Func<Guid, string?> profileName)
+    {
+        SetTab(Tabs[1], groups);
+        foreach (TemplateItemViewModel item in Tabs[1].Items)
+        {
+            item.ProfileName = profileName;
+            item.Refresh();
+        }
+    }
 
     /// <summary>
     /// Sets the small note after each row's name (round 017): MODIFIED, YOURS, IMPORTED or nothing, from
@@ -258,8 +273,11 @@ public sealed class TemplateItemViewModel : ObservableObject
     /// <summary>Display name.</summary>
     public string Name => Template.Name;
 
-    /// <summary>Key values on one line.</summary>
-    public string Summary => Template.Summarise();
+    /// <summary>Key values on one line (a group names its members through <see cref="ProfileName"/> when set).</summary>
+    public string Summary => Template is GroupTemplate group && ProfileName is { } name ? group.Summarise(name) : Template.Summarise();
+
+    /// <summary>Profile names for a group row's summary (round 024b), or null for the built-in names.</summary>
+    public Func<Guid, string?>? ProfileName { get; set; }
 
     /// <summary>Long description for the tooltip.</summary>
     public string Description => Template.Description;
@@ -271,9 +289,9 @@ public sealed class TemplateItemViewModel : ObservableObject
         _ when Note == "DIFFERS" => "In your library, and this study's copy differs · click for UPDATE FROM MY LIBRARY · right-click to rename or delete",
         JourneyTemplate when BuiltInLibrary.Instance.Find(Template.Id) is not null || Template.Source == TemplateSource.BuiltIn => "Built-in · read-only",
         JourneyTemplate => "Your journey (in this study) · click to edit",
-        DeviceTemplate or AgentProfileTemplate when Note == "MODIFIED" => "Built-in, modified in this study · click to edit",
-        DeviceTemplate or AgentProfileTemplate when BuiltInLibrary.Instance.Find(Template.Id) is not null => "Built-in · click to edit for this study",
-        DeviceTemplate or AgentProfileTemplate => $"{(Template.Source == TemplateSource.Imported ? "Imported" : "Yours")} (in this study) · click to edit",
+        DeviceTemplate or AgentProfileTemplate or GroupTemplate when Note == "MODIFIED" => "Built-in, modified in this study · click to edit",
+        DeviceTemplate or AgentProfileTemplate or GroupTemplate when BuiltInLibrary.Instance.Find(Template.Id) is not null => "Built-in · click to edit for this study",
+        DeviceTemplate or AgentProfileTemplate or GroupTemplate => $"{(Template.Source == TemplateSource.Imported ? "Imported" : "Yours")} (in this study) · click to edit",
         _ when Template.Source == TemplateSource.BuiltIn || BuiltInLibrary.Instance.Find(Template.Id) is not null => "Built-in · read-only",
         _ => Template.Source.ToString(),
     };

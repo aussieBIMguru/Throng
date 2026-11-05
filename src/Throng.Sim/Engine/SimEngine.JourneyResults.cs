@@ -63,6 +63,7 @@ public sealed partial class SimEngine
         }
 
         ResetJourneyFlow();
+        ResetGroupResults();
     }
 
     /// <summary>Rows in profile order, then journey order (no journey first), from the emitters' mix lines.</summary>

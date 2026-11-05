@@ -24,8 +24,8 @@ namespace Throng.Sim.Engine;
 public sealed partial class SimEngine
 {
     /// <summary>
-    /// Floats per agent in a snapshot: x, y, z, heading, r, g, b, radius, height, stuck, stress (D-145), group hue (1–255,
-    /// 0 for people on their own; round 024, D-391).
+    /// Floats per agent in a snapshot: x, y, z, heading, r, g, b, radius, height, stuck, stress (D-145), group tag
+    /// (1–65535, shared by mates, 0 for people on their own; round 024, D-391, a tag since 024b).
     /// </summary>
     public const int FloatsPerAgent = 12;
 
@@ -63,6 +63,12 @@ public sealed partial class SimEngine
     // landing push each other at this share of the social force so they can squeeze past rather than lock up.
     private const double LandingLaneFactor = 1.0, LandingSocialFactor = 0.3;
 
+    // Stair and ramp ends (r026b, D-419–D-422): within this distance of a stair or ramp end (on the floor in front of it
+    // and on the flight or landing that meets it), people going the same way push each other at LandingSocialFactor
+    // and count as this share of their combined radius for contact, so a dense crowd packs into the mouth instead of
+    // walling itself off. Belts are left alone: they already close up at the comb (D-128).
+    private const double StairEndSqueezeM = 3.0, StairEndContactFactor = 0.85;
+
     // Stall escape (D-136): after this long without progress, a person drops the keep-side push, and pairs where
     // either one is stalled push each other at this share, so two people locked face to face can slip past.
     private const double StallS = 4.0, StallSocialFactor = 0.3;
@@ -94,7 +100,13 @@ public sealed partial class SimEngine
 
     // Deferral (D-113): queue radius at an entry, boarding-rate smoothing, review interval, wait that prompts a
     // re-choice, the bonus for staying put, and walkers' speed on a belt as a share of their own.
-    private const double QueueRadius = 5.0, RateTauS = 30, ReviewS = 3.0, BalkWaitS = 20, StayBonusS = 8;
+    private const double QueueRadius = 5.0, RateTauS = 30, ReviewS = 3.0, BalkWaitS = 20, StayBonusS = 5;
+
+    // Route choice between free-circulation devices (round 027, D-423–D-426): staying is favoured by StayBonusS (8 → 5 s)
+    // plus this share of the current connector's wait, so the spill-over is steady rather than all at once; a held
+    // crowd is seen from further away (this much extra sight per person barely moving towards it, up to the cap).
+    private const double ExitStayBonusS = 8; // exits keep D-180's 8 s (only connector choice changed, D-424)
+    private const double StayWaitShare = 0.15, CrowdSightPerPersonM = 0.25, CrowdSightMaxM = 50;
     private const double WalkOnBeltFactor = 0.6;
 
     // Boarding spacing (D-128): people on the same metered belt, or within this range of its entry and heading on,
@@ -120,7 +132,10 @@ public sealed partial class SimEngine
     // Per connector (D-132, D-133): users going up and down, slow queuers near a stair entry, and the lane factor.
     private readonly int[] _up, _down, _slowNear;
     private readonly double[] _laneFactor;
-    private readonly int[] _near, _far, _boarded;
+    private readonly int[] _near, _far, _boarded, _queued;
+
+    /// <summary>Per connector: extra sight for its held crowd (D-423) and the wait of people heading there out of sight (D-426).</summary>
+    private readonly double[] _seenFromM, _pendingS;
     private readonly long[] _boardedTotal;
     private readonly bool[] _metered;
     private readonly double[][] _curveMinutes, _curveMultipliers;
@@ -128,6 +143,7 @@ public sealed partial class SimEngine
     private readonly double[] _rate;
     private readonly bool[] _jammed;
     private readonly int[][] _runOffs;
+    private readonly int[][] _stairEnds;
     private readonly int[] _runOffCount, _jamCount;
     private readonly bool[] _end0Open, _end1Open;
     private readonly int _reviewTicks;
@@ -176,6 +192,9 @@ public sealed partial class SimEngine
         _wait = new double[_world.Connectors.Count];
         _load = new int[_world.Connectors.Count];
         _near = new int[_world.Connectors.Count];
+        _queued = new int[_world.Connectors.Count];
+        _seenFromM = new double[_world.Connectors.Count];
+        _pendingS = new double[_world.Connectors.Count];
         _far = new int[_world.Connectors.Count];
         _up = new int[_world.Connectors.Count];
         _down = new int[_world.Connectors.Count];
@@ -201,6 +220,7 @@ public sealed partial class SimEngine
         _runOffCount = new int[_world.Portals.Count];
         _jamCount = new int[_world.Portals.Count];
         _runOffs = BuildRunOffs(_world, _jamCount);
+        _stairEnds = BuildStairEnds(_world);
         _end0Open = new bool[_world.Surfaces.Count];
         _end1Open = new bool[_world.Surfaces.Count];
         MarkOpenEnds();
@@ -292,6 +312,7 @@ public sealed partial class SimEngine
     public void Reset()
     {
         _agents.Clear();
+        ResetPerf();
         ResetGroups();
         _density?.Clear();
         ResetResults();
@@ -342,16 +363,20 @@ public sealed partial class SimEngine
     public void Step()
     {
         double t1 = TimeS + _dt;
+        long mark = System.Diagnostics.Stopwatch.GetTimestamp();
         IndexGroups();
         RefillTokens();
         CountArrivals();
+        Lap(ref mark, 0);
         UpdateTrains();
         UpdateLifts();
+        Lap(ref mark, 1);
 
         UpdateWaits();
         _hash.Build(_agents.X, _agents.Y, _agents.Count);
         SpawnPending();
         IndexGroups();
+        MeasureGroupSpread();
 
         int n = _agents.Count;
         for (int i = 0; i < n; i++)
@@ -370,10 +395,13 @@ public sealed partial class SimEngine
             _group = new int[n * 2];
         }
 
+        Lap(ref mark, 2);
         for (int i = 0; i < n; i++)
         {
             Review(i);
         }
+
+        Lap(ref mark, 3);
 
         // Journeys (D-149–D-153): lanes first, then each person's step (joining, service, dwell, moving on).
         UpdateDevices();
@@ -381,6 +409,8 @@ public sealed partial class SimEngine
         {
             UpdateJourney(i);
         }
+
+        Lap(ref mark, 4);
 
         for (int i = 0; i < n; i++)
         {
@@ -392,6 +422,7 @@ public sealed partial class SimEngine
             Plan(i);
         }
 
+        Lap(ref mark, 5);
         _removals.Clear();
         _stuckNow = 0;
         for (int i = 0; i < n; i++)
@@ -399,6 +430,8 @@ public sealed partial class SimEngine
             Move(i);
             AfterMove(i);
         }
+
+        Lap(ref mark, 6);
 
         for (int k = _removals.Count - 1; k >= 0; k--)
         {
@@ -416,13 +449,17 @@ public sealed partial class SimEngine
                 _stuckLog.Add(new StuckRecord(t1, _agents.Surface[index], _agents.X[index], _agents.Y[index], _agents.Mode[index], _agents.Target[index]));
             }
 
+            NoteGroupLeave(index, arrived, t1);
             LeaveGroup(_agents.Group[index]);
             _agents.RemoveAt(index);
         }
 
+        Lap(ref mark, 7);
         _tick++;
         SampleDensity();
         RecordResults();
+        Lap(ref mark, 8);
+        _perfSteps++;
     }
 
     /// <summary>
@@ -454,7 +491,7 @@ public sealed partial class SimEngine
             buffer[o + 8] = _agents.Height[i];
             buffer[o + 9] = _agents.Since[i] >= StuckFlagS ? 1f : 0f;
             buffer[o + 10] = _agents.Stress[i];
-            buffer[o + 11] = GroupHue(i);
+            buffer[o + 11] = GroupTag(i);
         }
 
         return n;
@@ -473,6 +510,7 @@ public sealed partial class SimEngine
         Array.Clear(_exitCount);
         Array.Clear(_load);
         Array.Clear(_near);
+        Array.Clear(_queued);
         Array.Clear(_far);
         Array.Clear(_up);
         Array.Clear(_down);
@@ -498,6 +536,12 @@ public sealed partial class SimEngine
 
                 if (_agents.Mode[i] == AgentMode.ToPortal)
                 {
+                    if ((_agents.Vx[i] * _agents.Vx[i]) + (_agents.Vy[i] * _agents.Vy[i]) < JamSlowSpeed * JamSlowSpeed)
+                    {
+                        // Held on the way in, near or far: the visible crowd (D-423).
+                        _queued[portal.Connector]++;
+                    }
+
                     if (portal.DistanceTo(new Point2(x, y)) <= QueueRadius)
                     {
                         _near[portal.Connector]++;
@@ -583,6 +627,7 @@ public sealed partial class SimEngine
             _boarded[k] = 0;
         }
 
+        UpdateCrowdSight();
         UpdateLiftPriorityPenalty();
         UpdateExitWaits();
 
@@ -633,6 +678,44 @@ public sealed partial class SimEngine
     }
 
     /// <summary>Per floor surface: its one-way exits (exit but no entry), each with the head count that means a jam.</summary>
+    /// <summary>Per surface, the stair and ramp ends (portals) on it: its floor side and its piece side (D-419).</summary>
+    private static int[][] BuildStairEnds(NavWorld world)
+    {
+        var lists = new List<int>[world.Surfaces.Count];
+        foreach (NavPortal portal in world.Portals)
+        {
+            if (portal.Connector < 0 || world.Connectors[portal.Connector].Kind is not (ConnectorKind.Stair or ConnectorKind.Ramp))
+            {
+                continue;
+            }
+
+            foreach (int surface in new[] { portal.Floor, portal.Piece })
+            {
+                if (surface >= 0 && surface < lists.Length)
+                {
+                    (lists[surface] ??= []).Add(portal.Index);
+                }
+            }
+        }
+
+        return [.. lists.Select(l => l is null ? Array.Empty<int>() : l.ToArray())];
+    }
+
+    /// <summary>True within <see cref="StairEndSqueezeM"/> of a stair or ramp end on this surface (D-419, D-421).</summary>
+    private bool NearStairEnd(int surface, double x, double y)
+    {
+        int[] ends = _stairEnds[surface];
+        for (int e = 0; e < ends.Length; e++)
+        {
+            if (_world.Portals[ends[e]].DistanceTo(new Point2(x, y)) <= StairEndSqueezeM)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private static int[][] BuildRunOffs(NavWorld world, int[] jamCount)
     {
         var lists = new List<int>?[world.Surfaces.Count];
@@ -840,7 +923,7 @@ public sealed partial class SimEngine
             double sight = Sight(i);
             foreach ((int sink, double _) in options)
             {
-                double c = RoutePlanner.Choose(_routes, _agents.Surface[i], x, y, sink, profile.Mobility, profile.Template, random, out _, out _, _wait, BeltWalkSpeed(i), stairEffort: _tuning.StairEffort, standingRest: _tuning.StandingRest, sightRadius: sight, priorityPenaltyS: _liftPriorityS, barredConnector: Barred(i))
+                double c = RoutePlanner.Choose(_routes, _agents.Surface[i], x, y, sink, profile.Mobility, profile.Template, random, out _, out _, _wait, BeltWalkSpeed(i), stairEffort: _tuning.StairEffort, standingRest: _tuning.StandingRest, sightRadius: sight, priorityPenaltyS: _liftPriorityS, barredConnector: Barred(i), seenFromM: _seenFromM, pendingWaitS: _pendingS, stayWaitShare: StayWaitShare)
                     + ExitCrowdFor(i, sink);
                 if (c < bestCost)
                 {
@@ -926,14 +1009,14 @@ public sealed partial class SimEngine
         SimProfile profile = RouteOf(i);
         double cost = RoutePlanner.Choose(
             _routes, s, _agents.X[i], _agents.Y[i], _agents.Sink[i], profile.Mobility, profile.Template, random, out bool direct, out RouteOption option, _wait,
-            BeltWalkSpeed(i), stairEffort: _tuning.StairEffort, standingRest: _tuning.StandingRest, sightRadius: Sight(i), priorityPenaltyS: _liftPriorityS, barredConnector: Barred(i));
+            BeltWalkSpeed(i), stairEffort: _tuning.StairEffort, standingRest: _tuning.StandingRest, sightRadius: Sight(i), priorityPenaltyS: _liftPriorityS, barredConnector: Barred(i), seenFromM: _seenFromM, pendingWaitS: _pendingS, stayWaitShare: StayWaitShare);
         if (!double.IsFinite(cost) && _agents.LiftBar[i] >= 0)
         {
             // The lift it gave up on is its only way after all (D-254): lift the bar and go back to it.
             _agents.LiftBar[i] = -1;
             cost = RoutePlanner.Choose(
                 _routes, s, _agents.X[i], _agents.Y[i], _agents.Sink[i], profile.Mobility, profile.Template, random, out direct, out option, _wait,
-                BeltWalkSpeed(i), stairEffort: _tuning.StairEffort, standingRest: _tuning.StandingRest, sightRadius: Sight(i), priorityPenaltyS: _liftPriorityS);
+                BeltWalkSpeed(i), stairEffort: _tuning.StairEffort, standingRest: _tuning.StandingRest, sightRadius: Sight(i), priorityPenaltyS: _liftPriorityS, seenFromM: _seenFromM, pendingWaitS: _pendingS, stayWaitShare: StayWaitShare);
         }
 
         if (direct || !double.IsFinite(cost))
@@ -999,7 +1082,7 @@ public sealed partial class SimEngine
         SimProfile profile = RouteOf(i);
         double cost = RoutePlanner.Choose(
             _routes, a.Surface[i], a.X[i], a.Y[i], a.Sink[i], profile.Mobility, profile.Template, null, out bool direct, out RouteOption option, _wait,
-            BeltWalkSpeed(i), k, StayBonusS, _tuning.StairEffort, _tuning.StandingRest, Sight(i), priorityPenaltyS: _liftPriorityS, barredConnector: Barred(i));
+            BeltWalkSpeed(i), k, StayBonusS, _tuning.StairEffort, _tuning.StandingRest, Sight(i), priorityPenaltyS: _liftPriorityS, barredConnector: Barred(i), seenFromM: _seenFromM, pendingWaitS: _pendingS, stayWaitShare: StayWaitShare);
         if (!double.IsFinite(cost))
         {
             return;
@@ -1217,6 +1300,7 @@ public sealed partial class SimEngine
         int gi = _group[i];
         int party = a.Group[i];
         bool onLanding = _tuning.LandingSqueeze && IsStairLanding(s);
+        bool atStairEnd = _tuning.StairEndSqueeze && NearStairEnd(s.Index, x, y);
         bool stalled = _tuning.StallEscape && a.Since[i] >= StallS;
         for (int row = hy - 1; row <= hy + 1; row++)
         {
@@ -1253,6 +1337,14 @@ public sealed partial class SimEngine
 
                 double nx = dx / d, ny = dy / d;
                 double rij = ri + a.Radius[j];
+                bool sameWay = (a.Vx[i] * a.Vx[j]) + (a.Vy[i] * a.Vy[j]) > 0;
+                bool squeeze = atStairEnd && sameWay && a.Surface[j] == a.Surface[i];
+                if (squeeze)
+                {
+                    // Packing into a stair or ramp end (D-420): smaller contact size, softer push below.
+                    rij *= StairEndContactFactor;
+                }
+
                 double magnitude = AgentA * Math.Exp((rij - d) / AgentB);
                 if (gi >= 0 && _group[j] == gi)
                 {
@@ -1269,9 +1361,10 @@ public sealed partial class SimEngine
                     // Either one stuck for a while (D-136): soften so they can get round each other.
                     magnitude *= StallSocialFactor;
                 }
-                else if (onLanding && a.Surface[j] == a.Surface[i] && (a.Vx[i] * a.Vx[j]) + (a.Vy[i] * a.Vy[j]) > 0)
+                else if ((onLanding && a.Surface[j] == a.Surface[i] && sameWay) || squeeze)
                 {
-                    // Same way through a landing turn (D-135): squeeze past instead of jamming the corner.
+                    // Same way through a landing turn (D-135) or into a stair end (D-420): squeeze past instead of
+                    // jamming the corner or the mouth.
                     magnitude *= LandingSocialFactor;
                 }
 

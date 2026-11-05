@@ -9,7 +9,8 @@ using Throng.IO;
 namespace Throng.App.ViewModels;
 
 /// <summary>
-/// Your library across studies (round 020, D-340–D-351): agent profiles, device definitions and journeys kept in
+/// Your library across studies (round 020, D-340–D-351): agent profiles, device definitions, journeys and groups
+/// (round 024b, D-388) kept in
 /// <c>%AppData%\Throng\Library\library.json</c>. LIBRARY lists them inside each tab marked MINE (the study's own first,
 /// then MINE, then built-ins, D-343). SAVE TO MY LIBRARY in SELECTION copies the study's version in (asking before it
 /// replaces one, D-345), UPDATE FROM MY LIBRARY takes it back into the study (one undo step, D-344), and a MINE item is
@@ -124,7 +125,8 @@ public sealed partial class MainViewModel
 
         if (plan.Items.Count > 1)
         {
-            notes.Add($"Its default journey '{plan.Items[^1].Name}' is saved with it, so it works in any study.");
+            // A profile's default journey, or a group's member profiles and journeys (round 024b).
+            notes.Add($"{Join(plan.Items.Skip(1).Select(t => $"'{t.Name}'"))} {(plan.Items.Count == 2 ? "is" : "are")} saved with it, so it works in any study.");
         }
 
         if ((plan.Replaces.Count > 0 || plan.JourneysWithPicks.Count > 0)
@@ -141,7 +143,7 @@ public sealed partial class MainViewModel
         Ticker = plan.Items.Count switch
         {
             1 => $"MY LIBRARY ▸ saved {plan.Items[0].Name}",
-            _ => $"MY LIBRARY ▸ saved {plan.Items[0].Name} and its default journey {plan.Items[^1].Name}",
+            _ => $"MY LIBRARY ▸ saved {plan.Items[0].Name} with {Join(plan.Items.Skip(1).Select(t => t.Name))}",
         };
     }
 
@@ -178,6 +180,21 @@ public sealed partial class MainViewModel
                     StudyDefinitions.CopyValues(j, journey);
                     return true;
                 });
+                break;
+
+            case GroupTemplate group:
+                // Members and journey your library holds come along when the study lacks them (D-346).
+                foreach (GroupMember member in group.Rows())
+                {
+                    EmbedForUse(member.ProfileId);
+                }
+
+                if (group.DefaultJourneyId is { } groupJourneyId)
+                {
+                    EmbedForUse(groupJourneyId);
+                }
+
+                EditGroupDefinition(id, description, t => StudyDefinitions.CopyValues(t, group));
                 break;
         }
     }
@@ -235,16 +252,17 @@ public sealed partial class MainViewModel
             .. Mine.AgentProfiles.Cast<TemplateBase>(),
             .. Mine.Devices,
             .. Mine.Journeys ?? [],
+            .. Mine.Groups ?? [],
         ];
         if (items.Count == 0)
         {
-            Ticker = "MY LIBRARY ▸ empty: SAVE TO MY LIBRARY on a profile, device or journey in SELECTION first.";
+            Ticker = "MY LIBRARY ▸ empty: SAVE TO MY LIBRARY on a profile, group, device or journey in SELECTION first.";
             return;
         }
 
         IReadOnlyList<Guid>? ids = _dialogs.PickItems(
             "Export my library",
-            "Tick what to share. A profile's default journey goes with it.",
+            "Tick what to share. A profile's default journey goes with it; a group takes its member profiles and journey.",
             [.. items.Select(t => new LevelOption(t.Id, $"{MyLibrary.KindName(t)} · {t.Name}"))],
             "EXPORT");
         if (ids is null || ids.Count == 0)
@@ -267,7 +285,7 @@ public sealed partial class MainViewModel
             return;
         }
 
-        int count = export.AgentProfiles.Count + export.Devices.Count + (export.Journeys?.Count ?? 0);
+        int count = export.AgentProfiles.Count + export.Devices.Count + (export.Journeys?.Count ?? 0) + (export.Groups?.Count ?? 0);
         Ticker = string.Create(CultureInfo.InvariantCulture, $"EXPORTED ▸ {count} item{(count == 1 ? string.Empty : "s")} ▸ {Path.GetFileName(path)}");
     }
 

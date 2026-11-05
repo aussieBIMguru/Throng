@@ -76,6 +76,9 @@ public sealed class RunResults
     /// <summary>Journey rows: profile × journey, with an ALL row after a profile's rows when it has two or more (D-229).</summary>
     public IReadOnlyList<JourneyResult> Journeys { get; init; } = [];
 
+    /// <summary>Group template × journey rows (round 024b, D-390); empty for studies without groups.</summary>
+    public IReadOnlyList<GroupJourneyResult> Groups { get; init; } = [];
+
     /// <summary>One row per lift bank, in <see cref="SimModel.Lifts"/> order (round 015, D-260).</summary>
     public IReadOnlyList<LiftResult> Lifts { get; init; } = [];
 

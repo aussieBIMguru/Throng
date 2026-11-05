@@ -4,7 +4,9 @@ using Throng.Core.Geometry;
 namespace Throng.Core.Model;
 
 /// <summary>
-/// A train service (D-184, D-185): a group of door zones on a platform edge driven by a timetable. Every
+/// A service (D-184, D-185; shown as SERVICES since round 025, D-398): a train, plane, bus, ride or anything else that
+/// arrives on a timetable at a group of door zones (<see cref="Kind"/> changes only the words and starting values).
+/// The type keeps its round 010 name in code and files. Every
 /// <see cref="HeadwayS"/> from <see cref="OffsetS"/> a train arrives, people get off through the doors over
 /// <see cref="AlightOverS"/>, then people waiting board (alight first, then board, D-186) until
 /// <see cref="Capacity"/> is used up (D-187), and the doors close <see cref="DwellS"/> after arrival.
@@ -26,7 +28,10 @@ public sealed record TrainService
     public Guid Id { get; init; } = Guid.NewGuid();
 
     /// <summary>Display name, e.g. "Southbound".</summary>
-    public string Name { get; init; } = "Train service";
+    public string Name { get; init; } = "Service";
+
+    /// <summary>What it is (round 025, D-398): words, plan label and starting values only. Older files: Train.</summary>
+    public ServiceKind Kind { get; init; } = ServiceKind.Train;
 
     /// <summary>
     /// Tag a journey's Board train step asks for (case-insensitive); empty = the step can only pick this service when
@@ -79,10 +84,48 @@ public sealed record TrainService
             || string.Equals(t.Name?.Trim(), wanted, StringComparison.OrdinalIgnoreCase)))];
     }
 
+    /// <summary>
+    /// A new service of <paramref name="kind"/> on these doors (round 025): the kind's starting timetable (D-398).
+    /// </summary>
+    public static TrainService Create(ServiceKind kind, string name, List<Guid> doorZoneIds)
+    {
+        (double headway, double dwell, int alight, double alightOver, int capacity) = ServiceKinds.Defaults(kind);
+        return new TrainService
+        {
+            Name = name,
+            Kind = kind,
+            DoorZoneIds = doorZoneIds,
+            HeadwayS = headway,
+            DwellS = dwell,
+            AlightPerTrain = alight,
+            AlightOverS = alightOver,
+            Capacity = capacity,
+        };
+    }
+
+    /// <summary>
+    /// This service as <paramref name="kind"/> (round 025): each timetable value still at the old kind's starting
+    /// value takes the new kind's; values you changed stay.
+    /// </summary>
+    public TrainService WithKind(ServiceKind kind)
+    {
+        (double h0, double d0, int a0, double o0, int c0) = ServiceKinds.Defaults(Kind);
+        (double h1, double d1, int a1, double o1, int c1) = ServiceKinds.Defaults(kind);
+        return this with
+        {
+            Kind = kind,
+            HeadwayS = HeadwayS == h0 ? h1 : HeadwayS,
+            DwellS = DwellS == d0 ? d1 : DwellS,
+            AlightPerTrain = AlightPerTrain == a0 ? a1 : AlightPerTrain,
+            AlightOverS = AlightOverS == o0 ? o1 : AlightOverS,
+            Capacity = Capacity == c0 ? c1 : Capacity,
+        };
+    }
+
     /// <summary>Arrival time of train <paramref name="n"/> (0-based), seconds from the run start.</summary>
     public double ArrivalS(int n) => OffsetS + (n * HeadwayS);
 
-    /// <summary>"every 6:00 from 0:30, doors 45 s, 150 off, 300 places".</summary>
+    /// <summary>"Train every 6:00 from 0:30, open 45 s, 150 off, 300 places".</summary>
     public string Describe()
     {
         CultureInfo c = CultureInfo.InvariantCulture;
@@ -92,6 +135,6 @@ public sealed record TrainService
             return string.Create(CultureInfo.InvariantCulture, $"{(int)t.TotalMinutes}:{t.Seconds:00}");
         }
 
-        return string.Create(c, $"every {Clock(HeadwayS)} from {Clock(OffsetS)}, doors {DwellS:0} s, {AlightPerTrain} off, {Capacity} places");
+        return string.Create(c, $"{ServiceKinds.Label(Kind)} every {Clock(HeadwayS)} from {Clock(OffsetS)}, open {DwellS:0} s, {AlightPerTrain} off, {Capacity} places");
     }
 }

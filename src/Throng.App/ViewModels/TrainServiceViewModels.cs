@@ -34,7 +34,7 @@ public sealed class TrainServiceViewModel : ObservableObject
     /// <summary>"Drawn (6 points)" or "Automatic box along the platform edge".</summary>
     public string ShapeText => Service.Shape.Count >= 3
         ? string.Create(CultureInfo.InvariantCulture, $"Drawn ({Service.Shape.Count} points)")
-        : "Automatic box along the platform edge.";
+        : "Automatic box along the edge of the door zones.";
 
     /// <summary>Deletes the service.</summary>
     public RelayCommand DeleteCommand { get; }
@@ -48,6 +48,50 @@ public sealed class TrainServiceViewModel : ObservableObject
     /// <summary>"SOUTHBOUND".</summary>
     public string Header => Service.Name.ToUpperInvariant();
 
+    /// <summary>Kind choices (round 025, D-398).</summary>
+    public IReadOnlyList<LabelledOption<ServiceKind>> KindOptions { get; } =
+        [.. ServiceKinds.All.Select(k => new LabelledOption<ServiceKind>(k, ServiceKinds.Label(k)))];
+
+    /// <summary>
+    /// What the service is (D-398): changing it renames the fields and, for timetable values still at the old kind's
+    /// starting values, takes the new kind's (undoable).
+    /// </summary>
+    public ServiceKind Kind
+    {
+        get => Service.Kind;
+        set
+        {
+            if (value != Service.Kind)
+            {
+                Replace(Service.WithKind(value), $"Make '{Service.Name}' a {ServiceKinds.Vehicle(value)} service");
+            }
+        }
+    }
+
+    /// <summary>"train", "plane"… for the field labels.</summary>
+    public string Vehicle => ServiceKinds.Vehicle(Service.Kind);
+
+    /// <summary>"First train at (s after the start)".</summary>
+    public string FirstLabel => $"First {Vehicle} at (s after the start)";
+
+    /// <summary>"Doors open (s)" / "Boarding gates open (s)".</summary>
+    public string OpenLabel => $"{Capital(ServiceKinds.Doors(Service.Kind))} open (s)";
+
+    /// <summary>"People getting off per train".</summary>
+    public string AlightLabel => $"People getting off per {Vehicle}";
+
+    /// <summary>"Places per train".</summary>
+    public string PlacesLabel => $"Places per {Vehicle}";
+
+    /// <summary>"Doors" / "Boarding gates" (the zones).</summary>
+    public string DoorsLabel => Capital(ServiceKinds.Doors(Service.Kind));
+
+    /// <summary>"Train shape".</summary>
+    public string ShapeLabel => $"{Capital(Vehicle)} shape";
+
+    /// <summary>"DRAW TRAIN".</summary>
+    public string DrawLabel => $"DRAW {ServiceKinds.Badge(Service.Kind)}";
+
     /// <summary>"every 6:00 from 0:30, doors 45 s, 150 off, 300 places".</summary>
     public string Summary => Service.Describe();
 
@@ -57,7 +101,9 @@ public sealed class TrainServiceViewModel : ObservableObject
         get
         {
             List<string> names = [.. Service.DoorZoneIds.Select(id => _owner.Study.FindRegion(id)?.Name ?? "(deleted zone)")];
-            return names.Count == 0 ? "No doors. Select door zones in the plan, then SET DOORS." : $"{names.Count} door{(names.Count == 1 ? string.Empty : "s")}: {string.Join(", ", names)}";
+            return names.Count == 0
+                ? $"No {ServiceKinds.Doors(Service.Kind)}. Select their zones in the plan, then SET DOORS."
+                : $"{names.Count} zone{(names.Count == 1 ? string.Empty : "s")}: {string.Join(", ", names)}";
         }
     }
 
@@ -70,12 +116,12 @@ public sealed class TrainServiceViewModel : ObservableObject
             string trimmed = (value ?? string.Empty).Trim();
             if (trimmed.Length == 0)
             {
-                _owner.RejectTrainEdit("A train service needs a name.");
+                _owner.RejectTrainEdit("A service needs a name.");
                 OnPropertyChanged();
                 return;
             }
 
-            Replace(Service with { Name = trimmed }, "Rename train service");
+            Replace(Service with { Name = trimmed }, "Rename service");
         }
     }
 
@@ -88,12 +134,12 @@ public sealed class TrainServiceViewModel : ObservableObject
             string trimmed = (value ?? string.Empty).Trim();
             if (trimmed.Contains(' ', StringComparison.Ordinal))
             {
-                _owner.RejectTrainEdit("A train service tag is one word, e.g. Southbound.");
+                _owner.RejectTrainEdit("A service tag is one word, e.g. Southbound.");
                 OnPropertyChanged();
                 return;
             }
 
-            Replace(Service with { Tag = trimmed }, "Change train service tag");
+            Replace(Service with { Tag = trimmed }, "Change service tag");
         }
     }
 
@@ -101,21 +147,21 @@ public sealed class TrainServiceViewModel : ObservableObject
     public string HeadwayText
     {
         get => Format(Service.HeadwayS);
-        set => SetSeconds(value, 20, v => Service with { HeadwayS = v }, "Change train headway", "The time between trains must be at least 20 s.");
+        set => SetSeconds(value, 20, v => Service with { HeadwayS = v }, "Change service headway", "The time between arrivals must be at least 20 s.");
     }
 
     /// <summary>First arrival, seconds after the run starts.</summary>
     public string OffsetText
     {
         get => Format(Service.OffsetS);
-        set => SetSeconds(value, 0, v => Service with { OffsetS = v }, "Change first train time", "The first arrival can't be negative.");
+        set => SetSeconds(value, 0, v => Service with { OffsetS = v }, "Change first arrival", "The first arrival can't be negative.");
     }
 
     /// <summary>Doors-open time, seconds.</summary>
     public string DwellText
     {
         get => Format(Service.DwellS);
-        set => SetSeconds(value, 10, v => Service with { DwellS = v }, "Change train dwell", "Doors need to stay open at least 10 s.");
+        set => SetSeconds(value, 10, v => Service with { DwellS = v }, "Change service dwell", "It needs to stay open at least 10 s.");
     }
 
     /// <summary>How long getting off takes, seconds.</summary>
@@ -136,7 +182,7 @@ public sealed class TrainServiceViewModel : ObservableObject
     public string CapacityText
     {
         get => Service.Capacity.ToString(CultureInfo.InvariantCulture);
-        set => SetCount(value, v => Service with { Capacity = v }, "Change train places");
+        set => SetCount(value, v => Service with { Capacity = v }, "Change service places");
     }
 
     /// <summary>Re-reads everything.</summary>
@@ -151,10 +197,12 @@ public sealed class TrainServiceViewModel : ObservableObject
             return;
         }
 
-        Replace(Service with { DoorZoneIds = doors }, "Set train service doors");
+        Replace(Service with { DoorZoneIds = doors }, "Set service doors");
     }
 
     private void Replace(TrainService value, string description) => _owner.ReplaceTrainService(_index, value, description);
+
+    private static string Capital(string text) => text.Length == 0 ? text : char.ToUpperInvariant(text[0]) + text[1..];
 
     private void SetSeconds(string? text, double min, Func<double, TrainService> with, string description, string error)
     {

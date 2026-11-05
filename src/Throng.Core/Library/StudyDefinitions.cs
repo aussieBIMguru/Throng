@@ -113,6 +113,61 @@ public static class StudyDefinitions
         return copy;
     }
 
+    /// <summary>
+    /// An editable copy of a group template (DUPLICATE, round 024b, D-388): new id and key, the same member rows and
+    /// default journey, a name no other group uses. Not added to the library.
+    /// </summary>
+    public static GroupTemplate CreateGroupCopy(Study study, GroupTemplate source)
+    {
+        var copy = (GroupTemplate)TemplateCloner.Clone(source);
+        Rekey(copy, "group", UniqueName(StudyTemplates.AvailableGroups(study).Select(g => g.Name), source.Name));
+        copy.Description = string.IsNullOrWhiteSpace(source.Description) ? $"Copy of {source.Name}." : source.Description;
+        copy.Members = [.. copy.Rows()];
+        return copy;
+    }
+
+    /// <summary>
+    /// A new group (NEW, round 024b): two commuters walking together, no default journey. Not added to the library.
+    /// </summary>
+    public static GroupTemplate CreateNewGroup(Study study)
+    {
+        Guid commuter = (BuiltInLibrary.Instance.FindByKey(StudyTemplates.FallbackProfileKey) as AgentProfileTemplate)?.Id ?? Guid.Empty;
+        var group = new GroupTemplate
+        {
+            Category = "Groups",
+            ColorHex = "#FBBF24",
+            Description = "A group of your own: add member rows (profile and how many), the first row leads.",
+            Members = [GroupMember.Of(commuter, 2, 2)],
+        };
+        Rekey(group, "group", UniqueNameFrom(StudyTemplates.AvailableGroups(study).Select(g => g.Name), "New group"));
+        return group;
+    }
+
+    /// <summary>Number of mix lines (every spawn zone's rules) that spawn a group template (round 024b).</summary>
+    public static int GroupUseCount(Study study, Guid groupId)
+    {
+        int uses = 0;
+        foreach (Region region in study.Regions)
+        {
+            foreach (EmissionRule rule in region.EmissionRules ?? [])
+            {
+                foreach (MixLine line in rule?.Mix ?? [])
+                {
+                    uses += line?.GroupId == groupId ? 1 : 0;
+                }
+            }
+        }
+
+        return uses;
+    }
+
+    /// <summary>
+    /// The group templates in the study's library (its own, and its copies of built-ins) with a member row of this
+    /// profile (round 024b): deleting the profile would leave them a row nobody can fill.
+    /// </summary>
+    public static IReadOnlyList<GroupTemplate> GroupsWithMember(Study study, Guid profileId) =>
+        [.. (study.Library.Groups ?? []).Where(g => g is not null && g.Rows().Any(m => m.ProfileId == profileId))];
+
     /// <summary>A new point device definition with neutral values (NEW). Not added to the library.</summary>
     public static DeviceTemplate CreateNewDevice(Study study)
     {

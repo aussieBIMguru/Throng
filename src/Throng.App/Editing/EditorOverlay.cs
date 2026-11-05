@@ -126,7 +126,7 @@ public sealed class EditorOverlay : FrameworkElement
     /// Trains in while running (D-190): a plain box along the platform edge, doors lit yellow while people get off and
     /// green once boarding.
     /// </summary>
-    private static void DrawTrains(DrawingContext dc, Func<Point2, Point> map, PlanEditor editor)
+    private void DrawTrains(DrawingContext dc, Func<Point2, Point> map, PlanEditor editor)
     {
         // Drawn train shapes (D-249) read as a dashed outline while editing.
         foreach (IReadOnlyList<Point2> shape in editor.TrainShapes)
@@ -137,6 +137,13 @@ public sealed class EditorOverlay : FrameworkElement
         foreach (RunTrainView train in editor.RunTrains)
         {
             DrawOutline(dc, map, train.Box, closed: true, TrainPen, TrainFill);
+            if (train.Badge.Length > 0 && train.Box.Count > 0)
+            {
+                // The service's kind (round 025): TRAIN, PLANE, BUS, RIDE, SERVICE at the box's middle.
+                double cx = train.Box.Average(p => p.X), cy = train.Box.Average(p => p.Y);
+                DrawLabel(dc, train.Badge, map(new Point2(cx, cy)));
+            }
+
             Brush doorFill = train.Boarding ? DoorBoardFill : DoorOpenFill;
             foreach (IReadOnlyList<Point2> door in train.Doors)
             {

@@ -84,12 +84,14 @@ public static class ResultsCsv
 
     /// <summary>
     /// The journey table as CSV text (D-229, D-233, D-312); <c>LongWaitS</c> repeats the setting on each row; <c>Sink</c>
-    /// is empty on journey and ALL rows.
+    /// is empty on journey and ALL rows. Group rows (round 024b, D-390) follow, named "Family (group)": their counts are
+    /// groups, and the last four columns (blank on profile rows) give people per group, people, and the mean seconds and
+    /// share of the time two members were over 5 m apart.
     /// </summary>
     public static string JourneysCsv(RunResults results)
     {
         var text = new StringBuilder();
-        text.Append("Profile,Journey,Sink,Finished,MeanS,P95S,AcceptableS,WithinAcceptablePct,LongWaitS,LongWaitPct,GaveUp,Stuck,InProgress\r\n");
+        text.Append("Profile,Journey,Sink,Finished,MeanS,P95S,AcceptableS,WithinAcceptablePct,LongWaitS,LongWaitPct,GaveUp,Stuck,InProgress,GroupSize,People,SpreadS,SpreadPct\r\n");
         string longWait = results.LongWaitS.ToString("0", C);
         foreach (JourneyResult j in results.Journeys)
         {
@@ -105,7 +107,26 @@ public static class ResultsCsv
                 .Append(j.LongWaitPct.ToString("0.0", C)).Append(',')
                 .Append(j.GaveUp.ToString(C)).Append(',')
                 .Append(j.Stuck.ToString(C)).Append(',')
-                .Append(j.InProgress.ToString(C)).Append("\r\n");
+                .Append(j.InProgress.ToString(C)).Append(",,,,\r\n");
+        }
+
+        foreach (GroupJourneyResult g in results.Groups)
+        {
+            text.Append(Quote(g.Label)).Append(',').Append(Quote(g.Journey)).Append(",,")
+                .Append(g.Finished.ToString(C)).Append(',')
+                .Append(g.MeanS.ToString("0.0", C)).Append(',')
+                .Append(g.P95S.ToString("0.0", C)).Append(',')
+                .Append(g.AcceptableS.ToString("0", C)).Append(',')
+                .Append(g.WithinAcceptablePct.ToString("0.0", C)).Append(',')
+                .Append(longWait).Append(',')
+                .Append(g.LongWaitPct.ToString("0.0", C)).Append(',')
+                .Append(g.GaveUp.ToString(C)).Append(',')
+                .Append(g.Stuck.ToString(C)).Append(',')
+                .Append(g.InProgress.ToString(C)).Append(',')
+                .Append(g.MeanSize.ToString("0.0", C)).Append(',')
+                .Append(g.People.ToString(C)).Append(',')
+                .Append(g.MeanSpreadS.ToString("0.0", C)).Append(',')
+                .Append(g.SpreadPct.ToString("0.0", C)).Append("\r\n");
         }
 
         return text.ToString();

@@ -59,11 +59,14 @@ public static class BatchCsv
         return text.ToString();
     }
 
-    /// <summary>The journey table across runs (<c>Sink</c> empty on journey and ALL rows).</summary>
+    /// <summary>
+    /// The journey table across runs (<c>Sink</c> empty on journey and ALL rows), then group rows (round 024b, D-390)
+    /// with their four group columns (blank on profile rows).
+    /// </summary>
     public static string JourneysCsv(BatchResults batch)
     {
         var text = new StringBuilder("Profile,Journey,Sink,AcceptableS,LongWaitS");
-        Headers(text, "Finished", "MeanS", "P95S", "WithinAcceptablePct", "LongWaitPct", "GaveUp", "Stuck", "InProgress");
+        Headers(text, "Finished", "MeanS", "P95S", "WithinAcceptablePct", "LongWaitPct", "GaveUp", "Stuck", "InProgress", "GroupSize", "People", "SpreadS", "SpreadPct");
         string longWait = batch.LongWaitS.ToString("0", C);
         foreach (JourneyBatchResult j in batch.Journeys)
         {
@@ -72,6 +75,16 @@ public static class BatchCsv
                 .Append(j.AcceptableS.ToString("0", C)).Append(',').Append(longWait);
             Stat(text, j.Finished, "0.0").Stat(text, j.MeanS, "0.0").Stat(text, j.P95S, "0.0").Stat(text, j.WithinAcceptablePct, "0.0")
                 .Stat(text, j.LongWaitPct, "0.0").Stat(text, j.GaveUp, "0.0").Stat(text, j.Stuck, "0.0").Stat(text, j.InProgress, "0.0");
+            text.Append(",,,,,,,,,,,,\r\n");
+        }
+
+        foreach (GroupJourneyBatchResult g in batch.Groups)
+        {
+            text.Append(Quote(g.Label)).Append(',').Append(Quote(g.Journey)).Append(",,")
+                .Append(g.AcceptableS.ToString("0", C)).Append(',').Append(longWait);
+            Stat(text, g.Finished, "0.0").Stat(text, g.MeanS, "0.0").Stat(text, g.P95S, "0.0").Stat(text, g.WithinAcceptablePct, "0.0")
+                .Stat(text, g.LongWaitPct, "0.0").Stat(text, g.GaveUp, "0.0").Stat(text, g.Stuck, "0.0").Stat(text, g.InProgress, "0.0")
+                .Stat(text, g.MeanSize, "0.0").Stat(text, g.People, "0.0").Stat(text, g.MeanSpreadS, "0.0").Stat(text, g.SpreadPct, "0.0");
             text.Append("\r\n");
         }
 

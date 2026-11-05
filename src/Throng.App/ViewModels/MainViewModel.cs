@@ -48,6 +48,8 @@ public sealed partial class MainViewModel : ObservableObject
         NewCommand = new RelayCommand(New);
         NewFromDemoCommand = new RelayCommand(() => LoadDemo(DemoStudyBuilder.Build));
         NewOfficeTowerDemoCommand = new RelayCommand(() => LoadDemo(OfficeTowerBuilder.Build));
+        NewStadiumDemoCommand = new RelayCommand(() => LoadDemo(StadiumBuilder.Build));
+        NewStadiumSectorDemoCommand = new RelayCommand(() => LoadDemo(StadiumBuilder.BuildSector));
         OpenCommand = new RelayCommand(Open);
         SaveCommand = new RelayCommand(() => Save());
         SaveAsCommand = new RelayCommand(() => SaveAs());
@@ -83,6 +85,12 @@ public sealed partial class MainViewModel : ObservableObject
 
     /// <summary>New from Demo ▸ Office tower (round 013b, D-250): lifts on their own.</summary>
     public RelayCommand NewOfficeTowerDemoCommand { get; }
+
+    /// <summary>File ▸ New from Demo ▸ Stadium (round 025, D-404): six sectors, about 30,000 seats.</summary>
+    public RelayCommand NewStadiumDemoCommand { get; }
+
+    /// <summary>File ▸ New from Demo ▸ Stadium sector: one sector, about 5,000 seats (for watching live).</summary>
+    public RelayCommand NewStadiumSectorDemoCommand { get; }
     public RelayCommand OpenCommand { get; }
     public RelayCommand SaveCommand { get; }
     public RelayCommand SaveAsCommand { get; }
@@ -428,7 +436,7 @@ public sealed partial class MainViewModel : ObservableObject
 
     private void ShowAbout()
     {
-        string version = typeof(MainViewModel).Assembly.GetName().Version?.ToString(3) ?? "0.1.0";
+        string version = typeof(MainViewModel).Assembly.GetName().Version?.ToString(3) ?? "1.0.0";
         _dialogs.ShowInfo(
             "About Throng",
             $"Throng {version}\nConceptual pedestrian simulation for architects.\n\n" +

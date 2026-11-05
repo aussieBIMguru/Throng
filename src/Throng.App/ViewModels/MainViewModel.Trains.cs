@@ -48,7 +48,7 @@ public sealed partial class MainViewModel
         List<TrainService> next = [.. _study.TrainServices];
         string name = next[index].Name;
         next.RemoveAt(index);
-        Apply($"Delete train service '{name}'", () => _study.TrainServices, v => _study.TrainServices = v, next);
+        Apply($"Delete service '{name}'", () => _study.TrainServices, v => _study.TrainServices = v, next);
     }
 
     /// <summary>Drawn train shapes on a level (D-249): services whose first door zone is on it.</summary>
@@ -81,7 +81,7 @@ public sealed partial class MainViewModel
         TrainService service = _study.TrainServices[index];
         if (TrainLevelId(service) is not { } levelId)
         {
-            Ticker = "Set the service's doors first: the train is drawn on their level.";
+            Ticker = "Set the service's doors first: its vehicle is drawn on their level.";
             return;
         }
 
@@ -98,7 +98,7 @@ public sealed partial class MainViewModel
         }
 
         TrainService service = _study.TrainServices[index];
-        ReplaceTrainService(index, service with { Shape = [.. outline] }, $"Draw train shape for '{service.Name}'");
+        ReplaceTrainService(index, service with { Shape = [.. outline] }, $"Draw shape for '{service.Name}'");
     }
 
     /// <summary>Removes service <paramref name="index"/>'s drawn shape, back to the automatic box (undoable).</summary>
@@ -112,11 +112,11 @@ public sealed partial class MainViewModel
         TrainService service = _study.TrainServices[index];
         if (service.Shape.Count == 0)
         {
-            Ticker = $"'{service.Name}' already uses the automatic train box.";
+            Ticker = $"'{service.Name}' already uses the automatic box.";
             return;
         }
 
-        ReplaceTrainService(index, service with { Shape = [] }, $"Clear train shape for '{service.Name}'");
+        ReplaceTrainService(index, service with { Shape = [] }, $"Clear shape for '{service.Name}'");
     }
 
     /// <summary>Rejects an edit with a ticker message.</summary>
@@ -136,10 +136,11 @@ public sealed partial class MainViewModel
             return;
         }
 
+        // A train to start with (D-398): pick the kind on the SERVICES tab; unchanged values follow it.
         int number = _study.TrainServices.Count + 1;
-        var service = new TrainService { Name = $"Service {number}", DoorZoneIds = doors };
+        TrainService service = TrainService.Create(ServiceKind.Train, $"Service {number}", doors);
         List<TrainService> next = [.. _study.TrainServices, service];
-        Apply($"Add train service '{service.Name}'", () => _study.TrainServices, v => _study.TrainServices = v, next);
+        Apply($"Add service '{service.Name}'", () => _study.TrainServices, v => _study.TrainServices = v, next);
     }
 
     private bool CanEditTrains()

@@ -193,7 +193,7 @@ public sealed record JourneyNode
             JourneyNodeKind.Sink => SinkKind switch
             {
                 JourneySinkKind.Zone => $"Exit at {(zone.Length > 0 ? zone : "any sink")}",
-                JourneySinkKind.BoardTrain => $"Board {(tag.Length > 0 ? tag : "any")} train",
+                JourneySinkKind.BoardTrain => $"Board {(tag.Length > 0 ? tag : "any")} service",
                 _ => "Exit",
             },
             JourneyNodeKind.Device => (HasPicks ? $"{Picks!.Count.ToString(c)} picked device{(Picks.Count == 1 ? string.Empty : "s")}" : tag.Length > 0 ? tag : "device") + grants,

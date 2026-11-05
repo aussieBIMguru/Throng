@@ -94,7 +94,7 @@ public sealed class Round010bFileTests
         demo.TrainServices.Add(demo.TrainServices[1] with { Id = Guid.NewGuid(), Name = "Copy" });
         IReadOnlyList<ValidationMessage> found = StudyValidator.Validate(demo);
         Assert.IsTrue(found.Any(m => m.Severity == ValidationSeverity.Error && m.Message.Contains("leave no gap", StringComparison.Ordinal)));
-        Assert.IsTrue(found.Any(m => m.Severity == ValidationSeverity.Error && m.Message.Contains("belongs to two train services", StringComparison.Ordinal)));
+        Assert.IsTrue(found.Any(m => m.Severity == ValidationSeverity.Error && m.Message.Contains("belongs to two services", StringComparison.Ordinal)));
 
         Study plain = DemoStudyBuilder.Build();
         plain.TrainServices.Clear();
@@ -102,6 +102,6 @@ public sealed class Round010bFileTests
         plain.Library.Add(journey);
         Region west = plain.Regions.Single(r => r.Name == "West entrance");
         west.EmissionRules[0] = west.EmissionRules[0] with { Mix = [MixLine.Of(TemplateIds.FromKey("agent.commuter"), journey.Id)] };
-        Assert.IsTrue(StudyValidator.Validate(plain).Any(m => m.Severity == ValidationSeverity.Error && m.Message.Contains("needs a train service", StringComparison.Ordinal)));
+        Assert.IsTrue(StudyValidator.Validate(plain).Any(m => m.Severity == ValidationSeverity.Error && m.Message.Contains("needs a service", StringComparison.Ordinal)));
     }
 }

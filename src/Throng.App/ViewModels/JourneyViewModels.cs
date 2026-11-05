@@ -668,7 +668,7 @@ public sealed class JourneyViewModel : ObservableObject, IJourneyCanvasHost
     public static string SinkKindLabel(JourneySinkKind kind) => kind switch
     {
         JourneySinkKind.Zone => "a sink zone",
-        JourneySinkKind.BoardTrain => "on a train",
+        JourneySinkKind.BoardTrain => "on a service",
         _ => "rule's sinks",
     };
 

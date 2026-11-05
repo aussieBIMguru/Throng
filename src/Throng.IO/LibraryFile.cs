@@ -20,7 +20,10 @@ public static class LibraryFile
     /// <summary>Format marker written into the manifest.</summary>
     public const string FormatName = "throng-library";
 
-    /// <summary>Format version written by this build (1: profiles, devices and journeys as graphs; round 020).</summary>
+    /// <summary>
+    /// Format version written by this build (1: profiles, devices and journeys as graphs; round 020). Groups (round
+    /// 024b) are an extra list in the same version: older builds skip it.
+    /// </summary>
     public const int CurrentFormatVersion = 1;
 
     private const string ManifestEntry = "manifest.json";

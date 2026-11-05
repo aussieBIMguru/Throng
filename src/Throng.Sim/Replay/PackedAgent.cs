@@ -3,10 +3,10 @@ using System.Runtime.InteropServices;
 namespace Throng.Sim.Replay;
 
 /// <summary>
-/// One person in a replay frame (round 023, D-373), packed to 23 bytes: the serial to match frames, plan position,
+/// One person in a replay frame (round 023, D-373), packed to 24 bytes: the serial to match frames, plan position,
 /// height and heading at half precision, stress and the stuck flag as bytes, the profile colour as an index into the
-/// recording's palette, body radius (cm) and height (2 cm steps) as bytes, and the group hue (round 024, D-391; 0 for
-/// people on their own).
+/// recording's palette, body radius (cm) and height (2 cm steps) as bytes, and the group tag (round 024b, D-391; 0 for
+/// people on their own; mates share it).
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 internal struct PackedAgent
@@ -21,5 +21,5 @@ internal struct PackedAgent
     public ushort Colour;
     public byte RadiusCm;
     public byte Height2Cm;
-    public byte GroupHue;
+    public ushort GroupTag;
 }

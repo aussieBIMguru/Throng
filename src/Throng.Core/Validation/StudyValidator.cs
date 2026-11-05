@@ -228,10 +228,12 @@ public static class StudyValidator
                 continue;
             }
 
-            string label = $"Train service '{service.Name}'";
+            // Services (round 025, D-398): any kind; the words follow it.
+            string label = $"Service '{service.Name}'";
+            string vehicle = ServiceKinds.Vehicle(service.Kind);
             if (service.DoorZoneIds.Count == 0)
             {
-                messages.Add(new ValidationMessage(ValidationSeverity.Warning, $"{label} has no doors, so no train stops."));
+                messages.Add(new ValidationMessage(ValidationSeverity.Warning, $"{label} has no doors, so no {vehicle} stops."));
             }
 
             Guid? level = null;
@@ -265,7 +267,7 @@ public static class StudyValidator
                 level ??= door.LevelId;
                 if (!owner.TryAdd(doorId, service.Name))
                 {
-                    messages.Add(new ValidationMessage(ValidationSeverity.Error, $"Door '{door.Name}' belongs to two train services ('{owner[doorId]}' and '{service.Name}').", door.Id));
+                    messages.Add(new ValidationMessage(ValidationSeverity.Error, $"Door '{door.Name}' belongs to two services ('{owner[doorId]}' and '{service.Name}').", door.Id));
                 }
             }
 
@@ -277,7 +279,7 @@ public static class StudyValidator
             if (!(service.HeadwayS >= service.DwellS + 10))
             {
                 messages.Add(new ValidationMessage(ValidationSeverity.Error,
-                    string.Create(c, $"{label}: trains every {service.HeadwayS:0} s with doors open {service.DwellS:0} s leave no gap; make the headway at least 10 s longer.")));
+                    string.Create(c, $"{label}: arrivals every {service.HeadwayS:0} s with the {ServiceKinds.Doors(service.Kind)} open {service.DwellS:0} s leave no gap; make the headway at least 10 s longer.")));
             }
 
             if (service.AlightOverS > service.DwellS)
@@ -758,7 +760,7 @@ public static class StudyValidator
                     break;
 
                 case JourneyNodeKind.Sink when node.SinkKind == JourneySinkKind.BoardTrain && TrainService.Matching(study, tag).Count == 0:
-                    string service = tag.Length == 0 ? "a train service" : $"a train service tagged '{tag}'";
+                    string service = tag.Length == 0 ? "a service" : $"a service tagged '{tag}'";
                     messages.Add(new ValidationMessage(ValidationSeverity.Error, $"{where} needs {service}, but the study has none.", regionId));
                     break;
 

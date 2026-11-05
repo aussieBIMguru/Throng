@@ -108,7 +108,7 @@ public sealed class JourneyNodeEditorViewModel : ObservableObject
 
     /// <summary>Label over the type / tag field.</summary>
     public string TargetLabel => IsDevice ? "Device type (when nothing is picked)"
-        : IsTrainSink ? "Train service tag (empty = any)"
+        : IsTrainSink ? "Service tag (empty = any; SERVICES tab)"
         : IsTagNode ? "Tag"
         : IsSink ? "Sink zone tag (empty = any sink; when nothing is picked)"
         : IsDwell ? "Zone tag (empty = any dwell zone; when nothing is picked)"

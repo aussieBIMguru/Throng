@@ -174,7 +174,7 @@ public sealed class ReplayRecording
                     Height2Cm = ToByte(_snapshot[o + 8] * 50),
                     Stuck = _snapshot[o + 9] > 0.5f ? (byte)1 : (byte)0,
                     Stress = ToByte(_snapshot[o + 10] * 255),
-                    GroupHue = ToByte(_snapshot[o + 11]),
+                    GroupTag = (ushort)Math.Clamp((int)_snapshot[o + 11], 0, ushort.MaxValue),
                 };
             }
 
@@ -249,7 +249,7 @@ public sealed class ReplayRecording
                 buffer[o + 8] = p.Height2Cm / 50f;
                 buffer[o + 9] = p.Stuck;
                 buffer[o + 10] = p.Stress / 255f;
-                buffer[o + 11] = p.GroupHue;
+                buffer[o + 11] = p.GroupTag;
             }
 
             count = n;

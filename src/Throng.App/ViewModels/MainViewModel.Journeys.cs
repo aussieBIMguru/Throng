@@ -85,6 +85,11 @@ public sealed partial class MainViewModel
             SelectDefinition(device);
             Ticker = $"{device.Name} ▸ edit its definition in SELECTION; double-click or drag to place it.";
         }
+        else if (item?.Template is GroupTemplate group)
+        {
+            // Group templates (round 024b, D-388) open in SELECTION ▸ GROUP.
+            SelectDefinition(group);
+        }
     }
 
     /// <summary>Number of mix lines (on every spawn zone's rules) that follow a journey, directly or as their profile's default (D-304).</summary>
@@ -358,6 +363,9 @@ public sealed partial class MainViewModel
             // The first edit of a built-in (or one of yours) swaps in the study's copy (D-287, D-346): follow it by id.
             _libraryProfile = StudyTemplates.FindProfile(_study, picked.Id, Mine);
         }
+
+        // Groups (round 024b): the study's, then yours, then built-ins, members named as the study sees them.
+        Library.SetGroups(StudyTemplates.AvailableGroups(_study, Mine), id => StudyTemplates.FindProfile(_study, id, Mine)?.Name);
 
         RefreshDefinitions();
 

@@ -455,7 +455,7 @@ public sealed partial class SimEngine
                 continue;
             }
 
-            double walk = RoutePlanner.Choose(_routes, a.Surface[i], a.X[i], a.Y[i], device.Target, profile.Mobility, profile.Template, weighted ? null : random, out _, out _, _wait, BeltWalkSpeed(i), stairEffort: _tuning.StairEffort, standingRest: _tuning.StandingRest, sightRadius: Sight(i), priorityPenaltyS: _liftPriorityS, barredConnector: Barred(i));
+            double walk = RoutePlanner.Choose(_routes, a.Surface[i], a.X[i], a.Y[i], device.Target, profile.Mobility, profile.Template, weighted ? null : random, out _, out _, _wait, BeltWalkSpeed(i), stairEffort: _tuning.StairEffort, standingRest: _tuning.StandingRest, sightRadius: Sight(i), priorityPenaltyS: _liftPriorityS, barredConnector: Barred(i), seenFromM: _seenFromM, pendingWaitS: _pendingS, stayWaitShare: StayWaitShare);
             if (!double.IsFinite(walk))
             {
                 continue;
@@ -664,7 +664,7 @@ public sealed partial class SimEngine
         for (int k = 0; k < step.Targets.Length; k++)
         {
             int target = step.Targets[k];
-            double c = RoutePlanner.Choose(_routes, a.Surface[i], a.X[i], a.Y[i], target, profile.Mobility, profile.Template, weighted ? null : random, out _, out _, _wait, BeltWalkSpeed(i), stairEffort: _tuning.StairEffort, standingRest: _tuning.StandingRest, sightRadius: Sight(i), priorityPenaltyS: _liftPriorityS, barredConnector: Barred(i));
+            double c = RoutePlanner.Choose(_routes, a.Surface[i], a.X[i], a.Y[i], target, profile.Mobility, profile.Template, weighted ? null : random, out _, out _, _wait, BeltWalkSpeed(i), stairEffort: _tuning.StairEffort, standingRest: _tuning.StandingRest, sightRadius: Sight(i), priorityPenaltyS: _liftPriorityS, barredConnector: Barred(i), seenFromM: _seenFromM, pendingWaitS: _pendingS, stayWaitShare: StayWaitShare);
             if (!double.IsFinite(c))
             {
                 continue;

@@ -63,12 +63,13 @@ public sealed class Round007Tests
     /// the output into the chat when tuning.
     /// </summary>
     [TestMethod]
+    [TestCategory("Slow")] // long run: skipped by publish.ps1 unless -AllTests (D-430)
     public void Diagnostics_Round007Rules()
     {
         (string Name, SimTuning Tuning)[] variants =
         [
             ("all on", SimTuning.Default),
-            ("all off", new SimTuning { RunOffs = false, WalkClear = false, BoardingHold = false, BeltCost = false, MeasuredWait = false, Balk = false, KeepSideFade = false, CombSpacing = false, CounterflowLanes = false, LandingSqueeze = false, StallEscape = false, LandingCarry = false }),
+            ("all off", new SimTuning { RunOffs = false, WalkClear = false, BoardingHold = false, BeltCost = false, MeasuredWait = false, Balk = false, KeepSideFade = false, CombSpacing = false, CounterflowLanes = false, LandingSqueeze = false, StairEndSqueeze = false, StallEscape = false, LandingCarry = false }),
             ("no run-offs", new SimTuning { RunOffs = false }),
             ("no walk clear", new SimTuning { WalkClear = false }),
             ("no boarding hold", new SimTuning { BoardingHold = false }),
@@ -79,6 +80,8 @@ public sealed class Round007Tests
             ("no comb spacing", new SimTuning { CombSpacing = false }),
             ("no counterflow gate", new SimTuning { CounterflowLanes = false }),
             ("no landing squeeze", new SimTuning { LandingSqueeze = false }),
+            ("no stair-end squeeze", new SimTuning { StairEndSqueeze = false }),
+            ("no crowd sight (D-423)", new SimTuning { CrowdSight = false }),
             ("no stall escape", new SimTuning { StallEscape = false }),
             ("no landing carry or waypoints", new SimTuning { LandingCarry = false, LandingWaypoints = false }),
             ("with stalled stair wait (D-133)", new SimTuning { StalledStairWait = true }),

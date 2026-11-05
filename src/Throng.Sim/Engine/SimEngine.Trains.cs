@@ -292,7 +292,7 @@ public sealed partial class SimEngine
         foreach (int sink in step.Targets)
         {
             double c = RoutePlanner.Choose(_routes, a.Surface[i], a.X[i], a.Y[i], sink, profile.Mobility, profile.Template, random, out _, out _, _wait,
-                BeltWalkSpeed(i), stairEffort: _tuning.StairEffort, standingRest: _tuning.StandingRest, sightRadius: sight, priorityPenaltyS: _liftPriorityS, barredConnector: Barred(i)) + ExitCrowdFor(i, sink);
+                BeltWalkSpeed(i), stairEffort: _tuning.StairEffort, standingRest: _tuning.StandingRest, sightRadius: sight, priorityPenaltyS: _liftPriorityS, barredConnector: Barred(i), seenFromM: _seenFromM, pendingWaitS: _pendingS, stayWaitShare: StayWaitShare) + ExitCrowdFor(i, sink);
             if (c < bestCost)
             {
                 bestCost = c;

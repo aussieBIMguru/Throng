@@ -26,6 +26,24 @@ its own licence. This file ships next to `Throng.exe` (BRIEF §20.3).
 | OpenTK.Windowing.Desktop | 4.9.4 | MIT | OpenTK |
 | OpenTK.Windowing.GraphicsLibraryFramework | 4.9.4 | MIT | OpenTK |
 | OpenTK.redist.glfw | 3.4.0.44 | zlib/libpng (GLFW) — native `glfw3.dll` | OpenTK.Windowing.GraphicsLibraryFramework |
+| PDFsharp | 6.2.4 | MIT | Throng.App (PDF report, round 025) |
+| Microsoft.Extensions.Logging.Abstractions | ≥ 8.0.3 *(verify resolved version)* | MIT | PDFsharp |
+| Microsoft.Extensions.DependencyInjection.Abstractions | ≥ 8.0 *(verify)* | MIT | Microsoft.Extensions.Logging.Abstractions |
+| System.Security.Cryptography.Pkcs | ≥ 8.0.1 *(verify)* | MIT | PDFsharp |
+
+### Bundled runtime (self-contained release, round 026)
+
+Release builds are self-contained (D-407), so the installer also ships the Microsoft .NET 10 runtime and the Windows
+Desktop runtime (WPF) for win-x64. Both are MIT: Copyright (c) .NET Foundation and Contributors (MIT text below).
+The runtime also carries its own `THIRD-PARTY-NOTICES.TXT` for components it includes
+(https://github.com/dotnet/runtime/blob/main/THIRD-PARTY-NOTICES.TXT and
+https://github.com/dotnet/wpf/blob/main/THIRD-PARTY-NOTICES.TXT).
+
+### Build tools (not shipped)
+
+- **Inno Setup 6** (Jordan Russell and Martijn Laan, https://jrsoftware.org) builds the installer. Its own licence
+  allows free use, including for commercial software; no Inno Setup source ships with Throng (only the compiled setup
+  stub that every Inno-built installer carries).
 
 The GLFW native library ships as `runtimes/win-x64/native/glfw3.dll`. Its zlib/libpng licence only requires that
 the notice is kept with source distributions; it is acknowledged here anyway. Copyright (c) 2002-2006 Marcus
@@ -67,6 +85,15 @@ Geelnard, (c) 2006-2019 Camilla Löwy *(verify against COPYING.md in the package
 - Project: https://github.com/AngusJohnson/Clipper2 (NuGet `Clipper2`)
 - Used by: Throng.Core (behind `IPolygonOps`, D-007), added in round 002; version 1.5.4
 - Copyright: Angus Johnson *(verify exact line from package LICENSE)*
+
+### PDFsharp (PDF report)
+- Licence: MIT (NuGet `PDFsharp` 6.2.4 lists MIT)
+- Project: https://www.pdfsharp.com (empira Software GmbH), https://github.com/empira/PDFsharp
+- Used by: Throng.App (`Services/PdfReport.cs`), added in round 025 (D-401); Core build with Windows fonts
+- Copyright (c) 2001-2026 empira Software GmbH, Troisdorf (Cologne Area), Germany *(verify exact line from package LICENSE)*
+- Its dependencies `Microsoft.Extensions.Logging.Abstractions` and `System.Security.Cryptography.Pkcs` are MIT,
+  Copyright (c) .NET Foundation and Contributors. **Round 025 audit:** run
+  `dotnet list src/Throng.App package --include-transitive` and record the resolved versions in the table above.
 
 ### Planned (not yet referenced)
 - **ScottPlot** — MIT — charts from M5.

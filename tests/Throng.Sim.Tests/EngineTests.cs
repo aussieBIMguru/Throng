@@ -54,6 +54,7 @@ public sealed class EngineTests
     }
 
     [TestMethod]
+    [TestCategory("Slow")] // long run: skipped by publish.ps1 unless -AllTests (D-430)
     public void Poisson_RateIsAboutRight()
     {
         var engine = new SimEngine(SimTestStudies.Compile(SimTestStudies.Corridor(ratePerMinute: 30, pattern: EmissionPattern.Poisson, seed: 11)));
@@ -84,6 +85,7 @@ public sealed class EngineTests
     }
 
     [TestMethod]
+    [TestCategory("Slow")] // long run: skipped by publish.ps1 unless -AllTests (D-430)
     public void Demo_PeopleReachThePlatform()
     {
         var engine = new SimEngine(SimTestStudies.Compile(DemoStudyBuilder.Build()));

@@ -192,6 +192,21 @@ public sealed partial class SimEngine
     /// Re-choosing while approaching (D-180): on this agent's review step, look again at its exit (nearest-sink
     /// rules) and then its connector, while each is in sight, without noise and with a bonus for staying.
     /// </summary>
+    /// <summary>
+    /// Round 027 (D-423, D-426): a held crowd is seen from further (0.25 m per person barely moving towards the entry,
+    /// up to +50 m), and people already heading for a connector add their share (÷ its capacity) to its wait even
+    /// out of sight, so a spill-over splits across the other stairs instead of herding onto one.
+    /// </summary>
+    private void UpdateCrowdSight()
+    {
+        for (int k = 0; k < _seenFromM.Length; k++)
+        {
+            NavConnector connector = _world.Connectors[k];
+            _seenFromM[k] = _tuning.CrowdSight ? Math.Min(CrowdSightMaxM, CrowdSightPerPersonM * _queued[k]) : 0;
+            _pendingS[k] = _tuning.CrowdSight && !connector.IsLift ? _far[k] / Math.Max(1e-3, connector.CapacityPerSecond) : 0;
+        }
+    }
+
     private void ReviewApproach(int i)
     {
         if (!IsReviewTick(i) || _world.Surfaces[_agents.Surface[i]].Kind != NavSurfaceKind.Floor)
@@ -213,7 +228,7 @@ public sealed partial class SimEngine
 
         NavPortal portal = _world.Portals[target];
         double sight = Sight(i);
-        if (!RoutePlanner.InSight(portal, a.X[i], a.Y[i], sight))
+        if (!RoutePlanner.InSight(portal, a.X[i], a.Y[i], sight + _seenFromM[portal.Connector]))
         {
             return;
         }
@@ -221,7 +236,7 @@ public sealed partial class SimEngine
         SimProfile profile = RouteOf(i);
         double cost = RoutePlanner.Choose(
             _routes, a.Surface[i], a.X[i], a.Y[i], a.Sink[i], profile.Mobility, profile.Template, null, out bool direct, out RouteOption option, _wait,
-            BeltWalkSpeed(i), portal.Connector, StayBonusS, _tuning.StairEffort, _tuning.StandingRest, sight, priorityPenaltyS: _liftPriorityS, barredConnector: Barred(i));
+            BeltWalkSpeed(i), portal.Connector, StayBonusS, _tuning.StairEffort, _tuning.StandingRest, sight, priorityPenaltyS: _liftPriorityS, barredConnector: Barred(i), seenFromM: _seenFromM, pendingWaitS: _pendingS, stayWaitShare: StayWaitShare);
         if (!double.IsFinite(cost))
         {
             return;
@@ -271,8 +286,8 @@ public sealed partial class SimEngine
         {
             double c = RoutePlanner.Choose(
                 _routes, a.Surface[i], a.X[i], a.Y[i], sink, profile.Mobility, profile.Template, null, out _, out _, _wait,
-                BeltWalkSpeed(i), stairEffort: _tuning.StairEffort, standingRest: _tuning.StandingRest, sightRadius: sight, priorityPenaltyS: _liftPriorityS, barredConnector: Barred(i));
-            c += ExitCrowdFor(i, sink) - (sink == current ? StayBonusS : 0);
+                BeltWalkSpeed(i), stairEffort: _tuning.StairEffort, standingRest: _tuning.StandingRest, sightRadius: sight, priorityPenaltyS: _liftPriorityS, barredConnector: Barred(i), seenFromM: _seenFromM, pendingWaitS: _pendingS, stayWaitShare: StayWaitShare);
+            c += ExitCrowdFor(i, sink) - (sink == current ? ExitStayBonusS : 0);
             if (c < bestCost)
             {
                 bestCost = c;

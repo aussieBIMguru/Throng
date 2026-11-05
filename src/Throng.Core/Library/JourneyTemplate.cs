@@ -94,7 +94,7 @@ public sealed record JourneyStep
             JourneyStepKind.GoToDevice => TargetTag,
             JourneyStepKind.PassZone => $"through {(string.IsNullOrEmpty(TargetTag) ? "zone" : TargetTag)}",
             JourneyStepKind.Dwell => $"dwell {(string.IsNullOrEmpty(TargetTag) ? "zone" : TargetTag)} {DwellS.Describe()} s",
-            JourneyStepKind.BoardTrain => $"board {(string.IsNullOrEmpty(TargetTag) ? "any" : TargetTag)} train",
+            JourneyStepKind.BoardTrain => $"board {(string.IsNullOrEmpty(TargetTag) ? "any" : TargetTag)} service",
             _ => "exit",
         };
 

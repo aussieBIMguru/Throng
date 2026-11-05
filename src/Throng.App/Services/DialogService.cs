@@ -35,6 +35,12 @@ public interface IDialogService
     /// <param name="suggestedFileName">File name to start with.</param>
     string? PickPngSavePath(string suggestedFileName);
 
+    /// <summary>Picks where to save the PDF report (round 025); null when cancelled.</summary>
+    string? PickPdfSavePath(string suggestedFileName);
+
+    /// <summary>Asks which map the PDF report's level plans show (round 025, D-403); null when cancelled.</summary>
+    Throng.Analysis.HeatmapMode? AskReportMap(IReadOnlyList<LabelledOption<Throng.Analysis.HeatmapMode>> maps, Throng.Analysis.HeatmapMode current, string note);
+
     /// <summary>Asks which levels to use (Copy to Levels, D-060); null when cancelled.</summary>
     /// <param name="title">Dialog title.</param>
     /// <param name="message">Explanation above the checklist.</param>
@@ -146,6 +152,25 @@ public sealed class DialogService : IDialogService
         var dialog = new OpenFolderDialog { Title = title, Multiselect = false };
         return dialog.ShowDialog(_owner) == true ? dialog.FolderName : null;
     }
+
+    /// <inheritdoc />
+    public string? PickPdfSavePath(string suggestedFileName)
+    {
+        var dialog = new SaveFileDialog
+        {
+            Filter = "PDF document (*.pdf)|*.pdf|All files (*.*)|*.*",
+            Title = "Export PDF report",
+            FileName = suggestedFileName,
+            DefaultExt = ".pdf",
+            AddExtension = true,
+            OverwritePrompt = true,
+        };
+        return dialog.ShowDialog(_owner) == true ? dialog.FileName : null;
+    }
+
+    /// <inheritdoc />
+    public Throng.Analysis.HeatmapMode? AskReportMap(IReadOnlyList<LabelledOption<Throng.Analysis.HeatmapMode>> maps, Throng.Analysis.HeatmapMode current, string note) =>
+        ReportDialog.Show(_owner, maps, current, note);
 
     /// <inheritdoc />
     public string? PickPngSavePath(string suggestedFileName)

@@ -115,12 +115,18 @@ public sealed class GroupTemplate : TemplateBase
     }
 
     /// <inheritdoc />
-    public override string Summarise()
+    public override string Summarise() => Summarise(id => BuiltInLibrary.Instance.Find(id)?.Name);
+
+    /// <summary>
+    /// "3–5 people · 1–2 adult, 1–3 child" with member names from <paramref name="profileName"/> (a study's own profiles
+    /// aren't built-ins, round 024b); "profile" where it returns null.
+    /// </summary>
+    public string Summarise(Func<Guid, string?> profileName)
     {
         CultureInfo c = CultureInfo.InvariantCulture;
         IEnumerable<string> rows = Rows().Select(m =>
         {
-            string name = (BuiltInLibrary.Instance.Find(m.ProfileId)?.Name ?? "profile").ToLowerInvariant();
+            string name = (profileName(m.ProfileId) ?? "profile").ToLowerInvariant();
             int max = Math.Max(Math.Max(0, m.Min), m.Max);
             string count = m.Min == max ? m.Min.ToString(c) : $"{Math.Max(0, m.Min).ToString(c)}–{max.ToString(c)}";
             return $"{count} {name}";

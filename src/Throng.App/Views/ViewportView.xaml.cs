@@ -81,6 +81,7 @@ public partial class ViewportView : UserControl
     private PlanEditor? _editor;
     private EditorTool _lastTool = EditorTool.Select;
     private float[] _agentBuffer = new float[640];
+    private int _agentCount;
     private TaskCompletionSource<Result<byte[]>>? _capture;
     private int _captureWidth, _captureHeight;
     private double _captureScale = 1;
@@ -113,6 +114,7 @@ public partial class ViewportView : UserControl
         };
 
         Overlay.PlanToScreen = MapToOverlay;
+        InitialiseTethers();
 
         InputLayer.MouseDown += OnMouseDown;
         InputLayer.MouseMove += OnMouseMove;
@@ -500,11 +502,15 @@ public partial class ViewportView : UserControl
 
             int agents = Agents?.Invoke(_mode, ref _agentBuffer) ?? 0;
             _renderer.SetAgents(_agentBuffer, agents);
+            _agentCount = agents;
+            UpdateTethers(agents);
             long heatVersion = -1;
             IReadOnlyList<HeatLayerDraw>? heat = Heat?.Invoke(_mode, out heatVersion);
             _renderer.SetHeatmap(heat, heatVersion);
             _renderer.SetLiftCars(_mode == ViewMode.Plan ? null : LiftCars?.Invoke());
+            long renderStarted = BeginRenderTiming();
             _renderer.Render(pixelWidth, pixelHeight, viewProjection, _mode, (float)dpi.DpiScaleX);
+            EndRenderTiming(renderStarted);
             if (_capture is { Task.IsCompleted: false } capture)
             {
                 capture.TrySetResult(CaptureFrame(viewProjection, (float)(dpi.DpiScaleX * _captureScale)));
@@ -566,6 +572,11 @@ public partial class ViewportView : UserControl
     {
         InputLayer.Focus();
         Point position = e.GetPosition(InputLayer);
+        if (e.ChangedButton == MouseButton.Left)
+        {
+            // Group tethers (round 024b): a click on a person keeps their group tethered; the editor still gets the click.
+            TetherClicked(position, _agentCount);
+        }
 
         if (e.ChangedButton is MouseButton.Middle or MouseButton.Right)
         {
@@ -610,6 +621,7 @@ public partial class ViewportView : UserControl
     private void OnMouseMove(object sender, MouseEventArgs e)
     {
         Point position = e.GetPosition(InputLayer);
+        TetherPointerMoved(position);
         if (_boxDragFace >= 0)
         {
             DragBoxFace(position);
@@ -725,6 +737,7 @@ public partial class ViewportView : UserControl
 
     private void OnMouseLeave(object sender, MouseEventArgs e)
     {
+        TetherPointerLeft();
         if (!InputLayer.IsMouseCaptured)
         {
             _editor?.PointerLeave();

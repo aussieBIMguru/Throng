@@ -9,6 +9,7 @@ namespace Throng.Sim.Tests;
 public sealed class Round015Tests
 {
     [TestMethod]
+    [TestCategory("Slow")] // long run: skipped by publish.ps1 unless -AllTests (D-430)
     public void LiftResults_CountBoardingsWaitsAndRides()
     {
         Study study = Round013Tests.LiftStudy(SimTestStudies.Commuter, 10);
@@ -28,6 +29,7 @@ public sealed class Round015Tests
     }
 
     [TestMethod]
+    [TestCategory("Slow")] // long run: skipped by publish.ps1 unless -AllTests (D-430)
     public void LiftResults_LeaveTheWarmUpOut()
     {
         Study study = Round013Tests.LiftStudy(SimTestStudies.Commuter, 10);

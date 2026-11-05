@@ -41,6 +41,9 @@ public sealed partial class MainViewModel : IEditorHost
     /// <summary>Right-panel tab index: STUDY.</summary>
     public const int PropertiesTabStudy = 2;
 
+    /// <summary>Right-panel tab index: SERVICES (round 025, D-399): trains, planes, buses, rides on a timetable.</summary>
+    public const int PropertiesTabServices = 3;
+
     /// <summary>The plan editor (tools, selection, clipboard).</summary>
     public PlanEditor Editor { get; private set; } = null!;
 
@@ -61,7 +64,7 @@ public sealed partial class MainViewModel : IEditorHost
     // ------------------------------------------------------------------ right panel tabs (D-045)
 
     /// <summary>Tab labels for the right panel.</summary>
-    public IReadOnlyList<string> PropertiesTabs { get; } = ["SELECTION", "LEVEL", "STUDY", "RESULTS", "CHECK"];
+    public IReadOnlyList<string> PropertiesTabs { get; } = ["SELECTION", "LEVEL", "STUDY", "SERVICES", "RESULTS", "CHECK"];
 
     /// <summary>Selected right-panel tab. Selecting anything in the viewport switches to SELECTION.</summary>
     public int PropertiesTabIndex
@@ -80,6 +83,7 @@ public sealed partial class MainViewModel : IEditorHost
                 OnPropertyChanged(nameof(IsSelectionTab));
                 OnPropertyChanged(nameof(IsLevelTab));
                 OnPropertyChanged(nameof(IsStudyTab));
+                OnPropertyChanged(nameof(IsServicesTab));
                 OnPropertyChanged(nameof(IsResultsTab));
                 OnPropertyChanged(nameof(IsCheckTab));
             }
@@ -91,6 +95,9 @@ public sealed partial class MainViewModel : IEditorHost
     public bool IsLevelTab => _propertiesTabIndex == PropertiesTabLevel;
 
     public bool IsStudyTab => _propertiesTabIndex == PropertiesTabStudy;
+
+    /// <summary>True while SERVICES shows (round 025).</summary>
+    public bool IsServicesTab => _propertiesTabIndex == PropertiesTabServices;
 
     // ------------------------------------------------------------------ temporary hide/isolate (D-046)
 
@@ -263,8 +270,14 @@ public sealed partial class MainViewModel : IEditorHost
                 UseLiftTemplate(lift);
                 return;
 
+            case AgentProfileTemplate or GroupTemplate:
+                // Profiles and groups go on spawn zones' mix lines (the "who" drop-down); a click opens them in SELECTION.
+                SelectDefinition(item!.Template);
+                Ticker = $"{item.Template.Name} ▸ pick it as the \"who\" of a spawn zone's mix line in SELECTION.";
+                return;
+
             default:
-                Ticker = "Agent profiles and schedules are set up in later milestones.";
+                Ticker = "Schedules are set up in later milestones.";
                 return;
         }
 

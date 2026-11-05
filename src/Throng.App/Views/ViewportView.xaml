@@ -24,6 +24,11 @@
                        Margin="0,6,0,0" Visibility="Collapsed" />
         </StackPanel>
 
+        <!-- PERF overlay (round 025, D-380): F8. -->
+        <TextBlock x:Name="PerfText" Margin="14,10" HorizontalAlignment="Right" VerticalAlignment="Top" IsHitTestVisible="False"
+                   FontFamily="Cascadia Mono, Consolas" FontSize="11" Foreground="{StaticResource TextDimBrush}" Background="#C00B0F17"
+                   Padding="6,4" Visibility="Collapsed" />
+
         <!-- Typed dimensions (D-038): appears near the cursor when you type a number while drawing. -->
         <Canvas IsHitTestVisible="True" ClipToBounds="True">
             <Border x:Name="TypedBox" Visibility="Collapsed" Background="{StaticResource PanelBrush}"

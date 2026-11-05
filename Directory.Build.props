@@ -14,7 +14,8 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);CS1591</NoWarn>
 
-    <Version>0.1.0</Version>
+    <!-- One place for the version (D-414): the assemblies, build\publish.ps1, the installer and the setup file name read it. -->
+    <Version>1.0.0</Version>
     <Product>Throng</Product>
     <Authors>Gavin Nicholls</Authors>
     <Company>Gavin Nicholls</Company>

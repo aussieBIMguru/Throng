@@ -11,8 +11,8 @@ using Throng.IO;
 namespace Throng.App.ViewModels;
 
 /// <summary>
-/// Device and agent profile definitions (round 017, D-286–D-290): clicking a row in LIBRARY ▸ DEVICES or ▸ AGENTS
-/// opens its definition in SELECTION. Built-ins are edited in place for the study (the study's copy under the
+/// Device and agent profile definitions (round 017, D-286–D-290), and group templates (round 024b, D-388): clicking a
+/// row in LIBRARY ▸ DEVICES, ▸ AGENTS or ▸ GROUPS opens its definition in SELECTION. Built-ins are edited in place for the study (the study's copy under the
 /// built-in's id, D-287), DUPLICATE and NEW make the study's own, RESET TO BUILT-IN and DELETE tidy up, and placed
 /// devices follow their definition (D-288). Device definitions export and import as <c>.throngdevice</c> files.
 /// Every change is one undo step; all of it is blocked while a run is active.
@@ -21,9 +21,11 @@ public sealed partial class MainViewModel
 {
     private DeviceDefinitionViewModel? _selectedDeviceDefinition;
     private ProfileDefinitionViewModel? _selectedProfileDefinition;
+    private GroupDefinitionViewModel? _selectedGroupDefinition;
     private Guid? _libraryDeviceId;
     private RelayCommand? _newDeviceDefinitionCommand;
     private RelayCommand? _newProfileDefinitionCommand;
+    private RelayCommand? _newGroupDefinitionCommand;
     private RelayCommand? _exportDeviceCommand;
     private RelayCommand? _importDeviceCommand;
 
@@ -39,14 +41,24 @@ public sealed partial class MainViewModel
     /// <summary>True when an agent profile is shown in SELECTION.</summary>
     public bool HasProfileDefinitionSelection => _selectedProfileDefinition is not null;
 
+    /// <summary>The group template shown in SELECTION (round 024b), or null.</summary>
+    public GroupDefinitionViewModel? SelectedGroupDefinition => _selectedGroupDefinition;
+
+    /// <summary>True when a group template is shown in SELECTION.</summary>
+    public bool HasGroupDefinitionSelection => _selectedGroupDefinition is not null;
+
     /// <summary>True when SELECTION shows something from LIBRARY (a journey or a definition) rather than the plan's selection.</summary>
-    public bool HasLibrarySelection => _selectedJourney is not null || _selectedDeviceDefinition is not null || _selectedProfileDefinition is not null;
+    public bool HasLibrarySelection =>
+        _selectedJourney is not null || _selectedDeviceDefinition is not null || _selectedProfileDefinition is not null || _selectedGroupDefinition is not null;
 
     /// <summary>LIBRARY ▸ DEVICES ▸ NEW.</summary>
     public RelayCommand NewDeviceDefinitionCommand => _newDeviceDefinitionCommand ??= new RelayCommand(NewDeviceDefinition);
 
     /// <summary>LIBRARY ▸ AGENTS ▸ NEW.</summary>
     public RelayCommand NewProfileDefinitionCommand => _newProfileDefinitionCommand ??= new RelayCommand(NewProfileDefinition);
+
+    /// <summary>LIBRARY ▸ GROUPS ▸ NEW (round 024b).</summary>
+    public RelayCommand NewGroupDefinitionCommand => _newGroupDefinitionCommand ??= new RelayCommand(NewGroupDefinition);
 
     /// <summary>LIBRARY ▸ DEVICES ▸ EXPORT…: the clicked device definition.</summary>
     public RelayCommand ExportDeviceCommand => _exportDeviceCommand ??= new RelayCommand(() =>
@@ -71,7 +83,7 @@ public sealed partial class MainViewModel
     public int DeviceDefinitionUseCount(DeviceTemplate template) =>
         StudyDefinitions.DevicesUsing(_study, StudyDefinitions.FindDevice(_study, template.Id) ?? template).Count;
 
-    /// <summary>Opens a device or profile definition in SELECTION (one thing there at a time).</summary>
+    /// <summary>Opens a device, profile or group definition in SELECTION (one thing there at a time).</summary>
     public void SelectDefinition(TemplateBase template)
     {
         Editor.ClearSelection();
@@ -86,6 +98,7 @@ public sealed partial class MainViewModel
                 }
 
                 SetProfileDefinition(null);
+                _selectedGroupDefinition = null;
                 break;
 
             case AgentProfileTemplate profile:
@@ -96,6 +109,17 @@ public sealed partial class MainViewModel
                 }
 
                 _selectedDeviceDefinition = null;
+                _selectedGroupDefinition = null;
+                break;
+
+            case GroupTemplate group:
+                if (_selectedGroupDefinition?.Id != group.Id)
+                {
+                    _selectedGroupDefinition = new GroupDefinitionViewModel(group.Id, this);
+                }
+
+                _selectedDeviceDefinition = null;
+                SetProfileDefinition(null);
                 break;
 
             default:
@@ -184,6 +208,32 @@ public sealed partial class MainViewModel
         Ticker = description;
     }
 
+    /// <summary>
+    /// Applies a change to a group template as one undo step (round 024b, D-388): a built-in's (or your library's) first
+    /// edit makes the study's copy under its id, with its member profiles and journey embedded (D-346).
+    /// </summary>
+    public void EditGroupDefinition(Guid id, string description, Action<GroupTemplate> change)
+    {
+        if (!CheckDefinitionEditable() || StudyTemplates.FindGroup(_study, id, Mine) is not { } current)
+        {
+            return;
+        }
+
+        // Embeds the group (and its members and, from your library, its journey) when the study doesn't hold it yet.
+        EmbedForUse(id);
+        GroupTemplate target = StudyDefinitions.EnsureStudyCopy(_study, StudyTemplates.FindGroup(_study, id, Mine) ?? current);
+        var next = (GroupTemplate)TemplateCloner.Clone(target);
+        change(next);
+        if (StudyDefinitions.SameValues(target, next))
+        {
+            RefreshDefinitionPanels();
+            return;
+        }
+
+        Execute(new CompositeAction(description, [DefinitionState(description, target, next)], OnModelChanged));
+        Ticker = description;
+    }
+
     /// <summary>DUPLICATE: the study's own copy with a new name and key, selected.</summary>
     public void DuplicateDefinition(TemplateBase source)
     {
@@ -211,6 +261,17 @@ public sealed partial class MainViewModel
                 Ticker = $"{copy.Name} ▸ edit it here, then pick it on a spawn zone's mix line.";
                 break;
             }
+
+            case GroupTemplate group:
+            {
+                // The copy's member profiles must be in the study too (a group from your library brings them, D-346).
+                EmbedForUse(group.Id);
+                GroupTemplate copy = StudyDefinitions.CreateGroupCopy(_study, StudyTemplates.FindGroup(_study, group.Id, Mine) ?? group);
+                Execute(new AddItemsAction<GroupTemplate>($"Duplicate group {group.Name}", _study.Library.Groups ??= [], [copy], OnModelChanged));
+                SelectDefinition(copy);
+                Ticker = $"{copy.Name} ▸ edit its members here, then pick it as the \"who\" of a spawn zone's mix line.";
+                break;
+            }
         }
     }
 
@@ -230,6 +291,9 @@ public sealed partial class MainViewModel
                 break;
             case AgentProfileTemplate profile:
                 EditProfileDefinition(profile.Id, $"Reset {profile.Name} to built-in", t => StudyDefinitions.CopyValues(t, profile));
+                break;
+            case GroupTemplate group:
+                EditGroupDefinition(group.Id, $"Reset {group.Name} to built-in", t => StudyDefinitions.CopyValues(t, group));
                 break;
         }
     }
@@ -279,8 +343,28 @@ public sealed partial class MainViewModel
                     return;
                 }
 
+                if (StudyDefinitions.GroupsWithMember(_study, profile.Id) is { Count: > 0 } groups)
+                {
+                    Ticker = $"{profile.Name} is a member of {string.Join(", ", groups.Select(g => g.Name))}: pick another profile in {(groups.Count == 1 ? "that group" : "those groups")} first.";
+                    return;
+                }
+
                 ClearDefinitionSelection();
                 Execute(new RemoveItemsAction<AgentProfileTemplate>($"Delete profile {profile.Name}", _study.Library.AgentProfiles, [profile], OnModelChanged));
+                break;
+            }
+
+            case GroupTemplate group:
+            {
+                int uses = StudyDefinitions.GroupUseCount(_study, group.Id);
+                if (uses > 0)
+                {
+                    Ticker = $"{group.Name} is used by {uses} mix line{(uses == 1 ? string.Empty : "s")}: pick someone else there first.";
+                    return;
+                }
+
+                ClearDefinitionSelection();
+                Execute(new RemoveItemsAction<GroupTemplate>($"Delete group {group.Name}", _study.Library.Groups ??= [], [group], OnModelChanged));
                 break;
             }
         }
@@ -420,16 +504,35 @@ public sealed partial class MainViewModel
         Ticker = $"{profile.Name} ▸ edit it here, then pick it on a spawn zone's mix line.";
     }
 
+    private void NewGroupDefinition()
+    {
+        if (!CheckDefinitionEditable())
+        {
+            return;
+        }
+
+        GroupTemplate group = StudyDefinitions.CreateNewGroup(_study);
+        foreach (GroupMember member in group.Rows())
+        {
+            EmbedForUse(member.ProfileId);
+        }
+
+        Execute(new AddItemsAction<GroupTemplate>("New group", _study.Library.Groups ??= [], [group], OnModelChanged));
+        SelectDefinition(group);
+        Ticker = $"{group.Name} ▸ add member rows (the first leads), then pick it as the \"who\" of a spawn zone's mix line.";
+    }
+
     /// <summary>Drops the definition panels (selecting in the plan or a journey replaces them).</summary>
     private void ClearDefinitionSelection()
     {
-        if (_selectedDeviceDefinition is null && _selectedProfileDefinition is null)
+        if (_selectedDeviceDefinition is null && _selectedProfileDefinition is null && _selectedGroupDefinition is null)
         {
             return;
         }
 
         _selectedDeviceDefinition = null;
         _selectedProfileDefinition = null;
+        _selectedGroupDefinition = null;
         Library.MarkSelected(_selectedJourney?.Journey.Id);
         RaiseDefinitionSelection();
     }
@@ -456,6 +559,11 @@ public sealed partial class MainViewModel
             ClearDefinitionSelection();
         }
 
+        if (_selectedGroupDefinition is { } group && StudyTemplates.FindGroup(_study, group.Id, Mine) is null)
+        {
+            ClearDefinitionSelection();
+        }
+
         RefreshDefinitionPanels();
     }
 
@@ -463,6 +571,7 @@ public sealed partial class MainViewModel
     {
         _selectedDeviceDefinition?.Refresh();
         _selectedProfileDefinition?.Refresh();
+        _selectedGroupDefinition?.Refresh();
     }
 
     private void SetProfileDefinition(ProfileDefinitionViewModel? profile) => _selectedProfileDefinition = profile;
@@ -473,6 +582,8 @@ public sealed partial class MainViewModel
         OnPropertyChanged(nameof(HasDeviceDefinitionSelection));
         OnPropertyChanged(nameof(SelectedProfileDefinition));
         OnPropertyChanged(nameof(HasProfileDefinitionSelection));
+        OnPropertyChanged(nameof(SelectedGroupDefinition));
+        OnPropertyChanged(nameof(HasGroupDefinitionSelection));
         OnPropertyChanged(nameof(HasLibrarySelection));
         OnPropertyChanged(nameof(SelectionText));
     }

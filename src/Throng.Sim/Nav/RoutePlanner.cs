@@ -55,7 +55,8 @@ public static class RoutePlanner
         NavRoutes routes, int floor, double x, double y, int sink, MobilityClass mobility, AgentProfileTemplate? profile,
         DeterministicRandom? random, out bool direct, out RouteOption choice, double[]? waitSeconds = null,
         double beltWalkSpeed = -1, int stayConnector = -1, double staySeconds = 0, bool stairEffort = true, bool standingRest = true,
-        double sightRadius = double.PositiveInfinity, double[]? priorityPenaltyS = null, int barredConnector = -1)
+        double sightRadius = double.PositiveInfinity, double[]? priorityPenaltyS = null, int barredConnector = -1,
+        double[]? seenFromM = null, double[]? pendingWaitS = null, double stayWaitShare = 0)
     {
         NavWorld world = routes.World;
         NavSurface surface = world.Surfaces[floor];
@@ -91,8 +92,12 @@ public static class RoutePlanner
                 rideTime *= StandingRideWeight;
             }
 
-            bool inSight = InSight(world.Portals[option.Entry], x, y, sightRadius);
-            double wait = waitSeconds is not null && inSight ? waitSeconds[option.Connector] : 0;
+            // A held crowd is seen from further (D-423); out of sight, only the people known to be heading there (D-426).
+            double reach = sightRadius + (seenFromM is null ? 0 : seenFromM[option.Connector]);
+            bool inSight = InSight(world.Portals[option.Entry], x, y, reach);
+            double wait = waitSeconds is null ? 0
+                : inSight ? waitSeconds[option.Connector]
+                : pendingWaitS is null ? 0 : pendingWaitS[option.Connector];
             if (penalty is not null && inSight)
             {
                 // Not part of the felt ride, so not scaled by the lift preference: it's other people's turn.
@@ -102,7 +107,7 @@ public static class RoutePlanner
             double ride = (rideTime + wait) * MechanisedFactor(connector.Kind, profile);
             double c = toEntry.Sample(surface, x, y) + ride + routes.Remaining(mobility, sink, option.Exit)
                 + StairCorrection(connector, option.DeltaZ, profile, stairEffort)
-                - (option.Connector == stayConnector ? staySeconds : 0);
+                - (option.Connector == stayConnector ? staySeconds + (stayWaitShare * wait) : 0);
             if (!double.IsFinite(c))
             {
                 continue;

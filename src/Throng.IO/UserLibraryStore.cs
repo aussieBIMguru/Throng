@@ -184,6 +184,13 @@ public sealed class UserLibraryStore
             JourneyGraph.Ensure(journey);
         }
 
+        foreach (GroupTemplate group in library.Groups)
+        {
+            // Groups (round 024b, D-388): member rows never null.
+            group.Members ??= [];
+            group.Members.RemoveAll(m => m is null);
+        }
+
         return library;
     }
 

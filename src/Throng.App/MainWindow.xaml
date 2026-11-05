@@ -36,6 +36,7 @@
         <KeyBinding Key="Enter" Command="{Binding FinishJourneyPickCommand}" />
         <KeyBinding Key="Home" Command="{Binding ZoomExtentsCommand}" />
         <KeyBinding Key="F7" Command="{Binding ValidateCommand}" />
+        <KeyBinding Key="F8" Command="{Binding TogglePerfCommand}" />
         <!-- Replay (round 023, D-375): only while there's a run to scrub; text boxes and lists keep their arrows. -->
         <KeyBinding Key="Left" Command="{Binding ScrubStepCommand}" CommandParameter="-0.5" />
         <KeyBinding Key="Right" Command="{Binding ScrubStepCommand}" CommandParameter="0.5" />
@@ -107,6 +108,8 @@
                 <MenuItem Header="New from _Demo">
                     <MenuItem Header="_Interchange station" InputGestureText="Ctrl+Shift+D" Command="{Binding NewFromDemoCommand}" />
                     <MenuItem Header="_Office tower" Command="{Binding NewOfficeTowerDemoCommand}" ToolTip="Ground lobby and ten floors served only by a four-car lift bank (up-peak morning)." />
+                    <MenuItem Header="Stadium _sector" Command="{Binding NewStadiumSectorDemoCommand}" ToolTip="One stadium sector, about 5,000 seats: turnstiles, stairs and escalators, concourse food and toilets, vomitories. Ingress over an hour, egress from minute 70." />
+                    <MenuItem Header="Stadi_um (6 sectors)" Command="{Binding NewStadiumDemoCommand}" ToolTip="Six sectors, about 30,000 seats. Best run headless (BATCH…) or at MAX; watch PERF (F8)." />
                 </MenuItem>
                 <MenuItem Header="_Open…" InputGestureText="Ctrl+O" Command="{Binding OpenCommand}" />
                 <Separator />
@@ -114,6 +117,7 @@
                 <MenuItem Header="Save _As…" InputGestureText="Ctrl+Shift+S" Command="{Binding SaveAsCommand}" />
                 <Separator />
                 <MenuItem Header="Export _PNG…" Command="{Binding ExportPngCommand}" ToolTip="The view at twice its size, with a legend and title block." />
+                <MenuItem Header="Export PDF _report…" Command="{Binding ExportPdfCommand}" ToolTip="A3 landscape: headline numbers, a plan of every level with the map you pick, the people graph and CHECK findings (round 025)." />
                 <Separator />
                 <MenuItem Header="E_xit" InputGestureText="Alt+F4" Click="OnExitClick" />
             </MenuItem>
@@ -136,6 +140,8 @@
                 <MenuItem Header="_Isometric" InputGestureText="F4" Command="{Binding IsoViewCommand}" ToolTip="2:1 isometric of every visible level; [ and ] turn it." />
                 <Separator />
                 <MenuItem Header="_Zoom Extents" InputGestureText="Home" Command="{Binding ZoomExtentsCommand}" />
+                <MenuItem Header="P_erformance Overlay" InputGestureText="F8" Command="{Binding TogglePerfCommand}" IsCheckable="False"
+                          ToolTip="PERF: ms per simulation step by phase, simulated speed, people, and frame / render ms (round 025)." />
                 <Separator />
                 <MenuItem Header="_Hide Selection" InputGestureText="H" Command="{Binding HideSelectionCommand}" />
                 <MenuItem Header="_Isolate Selection" InputGestureText="I" Command="{Binding IsolateSelectionCommand}" />
@@ -492,6 +498,22 @@
                                     ToolTip="Add a profile (and its journeys) from a .throngprofile file. Anything this study lacks: keep, map or drop." />
                         </StackPanel>
 
+                        <!-- Group templates (round 024b, D-388): GROUPS tab only; exchange through MY LIBRARY (.thronglib). -->
+                        <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                            <StackPanel.Style>
+                                <Style TargetType="StackPanel">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding Library.SelectedTab.Label}" Value="GROUPS">
+                                            <Setter Property="Visibility" Value="Visible" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </StackPanel.Style>
+                            <Button Padding="6,0" Content="NEW" Command="{Binding NewGroupDefinitionCommand}" FontFamily="{DynamicResource RetroFont}" FontSize="15"
+                                    ToolTip="A new group of your own in this study (people who walk together), opened in SELECTION." />
+                        </StackPanel>
+
                         <!-- Device definitions and exchange (round 017, D-286, D-290): DEVICES tab only. -->
                         <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
                             <StackPanel.Style>
@@ -539,7 +561,7 @@
                                         ToolTip="Add a .thronglib's items to your library. Items you already have differently: keep both, skip or replace." />
                             </StackPanel>
                             <TextBlock Margin="0,4,0,0" Style="{StaticResource DimText}" TextWrapping="Wrap"
-                                       Text="SAVE TO MY LIBRARY on a profile, device or journey in SELECTION keeps it for every study. Right-click a MINE row to rename or delete it." />
+                                       Text="SAVE TO MY LIBRARY on a profile, group, device or journey in SELECTION keeps it for every study. Right-click a MINE row to rename or delete it." />
                         </StackPanel>
                     </StackPanel>
                 </ScrollViewer>
@@ -1312,6 +1334,71 @@
                                 </StackPanel>
                             </Border>
 
+                            <!-- Group template from LIBRARY ▸ GROUPS (round 024b, D-388, D-394): member rows like mix lines, the first leads. -->
+                            <Border Visibility="{Binding HasGroupDefinitionSelection, Converter={StaticResource BoolToVis}}">
+                                <StackPanel Margin="12,0" DataContext="{Binding SelectedGroupDefinition}">
+                                    <TextBlock Style="{StaticResource PanelHeader}" Text="GROUP" Margin="0,4,0,2" />
+                                    <TextBlock Text="{Binding SourceText}" Style="{StaticResource DimText}" TextWrapping="Wrap" />
+                                    <TextBlock Text="{Binding MineText}" Foreground="{StaticResource YellowBrush}" TextWrapping="Wrap" Margin="0,2,0,0"
+                                               Visibility="{Binding HasMineText, Converter={StaticResource BoolToVis}}" />
+                                    <WrapPanel Margin="0,6,0,0">
+                                        <Button Content="DUPLICATE" Command="{Binding DuplicateCommand}" Padding="6,0" Margin="0,0,6,4" FontFamily="{DynamicResource RetroFont}" FontSize="15"
+                                                ToolTip="Make a separate copy in this study (new name and key)." />
+                                        <Button Content="RESET TO BUILT-IN" Command="{Binding ResetCommand}" Padding="6,0" Margin="0,0,6,4" FontFamily="{DynamicResource RetroFont}" FontSize="15"
+                                                Visibility="{Binding IsModified, Converter={StaticResource BoolToVis}}" ToolTip="Put the shipped members and journey back (undoable)." />
+                                        <Button Content="DELETE" Command="{Binding DeleteCommand}" Padding="6,0" Margin="0,0,6,4" FontFamily="{DynamicResource RetroFont}" FontSize="15"
+                                                Visibility="{Binding IsOwn, Converter={StaticResource BoolToVis}}" ToolTip="Delete it (only when no mix line uses it)." />
+                                        <Button Content="SAVE TO MY LIBRARY" Command="{Binding SaveToMineCommand}" Padding="6,0" Margin="0,0,6,4" FontFamily="{DynamicResource RetroFont}" FontSize="15"
+                                                ToolTip="Keep this group (with its member profiles and journey) in your library for every study (asks before replacing yours)." />
+                                        <Button Content="UPDATE FROM MY LIBRARY" Command="{Binding UpdateFromMineCommand}" Padding="6,0" Margin="0,0,6,4" FontFamily="{DynamicResource RetroFont}" FontSize="15"
+                                                Visibility="{Binding DiffersFromMine, Converter={StaticResource BoolToVis}}" ToolTip="Take your library's version into this study (undoable)." />
+                                    </WrapPanel>
+                                    <TextBlock Style="{StaticResource FieldLabel}" Text="Name" />
+                                    <TextBox Text="{Binding Name, Mode=TwoWay}" />
+                                    <TextBlock Style="{StaticResource FieldLabel}" Text="Description" />
+                                    <TextBox Text="{Binding Description, Mode=TwoWay}" TextWrapping="Wrap" />
+                                    <TextBlock Style="{StaticResource FieldLabel}" Text="Members (profile, fewest – most per group)" Margin="0,8,0,0" />
+                                    <ItemsControl ItemsSource="{Binding Members}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border Margin="0,4,0,0" Padding="4" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1,0,0,0">
+                                                    <Grid>
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="*" />
+                                                            <ColumnDefinition Width="40" />
+                                                            <ColumnDefinition Width="Auto" />
+                                                            <ColumnDefinition Width="40" />
+                                                            <ColumnDefinition Width="Auto" />
+                                                            <ColumnDefinition Width="Auto" />
+                                                        </Grid.ColumnDefinitions>
+                                                        <ComboBox Grid.Column="0" ItemsSource="{Binding ProfileOptions}" DisplayMemberPath="Name" SelectedValuePath="Id"
+                                                                  SelectedValue="{Binding ProfileId, Mode=TwoWay}" ToolTip="Agent profile of this row (their body, speed and results row)." />
+                                                        <TextBox Grid.Column="1" Margin="4,0,0,0" Text="{Binding Min, Mode=TwoWay}" ToolTip="Fewest of them per group (0 = sometimes none)." />
+                                                        <TextBlock Grid.Column="2" Margin="3,0" Style="{StaticResource DimText}" Text="–" VerticalAlignment="Center" />
+                                                        <TextBox Grid.Column="3" Text="{Binding Max, Mode=TwoWay}" ToolTip="Most of them per group (a group has 2–8 people in all)." />
+                                                        <Button Grid.Column="4" Margin="4,0,0,0" Content="▲" Command="{Binding MoveUpCommand}" Padding="5,0"
+                                                                Visibility="{Binding CanMoveUp, Converter={StaticResource BoolToVis}}" ToolTip="Move up (the top row leads the group)." />
+                                                        <Button Grid.Column="5" Margin="4,0,0,0" Content="×" Command="{Binding RemoveCommand}" Padding="6,0" ToolTip="Remove this row." />
+                                                        <TextBlock Grid.Column="4" Margin="4,0,0,0" Text="{Binding RoleText}" FontFamily="{DynamicResource RetroFont}" FontSize="13"
+                                                                   Foreground="{StaticResource YellowBrush}" VerticalAlignment="Center"
+                                                                   Visibility="{Binding IsLead, Converter={StaticResource BoolToVis}}"
+                                                                   ToolTip="The lead: their profile's preferences steer the group's choices (D-387)." />
+                                                    </Grid>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    <Button Margin="0,4,0,0" HorizontalAlignment="Left" Content="ADD MEMBER" Command="{Binding AddMemberCommand}"
+                                            FontFamily="{DynamicResource RetroFont}" FontSize="14" ToolTip="Add a row: another profile in the group." />
+                                    <TextBlock Margin="0,4,0,0" Text="{Binding SizeText}" Style="{StaticResource DimText}" TextWrapping="Wrap" />
+                                    <TextBlock Style="{StaticResource FieldLabel}" Text="Default journey (mix lines set to &quot;(profile default)&quot;)" />
+                                    <ComboBox ItemsSource="{Binding DefaultJourneyOptions}" DisplayMemberPath="Name" SelectedValuePath="Id"
+                                              SelectedValue="{Binding DefaultJourneyId, Mode=TwoWay}"
+                                              ToolTip="The journey the whole group follows on any mix line whose journey is (profile default). Decisions are made once for the group." />
+                                    <TextBlock Margin="0,8,0,0" Text="{Binding UsageText}" Style="{StaticResource DimText}" TextWrapping="Wrap" />
+                                </StackPanel>
+                            </Border>
+
                             <!-- Journey from LIBRARY ▸ JOURNEYS (D-154, D-161, D-162, D-165) -->
                             <Border Visibility="{Binding HasJourneySelection, Converter={StaticResource BoolToVis}}">
                                 <StackPanel Margin="12,0" DataContext="{Binding SelectedJourney}">
@@ -1359,7 +1446,7 @@
                                                 <StackPanel Visibility="{Binding HasTarget, Converter={StaticResource BoolToVis}}">
                                                     <TextBlock Style="{StaticResource FieldLabel}" Text="{Binding TargetLabel}" />
                                                     <ComboBox IsEditable="True" ItemsSource="{Binding TargetOptions}" Text="{Binding TargetTag, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"
-                                                              ToolTip="A device type tag (Gate…), a zone tag (Retail…), a train service tag, or a person tag." />
+                                                              ToolTip="A device type tag (Gate…), a zone tag (Retail…), a service tag, or a person tag." />
                                                 </StackPanel>
 
                                                 <StackPanel Visibility="{Binding IsSetTag, Converter={StaticResource BoolToVis}}">
@@ -1623,12 +1710,23 @@
                                 <ToggleButton Style="{StaticResource SwitchToggle}" Margin="0,12,0,0" Content="Colour-blind-safe heatmap" IsChecked="{Binding ColourBlindHeatmap, Mode=TwoWay}"
                                               ToolTip="Heatmaps in a purple-teal-yellow ramp that reads with any colour vision, instead of the classic green-to-red Fruin colours." />
 
-                                <!-- TRAINS (D-184-D-187): door zones driven by a timetable. -->
-                                <TextBlock Style="{StaticResource PanelHeader}" Text="TRAINS" Margin="0,14,0,0" />
+
+                                <TextBlock Style="{StaticResource FieldLabel}" Text="File" />
+                                <TextBlock Text="{Binding FileText}" Style="{StaticResource DimDataText}" TextWrapping="Wrap" />
+                            </StackPanel>
+                            <TextBlock Margin="12,18,12,0" Style="{StaticResource DimText}"
+                                       Text="Fields commit when they lose focus; every edit can be undone with Ctrl+Z." />
+                        </StackPanel>
+
+                        <!-- SERVICES tab (round 025, D-399): same edit lock as the other tabs. -->
+                        <StackPanel Visibility="{Binding IsServicesTab, Converter={StaticResource BoolToVis}}">
+                            <StackPanel Margin="12,0">
+                                <!-- SERVICES (D-184-D-187; own tab and kinds, round 025, D-398, D-399): door zones driven by a timetable. -->
+                                <TextBlock Style="{StaticResource PanelHeader}" Text="SERVICES" Margin="0,4,0,0" />
                                 <TextBlock Style="{StaticResource DimText}" TextWrapping="Wrap"
-                                           Text="Select door zones (sink or spawn/sink) in the plan, then ADD SERVICE. A door's emission rules say who gets off (their rates are relative shares); it only takes boarders while a train is in." />
+                                           Text="Anything that arrives on a timetable and takes people away: a train, a plane at a gate, a bus, a ride. Select its door zones (sink or spawn/sink) in the plan, then ADD SERVICE and pick its kind. A door's emission rules say who gets off (their rates are relative shares); it only takes boarders while the vehicle is in. Journeys end at one with Board service." />
                                 <Button Margin="0,6,0,0" HorizontalAlignment="Left" Padding="6,0" Content="ADD SERVICE" Command="{Binding AddTrainServiceCommand}"
-                                        FontFamily="{DynamicResource RetroFont}" FontSize="15" ToolTip="New train service whose doors are the selected sink zones." />
+                                        FontFamily="{DynamicResource RetroFont}" FontSize="15" ToolTip="New service (a train to start with) whose doors are the selected sink zones." />
                                 <ItemsControl ItemsSource="{Binding TrainServiceRows}">
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate>
@@ -1636,49 +1734,49 @@
                                                 <StackPanel>
                                                     <DockPanel>
                                                         <Button DockPanel.Dock="Right" Content="DELETE" Command="{Binding DeleteCommand}" Padding="6,0"
-                                                                FontFamily="{DynamicResource RetroFont}" FontSize="15" ToolTip="Delete this train service." />
+                                                                FontFamily="{DynamicResource RetroFont}" FontSize="15" ToolTip="Delete this service." />
                                                         <TextBlock Text="{Binding Header}" Style="{StaticResource PanelHeader}" VerticalAlignment="Center" />
                                                     </DockPanel>
                                                     <TextBlock Text="{Binding Summary}" Style="{StaticResource DimText}" TextWrapping="Wrap" />
                                                     <TextBlock Style="{StaticResource FieldLabel}" Text="Name" />
                                                     <TextBox Text="{Binding Name, Mode=TwoWay}" />
-                                                    <TextBlock Style="{StaticResource FieldLabel}" Text="Tag (Board train steps ask for it)" />
+                                                    <TextBlock Style="{StaticResource FieldLabel}" Text="Kind" />
+                                                    <ComboBox ItemsSource="{Binding KindOptions}" DisplayMemberPath="Label" SelectedValuePath="Value" SelectedValue="{Binding Kind, Mode=TwoWay}"
+                                                              ToolTip="Train, plane, bus, ride or other: the words, the plan label and the starting timetable. Values you've changed are kept." />
+                                                    <TextBlock Style="{StaticResource FieldLabel}" Text="Tag (Board service journey ends ask for it)" />
                                                     <TextBox Text="{Binding Tag, Mode=TwoWay}" />
                                                     <TextBlock Style="{StaticResource FieldLabel}" Text="Every (s)" />
                                                     <TextBox Text="{Binding HeadwayText, Mode=TwoWay}" />
-                                                    <TextBlock Style="{StaticResource FieldLabel}" Text="First train at (s after the start)" />
+                                                    <TextBlock Style="{StaticResource FieldLabel}" Text="{Binding FirstLabel}" />
                                                     <TextBox Text="{Binding OffsetText, Mode=TwoWay}" />
-                                                    <TextBlock Style="{StaticResource FieldLabel}" Text="Doors open (s)" />
+                                                    <TextBlock Style="{StaticResource FieldLabel}" Text="{Binding OpenLabel}" />
                                                     <TextBox Text="{Binding DwellText, Mode=TwoWay}" />
-                                                    <TextBlock Style="{StaticResource FieldLabel}" Text="People getting off per train" />
+                                                    <TextBlock Style="{StaticResource FieldLabel}" Text="{Binding AlightLabel}" />
                                                     <TextBox Text="{Binding AlightText, Mode=TwoWay}" />
                                                     <TextBlock Style="{StaticResource FieldLabel}" Text="Getting off takes (s)" />
                                                     <TextBox Text="{Binding AlightOverText, Mode=TwoWay}" />
-                                                    <TextBlock Style="{StaticResource FieldLabel}" Text="Places per train" />
+                                                    <TextBlock Style="{StaticResource FieldLabel}" Text="{Binding PlacesLabel}" />
                                                     <TextBox Text="{Binding CapacityText, Mode=TwoWay}" />
-                                                    <TextBlock Style="{StaticResource FieldLabel}" Text="Doors" />
+                                                    <TextBlock Style="{StaticResource FieldLabel}" Text="{Binding DoorsLabel}" />
                                                     <TextBlock Text="{Binding DoorsText}" Style="{StaticResource DimDataText}" TextWrapping="Wrap" />
                                                     <Button Margin="0,4,0,0" HorizontalAlignment="Left" Padding="6,0" Content="SET DOORS" Command="{Binding SetDoorsCommand}"
                                                             FontFamily="{DynamicResource RetroFont}" FontSize="15" ToolTip="Make the sink zones selected in the plan this service's doors." />
-                                                    <TextBlock Style="{StaticResource FieldLabel}" Text="Train shape" />
+                                                    <TextBlock Style="{StaticResource FieldLabel}" Text="{Binding ShapeLabel}" />
                                                     <TextBlock Text="{Binding ShapeText}" Style="{StaticResource DimDataText}" TextWrapping="Wrap" />
                                                     <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
-                                                        <Button Padding="6,0" Content="DRAW TRAIN" Command="{Binding DrawShapeCommand}"
-                                                                FontFamily="{DynamicResource RetroFont}" FontSize="15" ToolTip="Draw the train's outline with the polygon tool on the doors' level. The door zones stay the doors." />
+                                                        <Button Padding="6,0" Content="{Binding DrawLabel}" Command="{Binding DrawShapeCommand}"
+                                                                FontFamily="{DynamicResource RetroFont}" FontSize="15" ToolTip="Draw the vehicle's outline with the polygon tool on the doors' level. The door zones stay the doors." />
                                                         <Button Margin="6,0,0,0" Padding="6,0" Content="AUTO" Command="{Binding ClearShapeCommand}"
-                                                                FontFamily="{DynamicResource RetroFont}" FontSize="15" ToolTip="Remove the drawn shape: the train is placed as a box along the platform edge." />
+                                                                FontFamily="{DynamicResource RetroFont}" FontSize="15" ToolTip="Remove the drawn shape: the vehicle is placed as a box along the door zones." />
                                                     </StackPanel>
                                                 </StackPanel>
                                             </Border>
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
-
-                                <TextBlock Style="{StaticResource FieldLabel}" Text="File" />
-                                <TextBlock Text="{Binding FileText}" Style="{StaticResource DimDataText}" TextWrapping="Wrap" />
+                                <TextBlock Margin="0,10,0,0" Style="{StaticResource DimText}" TextWrapping="Wrap" Text="No services yet."
+                                           Visibility="{Binding HasNoTrainServices, Converter={StaticResource BoolToVis}}" />
                             </StackPanel>
-                            <TextBlock Margin="12,18,12,0" Style="{StaticResource DimText}"
-                                       Text="Fields commit when they lose focus; every edit can be undone with Ctrl+Z." />
                         </StackPanel>
                     </Grid>
                     </StackPanel>
@@ -1846,7 +1944,7 @@
                         </DataGrid.Columns>
                     </DataGrid>
 
-                    <!-- JOURNEYS (D-229, D-230): profile × journey, people spawned after the warm-up. -->
+                    <!-- JOURNEYS (D-229, D-230): profile × journey, people spawned after the warm-up; then group × journey (round 024b). -->
                     <DataGrid Grid.Row="1" Style="{StaticResource ResultsGrid}" ItemsSource="{Binding JourneyResultRows}"
                               Visibility="{Binding IsTableJourneys, Converter={StaticResource BoolToVis}}">
                         <DataGrid.Columns>
@@ -1861,6 +1959,10 @@
                             <DataGridTextColumn Header="GAVE UP" Binding="{Binding GaveUp}" IsReadOnly="True" />
                             <DataGridTextColumn Header="STUCK" Binding="{Binding Stuck}" IsReadOnly="True" />
                             <DataGridTextColumn Header="IN PROGRESS" Binding="{Binding InProgress}" IsReadOnly="True" />
+                            <!-- Group rows only (round 024b, D-390): their counts are groups; time runs until the last member leaves. -->
+                            <DataGridTextColumn Header="SIZE" Binding="{Binding GroupSize, StringFormat={}{0:0.0}}" IsReadOnly="True" />
+                            <DataGridTextColumn Header="PEOPLE" Binding="{Binding People}" IsReadOnly="True" />
+                            <DataGridTextColumn Header="SPREAD %" Binding="{Binding SpreadPct, StringFormat={}{0:0.0}}" IsReadOnly="True" />
                         </DataGrid.Columns>
                     </DataGrid>
 
@@ -1894,6 +1996,9 @@
                         <Button Margin="6,0,0,0" Content="EXPORT PNG" Command="{Binding ExportPngCommand}" Padding="6,0"
                                 FontFamily="{DynamicResource RetroFont}" FontSize="15"
                                 ToolTip="Save the view at twice its size, with the map legend and a title block." />
+                        <Button Margin="6,0,0,0" Content="PDF REPORT" Command="{Binding ExportPdfCommand}" Padding="6,0"
+                                FontFamily="{DynamicResource RetroFont}" FontSize="15"
+                                ToolTip="A one-page A3 report: headline numbers, every level in plan with the map you pick, the people graph and CHECK findings." />
                     </StackPanel>
                 </Grid>
             </Grid>

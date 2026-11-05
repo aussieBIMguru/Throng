@@ -10,6 +10,7 @@ namespace Throng.Sim.Tests;
 public sealed class Round021Tests
 {
     [TestMethod]
+    [TestCategory("Slow")] // long run: skipped by publish.ps1 unless -AllTests (D-430)
     public void BatchRun_IsPlayOnItsSeed()
     {
         Study study = SimTestStudies.Corridor(ratePerMinute: 40, pattern: EmissionPattern.Poisson, seed: 7);
@@ -131,6 +132,7 @@ public sealed class Round021Tests
     }
 
     [TestMethod]
+    [TestCategory("Slow")] // long run: skipped by publish.ps1 unless -AllTests (D-430)
     public void Cancelled_ThrowsAndStops()
     {
         SimModel model = SimTestStudies.Compile(SimTestStudies.Corridor());

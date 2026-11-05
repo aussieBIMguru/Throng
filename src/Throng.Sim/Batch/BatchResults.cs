@@ -46,6 +46,9 @@ public sealed class BatchResults
     /// <summary>One row per lift bank, in model order.</summary>
     public required IReadOnlyList<LiftBatchResult> Lifts { get; init; }
 
+    /// <summary>Group × journey rows (round 024b, D-390): every row any run had, the first run's order.</summary>
+    public IReadOnlyList<GroupJourneyBatchResult> Groups { get; init; } = [];
+
     /// <summary>Sample times, seconds from the start (the longest run's).</summary>
     public required double[] Times { get; init; }
 
