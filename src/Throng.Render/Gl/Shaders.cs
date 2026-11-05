@@ -1,0 +1,294 @@
+namespace Throng.Render.Gl;
+
+/// <summary>
+/// GLSL 3.30 sources for the renderer's programs. Every vertex shader carries <see cref="Warp"/> (exploded levels,
+/// D-264) and passes its true world position on, and every fragment shader carries <see cref="Clip"/> (cutaway,
+/// D-266), so plan, 3D and ISO share one set of programs.
+/// </summary>
+internal static class Shaders
+{
+    /// <summary>Most level elevations the warp takes (matches <c>ExplodeMap.MaxLevels</c>).</summary>
+    public const int MaxLevels = 64;
+
+    private const string Version = """
+        #version 330 core
+
+        """;
+
+    /// <summary>
+    /// Height remap for exploded levels (D-264), the GLSL twin of <c>Throng.Core.Geometry.ExplodeMap</c>. uWarp 0: none;
+    /// 1: stretch spanning geometry across storeys; 2: shift rigidly by uShift (a level's own meshes).
+    /// </summary>
+    private const string Warp = """
+        uniform int uWarp;
+        uniform float uShift;
+        uniform float uGap;
+        uniform int uLevelCount;
+        uniform float uLevelZ[64];
+        float warpZ(float z)
+        {
+            if (uWarp == 2)
+            {
+                return z + uShift;
+            }
+
+            if (uWarp != 1 || uLevelCount < 2 || uGap <= 0.0 || z <= uLevelZ[0])
+            {
+                return z;
+            }
+
+            for (int i = 0; i < uLevelCount - 1; i++)
+            {
+                float a = uLevelZ[i];
+                float b = uLevelZ[i + 1];
+                if (z < b)
+                {
+                    return a + float(i) * uGap + (z - a) * (b - a + uGap) / (b - a);
+                }
+            }
+
+            return z + float(uLevelCount - 1) * uGap;
+        }
+
+        """;
+
+    /// <summary>Cutaway (D-266): fragments whose true world position is outside the box are discarded while uClip is 1.</summary>
+    private const string Clip = """
+        uniform int uClip;
+        uniform vec3 uBoxMin;
+        uniform vec3 uBoxMax;
+        bool clipped(vec3 p)
+        {
+            return uClip == 1 && (any(lessThan(p, uBoxMin)) || any(greaterThan(p, uBoxMax)));
+        }
+
+        """;
+
+    /// <summary>Shared vertex shader: position + per-vertex colour, with a global alpha.</summary>
+    public const string FlatVertex = Version + Warp + """
+        layout(location = 0) in vec3 aPosition;
+        layout(location = 1) in vec4 aColor;
+        uniform mat4 uViewProjection;
+        uniform float uAlpha;
+        out vec4 vColor;
+        out vec3 vWorld;
+        void main()
+        {
+            vColor = vec4(aColor.rgb, aColor.a * uAlpha);
+            vWorld = aPosition;
+            gl_Position = uViewProjection * vec4(aPosition.xy, warpZ(aPosition.z), 1.0);
+        }
+        """;
+
+    /// <summary>Flat colour for triangles.</summary>
+    public const string FlatFragment = Version + Clip + """
+        in vec4 vColor;
+        in vec3 vWorld;
+        out vec4 FragColor;
+        void main()
+        {
+            if (clipped(vWorld))
+            {
+                discard;
+            }
+
+            FragColor = vColor;
+        }
+        """;
+
+    /// <summary>
+    /// Expands each GL_LINES segment into a screen-space quad <c>uLineWidth</c> pixels wide with square caps
+    /// (D-049), since core-profile GL ignores glLineWidth above 1. Segments crossing the near plane are clipped in
+    /// clip space first so the perspective divide stays valid.
+    /// </summary>
+    public const string LineGeometry = Version + """
+        layout(lines) in;
+        layout(triangle_strip, max_vertices = 4) out;
+        in vec4 vColor[];
+        in vec3 vWorld[];
+        out vec4 gColor;
+        out vec3 gWorld;
+        uniform vec2 uViewport;
+        uniform float uLineWidth;
+        const float kNearW = 1e-4;
+        void main()
+        {
+            vec4 p0 = gl_in[0].gl_Position;
+            vec4 p1 = gl_in[1].gl_Position;
+            vec4 c0 = vColor[0];
+            vec4 c1 = vColor[1];
+            vec3 w0 = vWorld[0];
+            vec3 w1 = vWorld[1];
+
+            if (p0.w < kNearW && p1.w < kNearW)
+            {
+                return;
+            }
+
+            if (p0.w < kNearW)
+            {
+                float t = (kNearW - p0.w) / (p1.w - p0.w);
+                p0 = mix(p0, p1, t);
+                c0 = mix(c0, c1, t);
+                w0 = mix(w0, w1, t);
+            }
+            else if (p1.w < kNearW)
+            {
+                float t = (kNearW - p1.w) / (p0.w - p1.w);
+                p1 = mix(p1, p0, t);
+                c1 = mix(c1, c0, t);
+                w1 = mix(w1, w0, t);
+            }
+
+            vec2 halfViewport = uViewport * 0.5;
+            vec2 s0 = (p0.xy / p0.w) * halfViewport;
+            vec2 s1 = (p1.xy / p1.w) * halfViewport;
+            vec2 dir = s1 - s0;
+            float len = length(dir);
+            dir = len > 1e-5 ? dir / len : vec2(1.0, 0.0);
+
+            float halfWidth = uLineWidth * 0.5;
+            vec2 normal = vec2(-dir.y, dir.x) * halfWidth;
+            vec2 cap = dir * halfWidth;
+
+            // Back to clip space: divide the pixel offset by the half viewport, then multiply by w.
+            vec2 n0 = normal / halfViewport * p0.w;
+            vec2 n1 = normal / halfViewport * p1.w;
+            vec2 e0 = cap / halfViewport * p0.w;
+            vec2 e1 = cap / halfViewport * p1.w;
+
+            gColor = c0; gWorld = w0; gl_Position = vec4(p0.xy - e0 + n0, p0.zw); EmitVertex();
+            gColor = c0; gWorld = w0; gl_Position = vec4(p0.xy - e0 - n0, p0.zw); EmitVertex();
+            gColor = c1; gWorld = w1; gl_Position = vec4(p1.xy + e1 + n1, p1.zw); EmitVertex();
+            gColor = c1; gWorld = w1; gl_Position = vec4(p1.xy + e1 - n1, p1.zw); EmitVertex();
+            EndPrimitive();
+        }
+        """;
+
+    /// <summary>Textured quads for plan underlays (D-085): position + UV, global alpha.</summary>
+    public const string TexturedVertex = Version + Warp + """
+        layout(location = 0) in vec3 aPosition;
+        layout(location = 1) in vec2 aUv;
+        uniform mat4 uViewProjection;
+        out vec2 vUv;
+        out vec3 vWorld;
+        void main()
+        {
+            vUv = aUv;
+            vWorld = aPosition;
+            gl_Position = uViewProjection * vec4(aPosition.xy, warpZ(aPosition.z), 1.0);
+        }
+        """;
+
+    /// <summary>Samples the underlay texture with the underlay's opacity.</summary>
+    public const string TexturedFragment = Version + Clip + """
+        in vec2 vUv;
+        in vec3 vWorld;
+        uniform sampler2D uTexture;
+        uniform float uAlpha;
+        out vec4 FragColor;
+        void main()
+        {
+            if (clipped(vWorld))
+            {
+                discard;
+            }
+
+            vec4 c = texture(uTexture, vUv);
+            FragColor = vec4(c.rgb, c.a * uAlpha);
+        }
+        """;
+
+    /// <summary>Flat colour for the geometry-shader output.</summary>
+    public const string LineFragment = Version + Clip + """
+        in vec4 gColor;
+        in vec3 gWorld;
+        out vec4 FragColor;
+        void main()
+        {
+            if (clipped(gWorld))
+            {
+                discard;
+            }
+
+            FragColor = gColor;
+        }
+        """;
+
+    /// <summary>
+    /// Instanced agents (D-102): a unit capsule mesh (per vertex: position, shade, part) placed per instance by
+    /// position + heading, coloured by profile and scaled by radius and height. Part 3 is the stuck ring (D-106),
+    /// kept at floor height and blinking while the stuck flag is set. With <c>uColorMode</c> 1 bodies take a stress
+    /// ramp (D-145, D-146): blue calm, through yellow, to red fed up. The base height is warped like spanning geometry
+    /// (D-264) and the body added on top, so people keep their shape on stretched stairs.
+    /// </summary>
+    public const string AgentVertex = Version + Warp + """
+        layout(location = 0) in vec3 aPosition;
+        layout(location = 1) in float aShade;
+        layout(location = 2) in float aPart;
+        layout(location = 3) in vec4 iPosHeading;
+        layout(location = 4) in vec3 iColor;
+        layout(location = 5) in vec3 iSize;
+        layout(location = 6) in float iStress;
+        uniform mat4 uViewProjection;
+        uniform float uTime;
+        uniform int uColorMode;
+        uniform float uDim;
+        out vec4 vColor;
+        out vec3 vWorld;
+        vec3 stressRamp(float t)
+        {
+            vec3 calm = vec3(0.23, 0.51, 0.96);
+            vec3 tense = vec3(0.98, 0.80, 0.08);
+            vec3 hot = vec3(0.94, 0.27, 0.27);
+            return t < 0.5 ? mix(calm, tense, t * 2.0) : mix(tense, hot, (t - 0.5) * 2.0);
+        }
+        void main()
+        {
+            float c = cos(iPosHeading.w);
+            float s = sin(iPosHeading.w);
+            vec2 local = aPosition.xy * iSize.x * (1.0 - 0.3 * uDim);
+            vec2 rotated = vec2(local.x * c - local.y * s, local.x * s + local.y * c);
+            float z = aPart > 2.5 ? aPosition.z : aPosition.z * iSize.y;
+            vec3 world = vec3(iPosHeading.xy + rotated, iPosHeading.z + z);
+
+            vec3 base = uColorMode == 1 ? stressRamp(clamp(iStress, 0.0, 1.0)) : iColor;
+            vec3 rgb = base * aShade;
+            float alpha = 1.0;
+            if (aPart > 2.5)
+            {
+                rgb = vec3(1.0, 0.25, 0.2);
+                alpha = iSize.z * (0.55 + 0.45 * sin(uTime * 6.0));
+            }
+            else if (aPart > 1.5)
+            {
+                rgb = mix(base, vec3(1.0), 0.6) * aShade;
+            }
+
+            if (aPart < 2.5)
+            {
+                rgb = mix(rgb, vec3(0.55), 0.45 * uDim);
+            }
+
+            vColor = vec4(rgb, alpha);
+            vWorld = world;
+            gl_Position = uViewProjection * vec4(world.xy, warpZ(iPosHeading.z) + z, 1.0);
+        }
+        """;
+
+    /// <summary>Agent fragments; fully transparent ones (the ring when not stuck) are discarded so they write no depth.</summary>
+    public const string AgentFragment = Version + Clip + """
+        in vec4 vColor;
+        in vec3 vWorld;
+        out vec4 FragColor;
+        void main()
+        {
+            if (vColor.a < 0.01 || clipped(vWorld))
+            {
+                discard;
+            }
+
+            FragColor = vColor;
+        }
+        """;
+}

@@ -1,0 +1,130 @@
+using Throng.Core.Geometry;
+
+namespace Throng.Core.Model;
+
+/// <summary>
+/// A placed device (node) from a <see cref="Library.DeviceTemplate"/>: ticket machine, gate line, desk… (D-089).
+/// It has a rectangular footprint and a service side; people queue at it and are served (round 009, D-152, D-153).
+/// </summary>
+/// <remarks>
+/// Plan frame: <see cref="Position"/> is the footprint centre; <see cref="AngleDeg"/> is the direction the service
+/// side faces (counter-clockwise from +X). <see cref="DepthM"/> runs along that direction and <see cref="WidthM"/>
+/// across it. Pass-through devices (gates, security) keep their lanes walkable and only block the dividers between
+/// lanes; other devices block their whole footprint.
+/// </remarks>
+public sealed class Device
+{
+    /// <summary>Default visual height in metres.</summary>
+    public const double DefaultHeightM = 1.2;
+
+    /// <summary>Stable identifier.</summary>
+    public Guid Id { get; set; } = Guid.NewGuid();
+
+    /// <summary>Display name, e.g. "Ticket machine 1".</summary>
+    public string Name { get; set; } = "Device";
+
+    /// <summary>Id of the preset it was placed from (embedded in the study library), if any.</summary>
+    public Guid? TemplateId { get; set; }
+
+    /// <summary>Preset key, e.g. "device.gate-line".</summary>
+    public string PresetKey { get; set; } = string.Empty;
+
+    /// <summary>Type tag agents ask for (M3), copied from the preset.</summary>
+    public string TypeTag { get; set; } = string.Empty;
+
+    /// <summary>Level it stands on.</summary>
+    public Guid LevelId { get; set; }
+
+    /// <summary>Footprint centre in plan metres.</summary>
+    public Point2 Position { get; set; }
+
+    /// <summary>Direction the service side faces, degrees counter-clockwise from +X.</summary>
+    public double AngleDeg { get; set; } = 90;
+
+    /// <summary>Footprint width across the service direction, metres.</summary>
+    public double WidthM { get; set; } = 1.0;
+
+    /// <summary>Footprint depth along the service direction, metres.</summary>
+    public double DepthM { get; set; } = 1.0;
+
+    /// <summary>Lanes or servers side by side (gate lines, counters).</summary>
+    public int Lanes { get; set; } = 1;
+
+    /// <summary>True when people pass through (gates, security); false when they turn around after service.</summary>
+    public bool PassThrough { get; set; }
+
+    /// <summary>Visual height in metres.</summary>
+    public double HeightM { get; set; } = DefaultHeightM;
+
+    /// <summary>Display colour as #RRGGBB, from the preset.</summary>
+    public string ColorHex { get; set; } = "#FACC15";
+
+    /// <summary>Default <see cref="MaxQueue"/> (D-153).</summary>
+    public const int DefaultMaxQueue = 20;
+
+    /// <summary>
+    /// Longest queue line per lane or server, in people (D-153); the automatic line also stops earlier where it
+    /// runs out of floor.
+    /// </summary>
+    public int MaxQueue { get; set; } = DefaultMaxQueue;
+
+    /// <summary>
+    /// Drawn queue path from the service point outwards (D-153, edited from round 009b); empty means the automatic
+    /// line straight out from the service side, bending along walls.
+    /// </summary>
+    public List<Point2> QueuePath { get; set; } = [];
+
+    /// <summary>
+    /// Pass-through devices: the direction of each lane, in lane order (D-196). Missing entries (and every lane of
+    /// studies saved before round 010b) are <see cref="GateLaneDirection.Both"/>.
+    /// </summary>
+    public List<GateLaneDirection> LaneDirections { get; set; } = [];
+
+    /// <summary>
+    /// Accessible override (D-223): null takes the preset's <see cref="Library.DeviceTemplate.Accessible"/>; true or
+    /// false sets it for this device only. Resolve with <see cref="Library.StudyTemplates.IsAccessible"/>.
+    /// </summary>
+    public bool? AccessibleOverride { get; set; }
+
+    /// <summary>Direction of lane <paramref name="lane"/> (D-196); Both when not set.</summary>
+    public GateLaneDirection DirectionOf(int lane) =>
+        LaneDirections is { } list && lane >= 0 && lane < list.Count ? list[lane] : GateLaneDirection.Both;
+
+    /// <summary>Unit vector the service side faces.</summary>
+    public Point2 Facing()
+    {
+        double r = AngleDeg * Math.PI / 180.0;
+        return new Point2(Math.Cos(r), Math.Sin(r));
+    }
+
+    /// <summary>Returns an independent copy, including the id.</summary>
+    public Device Clone()
+    {
+        var copy = new Device();
+        copy.CopyFrom(this);
+        return copy;
+    }
+
+    /// <summary>Copies every value (including the id) from <paramref name="other"/>.</summary>
+    public void CopyFrom(Device other)
+    {
+        Id = other.Id;
+        Name = other.Name;
+        TemplateId = other.TemplateId;
+        PresetKey = other.PresetKey;
+        TypeTag = other.TypeTag;
+        LevelId = other.LevelId;
+        Position = other.Position;
+        AngleDeg = other.AngleDeg;
+        WidthM = other.WidthM;
+        DepthM = other.DepthM;
+        Lanes = other.Lanes;
+        PassThrough = other.PassThrough;
+        HeightM = other.HeightM;
+        ColorHex = other.ColorHex;
+        MaxQueue = other.MaxQueue;
+        QueuePath = [.. other.QueuePath ?? []];
+        LaneDirections = [.. other.LaneDirections ?? []];
+        AccessibleOverride = other.AccessibleOverride;
+    }
+}

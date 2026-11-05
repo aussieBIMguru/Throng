@@ -1,0 +1,180 @@
+using Throng.Core.Library;
+using Throng.Core.Model;
+using Throng.Core.Validation;
+using Throng.Sim.Nav;
+
+namespace Throng.Sim;
+
+/// <summary>An agent profile resolved for a run: the template, its routing class and its colour.</summary>
+public sealed class SimProfile
+{
+    /// <summary>Position in <see cref="SimModel.Profiles"/>.</summary>
+    public required int Index { get; init; }
+
+    /// <summary>The template values.</summary>
+    public required AgentProfileTemplate Template { get; init; }
+
+    /// <summary>Routing class.</summary>
+    public required MobilityClass Mobility { get; init; }
+
+    /// <summary>Display colour, 0..1.</summary>
+    public required float R { get; init; }
+
+    /// <summary>Display colour, 0..1.</summary>
+    public required float G { get; init; }
+
+    /// <summary>Display colour, 0..1.</summary>
+    public required float B { get; init; }
+
+    /// <summary>
+    /// Seconds off each device's choice cost for this profile (D-166), indexed like <see cref="SimModel.Devices"/>;
+    /// empty when the run has no devices.
+    /// </summary>
+    public double[] DeviceBonusS { get; set; } = [];
+
+    /// <summary>The profile's bonus for a device (0 when none).</summary>
+    public double BonusFor(int device) => device >= 0 && device < DeviceBonusS.Length ? DeviceBonusS[device] : 0;
+}
+
+/// <summary>One emission rule ready to run: where people appear and where they may go.</summary>
+public sealed class SimEmitter
+{
+    /// <summary>Position in <see cref="SimModel.Emitters"/>.</summary>
+    public required int Index { get; init; }
+
+    /// <summary>Spawn zone id.</summary>
+    public required Guid RegionId { get; init; }
+
+    /// <summary>"Zone name rule n", for messages.</summary>
+    public required string Label { get; init; }
+
+    /// <summary>The rule.</summary>
+    public required EmissionRule Rule { get; init; }
+
+    /// <summary>The rule's mix lines with a positive share (D-151); at least one.</summary>
+    public required SimMixLine[] Lines { get; init; }
+
+    /// <summary>Sum of the lines' shares.</summary>
+    public double TotalShare
+    {
+        get
+        {
+            double total = 0;
+            foreach (SimMixLine line in Lines)
+            {
+                total += line.Share;
+            }
+
+            return total;
+        }
+    }
+
+    /// <summary>Sum of the lines' pick weights (D-386): <see cref="TotalShare"/> when no line spawns groups.</summary>
+    public double TotalPickWeight
+    {
+        get
+        {
+            double total = 0;
+            foreach (SimMixLine line in Lines)
+            {
+                total += line.PickWeight;
+            }
+
+            return total;
+        }
+    }
+
+    /// <summary>Floor surface of the zone.</summary>
+    public required int Floor { get; init; }
+
+    /// <summary>Walkable floor cells inside the zone.</summary>
+    public required int[] Cells { get; init; }
+
+    /// <summary>True for nearest-sink rules.</summary>
+    public required bool Nearest { get; init; }
+
+    /// <summary>Reachable destination sinks (nav sink index) with weights; for nearest-sink rules, the candidates (weight 1).</summary>
+    public required (int Sink, double Weight)[] Destinations { get; init; }
+
+    /// <summary>
+    /// The train service (index into <see cref="SimModel.Trains"/>) whose door this zone is, or −1 (D-184). A door's
+    /// rules don't emit on their own; the service releases people when a train arrives.
+    /// </summary>
+    public int TrainService { get; set; } = -1;
+}
+
+/// <summary>Everything a run needs, compiled once by <see cref="SimSetup"/>; immutable while running.</summary>
+public sealed class SimModel
+{
+    /// <summary>Fields and portal graph.</summary>
+    public required NavRoutes Routes { get; init; }
+
+    /// <summary>Profiles in use.</summary>
+    public required IReadOnlyList<SimProfile> Profiles { get; init; }
+
+    /// <summary>
+    /// Profiles that make people's choices (round 024, D-387): <see cref="Profiles"/> first (same objects, same indices),
+    /// then one per group line: its lead's profile with every member's hard needs. Defaults to <see cref="Profiles"/>.
+    /// </summary>
+    public IReadOnlyList<SimProfile> RouteProfiles
+    {
+        get => _routeProfiles ?? Profiles;
+        init => _routeProfiles = value;
+    }
+
+    private readonly IReadOnlyList<SimProfile>? _routeProfiles;
+
+    /// <summary>Emission rules in use.</summary>
+    public required IReadOnlyList<SimEmitter> Emitters { get; init; }
+
+    /// <summary>Journeys in use (D-149).</summary>
+    public IReadOnlyList<SimJourney> Journeys { get; init; } = [];
+
+    /// <summary>Devices with queues (D-152, D-153); only those some journey can use.</summary>
+    public IReadOnlyList<SimDevice> Devices { get; init; } = [];
+
+    /// <summary>Lift banks (round 013), each with its connector in the navigation world.</summary>
+    public IReadOnlyList<SimLift> Lifts { get; init; } = [];
+
+    /// <summary>Train services with at least one usable door (D-184).</summary>
+    public IReadOnlyList<SimTrain> Trains { get; init; } = [];
+
+    /// <summary>Tag names by bit position (D-150; at most 64 per run).</summary>
+    public IReadOnlyList<string> TagNames { get; init; } = [];
+
+    /// <summary>RNG seed.</summary>
+    public required int Seed { get; init; }
+
+    /// <summary>Clock start.</summary>
+    public required TimeSpan StartTimeOfDay { get; init; }
+
+    /// <summary>Fixed duration in seconds, or null to run until stopped (D-103).</summary>
+    public required double? DurationS { get; init; }
+
+    /// <summary>Fixed step in seconds.</summary>
+    public required double TimeStepS { get; init; }
+
+    /// <summary>Keep-side bias (D-105).</summary>
+    public required KeepSide KeepSide { get; init; }
+
+    /// <summary>Seconds at the start left out of the cumulative maps and results (D-218); 0 for none.</summary>
+    public double WarmUpS { get; init; }
+
+    /// <summary>A single queue wait longer than this is a long wait in the journey results, seconds (D-231).</summary>
+    public double LongWaitS { get; init; } = 120;
+
+    /// <summary>Measurement zones counted in the results (D-228), at most <see cref="SimZone.MaxZones"/>.</summary>
+    public IReadOnlyList<SimZone> Zones { get; init; } = [];
+
+    /// <summary>
+    /// Per surface (indexed like <see cref="NavWorld.Surfaces"/>): the zone bits of each cell, or null for a surface
+    /// with no measurement zone on it.
+    /// </summary>
+    public IReadOnlyList<ulong[]?> ZoneCellBits { get; init; } = [];
+
+    /// <summary>Warnings and info found while compiling.</summary>
+    public required IReadOnlyList<ValidationMessage> Findings { get; init; }
+
+    /// <summary>Navigation world.</summary>
+    public NavWorld World => Routes.World;
+}

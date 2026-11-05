@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Simulation engine. Headless: no UI or GL references, so it can run in tests and batch studies. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Throng.Sim</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Throng.Core\Throng.Core.csproj" />
+  </ItemGroup>
+
+</Project>

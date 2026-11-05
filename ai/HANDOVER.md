@@ -1,0 +1,401 @@
+# Throng — Handover to the next chat
+
+**Written:** 2026-11-05, end of round 026 (installer, v1.0.0). State = **Throng-r028** (026 installer + 026b stair-end squeeze + 027 route choice + 028 GitHub docs and Slow tests; all in round-026.md), **unbuilt in the sandbox**
+(no SDK, Inno Setup or PowerShell here). **Brief:** v0.49. **Decisions:** D-001–D-430. **409 test methods; format v12.**
+Next free decision: **D-431**. v1 ships via git (github.com/aussieBIMguru/Throng); screenshots replace docs/images placeholders. Then: tune 027's constants from Gavin's runs, backlog.
+**Round 025 status:** confirmed; the PDF font fix works. **Performance tuning is parked until after v1** (PERF F8 and
+bench.bat stay; if resumed, start with nav compile time).
+**Round 026 recap:** `publish.bat` → `build\publish.ps1` (version from `Directory.Build.props` `<Version>` = 1.0.0;
+`dotnet test` without the bench; self-contained win-x64 folder publish to `artifacts\app\`; checks LICENSE / notices /
+`Assets\Fonts\OFL.txt`; optional `-Sign -CertThumbprint`; ISCC from `-InnoCompiler`, Inno Setup 6 folders or PATH;
+SHA-256) → `installer\Throng.iss` (AppId {4F693B47-3FE5-43E3-B724-77382442AD08}, per user in
+`%LocalAppData%\Programs\Throng`, LICENSE info page, optional desktop shortcut, HKCU `.throng` → `Throng.Study`,
+running-Throng check via WMI, `[InstallDelete] {app}\*`, uninstall deletes only `{app}`). Mirrors BimGo's
+publish.ps1 / BimGo.iss minus the Revit bundle and the app-owned `--register`.
+**Next chat = (1) fix any publish / ISCC errors from Gavin's first `publish.bat` run, (2) confirm with
+`ai/rounds/round-026.md`'s 11 steps (install, About = 1.0.0, double-click .throng, PDF from the installed copy,
+upgrade 1.0.1 over 1.0.0, running check, uninstall keeps library), (3) then backlog: performance (nav compile),
+replay video / GIF, across-runs nodes CSV, fuller SERVICES, signing, Explorer-open for the other Throng file types.**
+Still open: PDFsharp transitive *(verify)* lines in THIRD-PARTY-NOTICES (ask for `dotnet list src\Throng.App package
+--include-transitive`).
+**Previous round's notes follow.**
+
+**Written:** 2026-11-05, after round 025 testing — state = **Throng-r025b-fix**. Next free decision: **D-407**.
+**Round 025 status:** built and run by Gavin. Two fix-ups already in r025b-fix (round-025.md ▸ fix-up): the CHECK
+headway wording (`Round010bFileTests` passes again) and the PDF font resolver (`Services/ReportFontResolver.cs`, Arial +
+Consolas read from the Windows fonts folder; **PDF export after this fix not yet confirmed** — ask first). The 6-sector
+stadium starts, but slowly (nav compile in Debug while the bench ran); RESET during COMPILING throws a caught
+`OperationCanceledException` that VS shows as user-unhandled (expected; Continue). `bench.bat` ran 10+ minutes without
+finishing; Gavin stopped there. **Gavin's call: the app is robust at typical project scales; performance tuning is
+parked** (keep PERF/bench for later; if ever resumed, start with the nav compile time: flow fields per target over whole
+floors).
+**Next chat = round 026 Query phase: an installer / publisher "using a similar approach to BimGo's (makes its own Inno
+Setup installer)".** Ask Gavin to attach BimGo's publish script and `.iss` (or describe them) so Throng matches, then ask
+in staged multiple-choice batches (recommended first), for example: framework-dependent vs self-contained .NET 10
+(BimGo: framework-dependent shared install, net8); per-user vs per-machine install; one script that runs
+`dotnet publish -c Release -r win-x64` then `ISCC` (where Inno Setup lives, script name/location e.g. `installer/`,
+output folder); version source (`Directory.Build.props` → app, installer and file names) and AppId GUID; file
+associations for `.throng` / `.throngprofile` / `.thronglib` / `.throngdevice` (open in Throng, icons) and whether the app
+must handle a path on the command line (`App.OnStartup` already opens a `.throng` argument; `.thronglib` / `.throngprofile` /
+`.throngdevice` arguments would need handling, or no association for them); Start menu / desktop shortcuts; licence page
+(LICENSE) and THIRD-PARTY-NOTICES + OFL shipped beside Throng.exe (§20.3; the PDFsharp audit lines are still *verify*);
+uninstall keeps `%AppData%\Throng\Library` and logs; code signing (optional / later); a test checklist (install,
+open by double-click, upgrade over an older install, uninstall). Inno Setup is free to use (its own licence, not
+shipped inside Throng); record that in THIRD-PARTY-NOTICES as a build tool.
+**Previous round's notes follow.**
+
+**Written:** 2026-11-05, end of round 025 (SERVICES, PDF report, PERF, stadium demo + bench) — **unbuilt in the sandbox**.
+**Brief:** v0.48. **Decisions:** D-001–D-406. **409 test methods; format v12.** 024b confirmed by Gavin (no issues).
+**New package:** PDFsharp 6.2.4 (MIT) in Throng.App — record the transitive audit Gavin pastes in THIRD-PARTY-NOTICES.
+**Next chat = (1) fix any 025 build errors (PDFsharp calls were written from its docs: check `Services/PdfReport.cs`
+first), (2) confirm 025 with `ai/rounds/round-025.md`'s 13 steps, (3) round 026 = tuning from Gavin's `bench.bat`
+output (D-405: report only) — read which phases dominate at 20k+ people and fix those, adding SimTuning switches where
+behaviour changes.** Then backlog: replay video / GIF export, across-runs nodes CSV, fuller SERVICES (boarding-only,
+batches, call-to-board). Next free decision: D-407.
+**Round 025 recap:** `Core/Model/ServiceKind.cs` + `TrainService.{Kind, Create, WithKind}` (the type keeps its name),
+SERVICES tab (`PropertiesTabServices = 3`, RESULTS 4, CHECK 5) with the old STUDY ▸ TRAINS block and a Kind drop-down,
+`RunTrainView.Badge`; `App/Services/{ReportData, PdfReport}.cs`, `Views/ReportDialog`, `ViewModels/MainViewModel.Report.cs`
+(captures each level in plan, restores the view); `Sim/Engine/SimEngine.Perf.cs` (nine phases, `Lap` in `Step`),
+`Sim/PerfSample.cs`, `SimRunner.Perf`, `Views/ViewportView.Perf.cs` (F8); `IO/{StadiumBuilder, StadiumScenario}.cs`,
+New from Demo ▸ Stadium sector / Stadium (6 sectors); `Round025Tests.Bench_Stadium` + `bench.bat` (THRONG_BENCH=1).
+(024b handover follows.)
+**Written:** 2026-11-05, end of round 024b (groups: editor, library, results, tethers) — **unbuilt in the sandbox**.
+**Brief:** v0.47. **Decisions:** D-001–D-397. **400 test methods; format v12.** 024a confirmed (r024a-fix).
+**Next chat = (1) fix any 024b build errors, (2) confirm 024b with `ai/rounds/round-024.md` ▸ "How to test (024b)"
+(13 steps), (3) round 025 Query phase: stadium pass (D-379–D-381 decided) + one-page PDF report, one round, no split
+(D-396).** Queries to ask: PDF contents / layout, how it's made (permissive library such as PDFsharp, MIT, vs WPF
+XPS/print), bench pass marks, sector count / seats for the stadium demo. Watch in the stadium pass: batch memory (cores − 1
+engines), replay memory (now 24 B × people × frames, 1 GB cap), `FollowGuide` and `MeasureGroupSpread` per step, tether
+hit-testing (O(n) per frame while hovering). Next free decision: D-398.
+**Round 024b recap:** groups in `MyLibrary` (PlanSave brings member profiles + journeys, export / import, embed),
+`StudyDefinitions.{CreateGroupCopy, CreateNewGroup, GroupUseCount, GroupsWithMember}`, `GroupTemplate.Summarise(name)`;
+App `ViewModels/GroupDefinitionViewModel.cs`, `MainViewModel.EditGroupDefinition` + group cases in Definitions /
+MyLibrary, LIBRARY ▸ GROUPS (`LibraryBrowserViewModel.SetGroups`, Tabs[1]; DEVICES is Tabs[2]); results
+`Engine/{GroupJourneyResult, SimEngine.GroupResults}.cs`, `RunResults.Groups`, `Batch/GroupJourneyBatchResult.cs`,
+`BatchAverager.Groups`, journeys.csv four trailing group columns, `JourneyResultRow.ForGroup`; tags
+`SimEngine.GroupTag` (snapshot float 11), `PackedAgent.GroupTag`, `GroupColours.OfTag`; tethers
+`Views/{TetherLayer, ViewportView.Tethers}.cs`.
+(024a handover follows.)
+**Written:** 2026-11-01, end of round 024a (group movement: model, format v12, simulation) — **unbuilt in the sandbox**.
+**Brief:** v0.46. **Decisions:** D-001–D-393. **390 test methods; format v12.** 023 confirmed.
+**Next chat = (1) fix any 024a build errors, (2) confirm 024a with `ai/rounds/round-024.md`'s 15-step checklist,
+(3) round 024b BUILD — already decided (D-388, D-390, D-391, D-392): LIBRARY ▸ GROUPS tab + SELECTION editor (overrides
+with RESET, DUPLICATE, NEW, DELETE when unused), SAVE TO MY LIBRARY (brings member profiles), `.thronglib` groups,
+RESULTS ▸ JOURNEYS group × journey rows (group time = last member out, mean / 95th, size, people, spread over 5 m) in
+journeys.csv and batch, hover / selection tethers. Ask 024b's two small open questions first (round-024.md). No further
+split.** Then the stadium round (decided ahead, D-379–D-381). Next free decision: D-394.
+**Round 024a recap:** `Core/Library/GroupTemplate.cs` (`Roll`, `MeanSize`), `TemplateLibrary.Groups`, `MixLine.GroupId`,
+`StudyTemplates.{FindGroup, AvailableGroups, LineProfiles}`, built-ins (`agent.child`, six `group.*`; `agent.family`
+gone), `FormatMigrations.UpgradeV11ToV12`. Sim: `SimMixLine.{RouteProfile, Members, PickWeight}`,
+`SimModel.RouteProfiles` (Profiles + one merged per group, D-387), `AgentStore.{Route, Group, LastDevice}`,
+`Engine/SimEngine.Groups.cs` (slot table, per-step `IndexGroups`, spawn, `Recall`/`Remember` per journey node,
+`FollowGuide`, `GroupPull`, regroup, lift / train readiness), `AgentPhase.Regroup`, snapshot float 11 = group hue,
+replay `PackedAgent.GroupHue`. App: COLOUR ▸ GROUP (`GroupColours`), mix-line "who" lists groups.
+(023 handover follows.)
+**Written:** 2026-11-01, end of round 023 — **confirmed by Gavin (builds, no issues)**. Rounds 020–023 all confirmed.
+**Brief:** v0.45. **Decisions:** D-001–D-377. **375 test methods; format v11.** No open build errors.
+**Next chat = round 024 Query phase.** Gavin attaches the latest zip (Throng-r023). Read `ai/PROTOCOL.md`, this file,
+`ai/rounds/round-023.md`, then ask round 024's queries (staged batches, recommended first). Backlog candidates, in
+suggested order: (1) stadium-scale performance pass + stadium demo (watch batch memory: cores − 1 engines at once, and
+replay memory: 22 B × people × frames, 1 GB cap); (2) one-page PDF report (could take the batch summary and a replay
+still); (3) group movement (families / friends walking together); (4) video / GIF export of a replay. Open small item:
+an across-runs nodes summary CSV (round 021).
+**Round 023 (replay scrubbing, unbuilt in sandbox, 375 tests):** `Sim/Replay/ReplayRecording` (frames every 0.5 s,
+thinning at 1 GB, interpolation by `AgentStore.Serial`), captured in `SimRunner` after each step; `SimRunner.ViewTimeS`
+makes the Copy… methods and `ViewStats` show the recording; app in `App/ViewModels/MainViewModel.Replay.cs` (slider, LIVE,
+arrows, graph jump, batch REPLAY via `StartRunAsync(seedOverride, durationOverride)`). 022 confirmed. **Next chat = fix
+023 build errors, confirm with `round-023.md`'s 14 steps, then the next round's queries (stadium pass, PDF report, group
+movement, replay export).** Next free decision: D-378. *(Superseded: 023 is confirmed; see the top.)*
+(022 handover follows.)
+**Round 022 (UI fit, app only, unbuilt in sandbox):** label-width `ToolButton` + `ToolIconButton`, transport bar (body grid
+row 1 under the viewport: SPEED / COLOUR / MAP), RESULTS drop-downs (`MainViewModel.Choices.cs`), right panel 340, compact
+`RunStatusText` + `RunStatusDetail`. 021 confirmed by Gavin. **Next chat = fix 022 build errors, confirm with
+`round-022.md`'s 10 steps, then round 023 queries: replay scrubbing in the transport bar, incl. REPLAY of a batch run on
+its seed (D-371).** Next free decision: D-373.
+(021 handover follows.)
+**State:** round 021 built, **unbuilt in the sandbox** (no SDK): seeded batch runs in parallel (D-352–D-367). 020
+confirmed (built clean, 362 tests). **Next chat = (1) fix any 021 build errors, (2) confirm 021 with its 14-step
+checklist (`ai/rounds/round-021.md`), (3) the next round's queries (backlog below). 370 test methods; format v11.**
+021 recap: `SimEngine(model, seed, durationS)` lets runs share one compiled model (only read during a run, D-366);
+`Sim/Batch/BatchRunner` (Parallel.For, cores − 1, maps folded in seed order), `BatchAverager` (pure: `BatchStat` mean /
+min / max, `BatchSeries`, rounded `Mean` RunResults for the overlay), `Analysis/BatchCsv`; app in
+`App/ViewModels/MainViewModel.Batch.cs` (+ `BatchDialog`), RESULTS cells are `StatCell`s, SOURCE switch (`ShowsBatch`)
+drives tables, graph bands, heat (`RefreshBatchDensity`) and the overlay (`OverlaySource`).
+(Round 020 handover, kept for reference:) round 020 built: your library across studies (D-340–D-351). 019
+confirmed (346 tests). **Then: (1) fix any 020 build errors, (2) confirm 020 with its checklist, (3) round 021
+BUILD: seeded batch runs with averages (M8), already decided (D-352–D-365, parallel across cores) in
+`ai/rounds/round-021.md`**. Next free decision: D-366. **Format v11; 362 test methods.**
+020 recap: rules in `Core/Library/MyLibrary.cs` (no IO; `EmbedForUse`, `EmbedReferenced`, `PlanSave`, `Differs`,
+`ApplyImport`), disk in `IO/UserLibraryStore.cs` (folder injected; backup, unreadable → aside, newer → read-only) and
+`IO/LibraryFile.cs` (.thronglib), app in `App/ViewModels/MainViewModel.MyLibrary.cs`. Lookups take an optional
+`TemplateLibrary? mine` (study → MINE → built-in); the sim and CHECK never pass it. D-349 fallback lives in
+`JourneyTargets.UsesPicks` / `JourneyZones.Matching` (CHECK rule `journey-picks-fallback`).
+019 recap: engine counters in `Sim/Engine/SimEngine.JourneyFlow.cs` (per journey row, ports + node stats +
+candidates, post-warm-up only) copied as `RunResults.Flows` (`JourneyFlowResult`); predicted shares
+`CapacityCheck.PredictedShares` (`JourneyShares`); canvas overlay via `IJourneyCanvasHost.Overlay`
+(`Views/JourneyOverlay.cs`), built in `JourneyViewModel.RebuildOverlay`; SELECTION ▸ node ▸ RUN; nodes.csv.
+018 recap: journeys are graphs (`Core/Library/JourneyGraph.cs`, `JourneyEdits`, `JourneyTargets`), compiled to
+`SimNode` / `SimStep` (`SimSetup.CompileJourney`), run by `SimEngine.GoToNode` with choose-by rules
+(`ChooseDevice/ChooseZone/OnwardS/ZoneLoad`); the editable JOURNEY canvas (`App/Views/JourneyCanvas.cs` +
+`IJourneyCanvasHost`, host `JourneyViewModel`, node editor `JourneyNodeEditorViewModel`); built-in overrides
+(`MainViewModel.EditJourney/ResetJourney`); PICK IN PLAN.
+**Start here (next chat):** `ai/PROTOCOL.md` (AFK / manual-approval: ask permissions before the build, none during it;
+docs to the project + zip in one step at the end), this file, then `ai/rounds/round-021.md` (as built + checklist),
+then `round-020.md`.
+Open watch items: crowd stress (D-194) barely shows at 2.5 p/m² with 1 m counting; hold points can sit in front of an
+adjacent device's lane mouth; gate throughput with D-209/D-211 (diagnostics row "no lane clear").
+**Quota:** Gavin's weekly quota ran to ~98% in round 010. Keep reads to the files a change touches, batch edits,
+short replies, and sync docs with `project_write` from `local_path`.
+**Tuning loop that works (use it, don't guess):** `Throng.Sim.Tests/Round007Tests.Diagnostics_Round007Rules` runs
+the demo and an escalator pair with each `SimTuning` switch off in turn and prints arrived / stuck / where. Ask Gavin
+to paste its output, change what it points at, add a switch for any new rule.
+**Quota:** Gavin's daily quota is tight. Read only files a change touches, no Python replicas unless asked,
+targeted doc edits, sync docs to the project with `project_write` from `local_path`.
+**Gavin's wishes on record:** visual node editor for profiles/journeys (stretch, BRIEF §8.2); see people ride a 3D
+lift car (M4, D-068); density heatmap (M5).
+
+---
+
+## 1. What Throng is (30-second version)
+
+A standalone WPF / .NET 10 desktop app for **conceptual pedestrian simulation** aimed at architects: sketch spaces
+on levels, place devices (ticket machines, gates, stairs, lifts…), run agents, read heatmaps and wait times.
+"Roughly right", fast to set up, explicitly not a compliance tool. Dark theme with SimCity-era retro flavour.
+Previously named WalkAbout; renamed **Throng** (D-017). Files: `.throng` (study), `.throngprofile`, `.thronglib`.
+MIT licence, © 2026 Gavin Nicholls.
+
+## 2. How we work (keep doing this)
+
+**Canonical version: `ai/PROTOCOL.md`.** In short: every round is **Query → Build**. Ask queries first (staged
+multiple-choice batches, recommended option first and labelled), log the answers as decisions, then build only what
+was decided on the zipped project. Summary:
+
+- **Exchange is always the whole zipped project.** Gavin attaches a zip; you return the full updated zip.
+- Every round updates, at minimum:
+  - `ai/rounds/round-NNN.md`: what changed, how to test (numbered checklist), known limitations, watch list, open questions, next.
+  - `ai/BRIEF.md`: kept current, version bumped, change line at the top.
+  - `ai/DECISIONS.md`: append numbered decisions (D-095 onwards) with a "why".
+  - `README.md` and `THIRD-PARTY-NOTICES.md` when relevant.
+- **Gavin builds and tests in his own Visual Studio** and reports errors back; fix them in the next round.
+- Before handing back he runs **`clean.bat`** (repo root) to strip bin/obj/TestResults. Zips you produce should also
+  exclude bin/obj/TestResults/.vs.
+- **Ask questions in small staged batches** (multiple choice, recommended option first and labelled), before starting
+  work that depends on the answers. Non-urgent questions go at the end of the round notes instead.
+- Dependencies: permissive licences only (BRIEF §20 allow-list). Every shipped package, including transitive ones, goes
+  in `THIRD-PARTY-NOTICES.md`; inspirations go in its Acknowledgements.
+
+## 3. Code conventions (Gavin's preferences)
+
+- Readable, best-practice, domain-suited, robust over hacks, well organised.
+- XML doc headers on types and members, plus comments for non-obvious logic.
+- Nullable enabled and used where it helps; file-scoped namespaces; `_camelCase` private fields.
+- Explicit types where clearer; `var` when the type is obvious from the right-hand side (`new()`, casts).
+- LINQ where performance allows, **never in the sim hot path**.
+- **No exceptions surfaced to the user:** return `Result` / `Result<T>`; catch at boundaries and log to
+  `%LocalAppData%\Throng\Logs\throng.log`.
+- Every model edit goes through the undo stack (`MainViewModel.Apply<T>` → `PropertyChangeAction<T>`).
+
+## 4. Current state
+
+Round 009b (see `ai/rounds/round-009.md` ▸ "009b as built"): SELECTION ▸ JOURNEY editor opened from LIBRARY ▸
+JOURNEYS (`App/ViewModels/JourneyViewModels.cs`, `MainViewModel.Journeys.cs`; built-ins read-only, DUPLICATE into the
+study library), `JourneyStep.OnGiveUp` / `GiveUpStep` with `SimEngine.TryGiveUp` and `GaveUp`, profile
+`DevicePreferences` used in `ChooseDevice`, `Core/Geometry/QueueLines.cs` shared by sim and editor, drawn queue as a
+shared snake (`SimDevice.SnakeLine`, `PromoteSnakeHead`), DRAW QUEUE tool (`App/Editing/PlanEditor.Queue.cs`) and
+slot dots, lane hold points (`SimDevice.HoldPoints`, `WaitForLane`), status bar counts.
+Round 009a: journeys (`Core/Library/JourneyTemplate.cs`, four built-ins), tags
+(need / lack / grant, ≤ 64 per run), mix lines on emission rules (`EmissionRule.Mix`; the old `ProfileId` is
+`LegacyProfileId`, read only by the v5 → v6 migration), devices as route targets with automatic queue lines per
+lane and side (`Sim/SimJourneys.cs`, `SimSetup.BuildDevices`), the journey/queue engine in
+`Sim/Engine/SimEngine.Journeys.cs` (agent `AgentPhase`), format v6, demo per D-155/D-159, SELECTION mix grid.
+Rounds 007–008 (see `ai/rounds/round-007.md`, `round-008.md`): connector-end crowd rules and diagnostics,
+rate curves (format v5), mechanised preference per profile, add/remove levels, hover highlight, stress per agent
+with PROFILE / STRESS colouring (snapshot 11 floats). Earlier state below.
+
+### Round 006 (M2 movement core)
+
+Round 006 adds the **M2 movement core** on top of r005 (which builds and runs):
+
+- **Core:** `EmissionRule`/`SinkWeight` on `Region.EmissionRules`; `StudySettings.KeepSide`; `Connector.StaffOnly`
+  (D-110); `World/ConnectorPortals` (piece edges, joints, floor ends, one-way rules); `WorldCompiler` emits portals;
+  `Library/StudyTemplates` (profile and preset lookup); demand rules in `StudyValidator`.
+- **IO:** format **v4** (`UpgradeV3ToV4`); demo emission rules (D-109) and a staff-only back-of-house stair.
+- **Sim:** `Nav/` (grids, raster, builder, costs, Dijkstra fields, portal graph, route planner), `Engine/` (SoA agents,
+  spatial hash, social force engine, stats), `SimSetup`, `SimModel`, `SimRunner` (own thread, snapshots).
+- **Render:** `Gl/GpuAgents` + agent shaders; `SceneRenderer.SetAgents`.
+- **App:** `ViewModels/MainViewModel.Run.cs` (RUN group, edit lock, CHECK gate, status, STUDY ▸ RUN),
+  `ViewModels/EmissionRuleViewModels.cs`, `PlanEditor.IsLocked` / `DropAt`, viewport `AgentFeed` + drop target,
+  LIBRARY drag start in `MainWindow.xaml.cs`.
+- **Tests:** 163 methods (136 in r005). Throng.Sim.Tests now references Throng.IO (for the demo).
+- Packages unchanged (no new dependencies).
+
+r005 state, still true: spanning regions (`Region.TopLevelId`, `HeightMode`, `ExcludedLevelIds`), shaft "no stop"
+levels, per-level stair circuits, devices and travelators (PLACE), underlays, format v3 features.
+r004: connectors and shafts, `ConnectorLayout`, `VerticalCuts`, `WalkableArea`, connector symbols, CHECK rules.
+r003: 6 projects + 3 MSTest projects; `App → Render/Analysis/IO → Sim → Core`; Core references Clipper2 (D-044);
+packages pinned (D-028); OpenGL 3.3 via GLWpfControl with 4× MSAA; themed UI; LEVELS + LIBRARY left, SELECTION /
+LEVEL / STUDY right.
+
+## 5. Lessons learned (avoid repeating)
+
+- The sandbox has had **no .NET SDK and no NuGet access** in every round so far, so code was hand-written and statically reviewed only.
+  Check for `dotnet` first; if it's missing, review carefully and flag in the round notes that the round is unbuilt.
+- **WPF projects don't get `System.IO` in implicit usings** (to avoid `System.Windows.Shapes.Path` clashes). Any
+  Throng.App file using `Path`, `File`, `Directory`, `Stream`, `IOException` needs `using System.IO;` explicitly.
+- **C# 14 first-class spans:** `array.Reverse()` binds to the in-place `MemoryExtensions.Reverse(Span<T>)` (void).
+  Use `Enumerable.Reverse(array)`.
+- GLWpfControl API worked as assumed: `Start(new GLWpfControlSettings { MajorVersion = 3, MinorVersion = 3,
+  RenderContinuously = true })`, `Render` event `Action<TimeSpan>`.
+- **Clipper2 C# API:** the single-set `Clipper.Union(PathsD, FillRule)` has no precision parameter. Use the
+  subject + clip overload with an empty clip (`ClipperPolygonOps.UnionD`). `Difference`, `Intersect` and
+  `InflatePaths` take `precision` as written.
+- Use `CultureInfo.InvariantCulture` for any formatted number that ends up in names, files or tests.
+- Rounds 004 and 005 compiled first time from static review. Keep doing: read every file you touch, keep edits
+  in one place per concern, run a brace/XAML well-formedness check before zipping.
+- Avoid `[]` collection expressions for `Dictionary<,>` (use `new()`); keep `.cs`/`.xaml` files CRLF.
+- Count carefully in tests: N levels = N − 1 storeys (circuits, rises).
+- New public types go in their own file. Scripted inserts must assert their anchor was found (r008: an enum
+  meant for file scope landed inside an `internal` class because the anchor search failed).
+- Flow-field gradients at a grid edge need extrapolation, or agents stall at piece joints (fixed in r006 review).
+- `EmissionRule` is an immutable record: never assign its init-only properties outside an initializer; use `with`.
+  Same for `MixLine`, `SpawnTag` and `JourneyStep`.
+- r009a: no NuGet or .NET SDK in the sandbox again; the round was statically reviewed (brace check, CRLF) only.
+- r017: definitions are looked up by id on every read (`StudyDefinitions.FindDevice`, `StudyTemplates.FindProfile`):
+  the first edit of a built-in swaps in the study's copy, so never hold a template reference across an edit. Edits
+  replace values through `StudyDefinitions.CopyValues` (keeps `Id` and `Source`).
+- r017: 3D editing reuses the plan editor on the active level's floor plane; anything new in the editor that is
+  plan-only (grips, drawing, moves) must check `PlanEditor.Is3D` or the tool.
+- r016: CHECK findings need a rule id (`ValidationRules`) and, if they're about a place rather than an object, `LevelId`
+  + `At`; new rule ids are stored in studies' ignore lists, so never rename one.
+- r015: every shader shares `Version + Warp` / `Version + Clip` const chunks; a new vertex shader must pass `vWorld`
+  (true position) and a new fragment shader must call `clipped`, and a level's own meshes draw with `LevelWarp`,
+  everything spanning levels with the stretch, or exploded views tear.
+- r014: re-review before building found two editing-lock gaps in a rushed round (013b): any new edit path (library
+  click, drop) must check `_isRunActive` itself, because `MainViewModel.Apply` doesn't.
+- r009b: same (pip and npm registries were blocked too, so no syntax tools). r010a: same. Python text edits read CRLF files as LF;
+  re-normalise every touched `.cs` / `.xaml` / `.md` to CRLF before zipping.
+
+## 6. Round history and next
+
+1. Done in round 007 part 1 (D-112–D-126): escalator ends, deferral, one-way stairs, floors hide agents, dead-end
+   walls, stair lanes, closed footprint gaps, rule switches + diagnostics.
+2. Round 007 part 2 r007i (D-127–D-130): comb spacing at metered belts, rate curves (`Core/Model/RateCurves.cs`,
+   rule editor in SELECTION), format v5.
+3. r007p (D-138, D-139): mechanised preference per profile. Round 008 (D-140–D-147): levels, hover, stress.
+4. Round 009 (D-148–D-176; 009c stair effort and standing rest, D-174, D-175; wheelchair gate parked, D-176): 009a built and confirmed (journeys + tags + mix lines + automatic device queues +
+   format v6 + demo; 210 tests). 009b built (unbuilt in sandbox): journey editor in SELECTION with DUPLICATE,
+   give-up pathway per device step, profile device preferences, drawn shared-snake queues with slot dots, lane-wait
+   hold points, status bar stressed / queuing / gave up. **Next: trains** (timetables, batches, door flows).
+5. *(history)* Round 008 asks: vehicle timetables and batches, profile mixes, train door flows, demo end to end
+   (the plan), plus Gavin's r007p asks: **add/remove levels** (M1 gap, no command exists), **journey templates**
+   (ticket machine → gate → train; BRIEF §8.2, M3 task lists), **crowd visuals** (frustration/stuck colouring,
+   density heatmap; BRIEF §8.4, M5/M6), **hover highlight** in the editor. Stretch: visual node editor for
+   profiles/journeys (BRIEF §8.2). Round 005's parked questions stay parked until after M2 (D-108).
+
+Gavin also wants to **see people riding a 3D lift car** (M4, BRIEF §7.2) with a **1- or 2-door typology per
+served level** (D-068). Shafts already carry "no stop" levels (D-087) for that.
+
+## 7. File map (where things live)
+
+| Area | Path |
+|---|---|
+| Model, geometry, library, undo, validation, world | `src/Throng.Core/{Model,Geometry,Library,Editing,Validation,World}` |
+| Built-in templates | `src/Throng.Core/Library/BuiltInLibrary.cs` |
+| Rate curves | `Core/Model/{EmissionRule,RateCurves}.cs`, `App/ViewModels/EmissionRuleViewModels.cs`, `SimEngine.CountArrivals` |
+| File format, demo | `src/Throng.IO/ThrongFile.cs`, `DemoStudyBuilder.cs`, `FormatMigrations.cs` |
+| Renderer, cameras, scene | `src/Throng.Render/{Gl,Cameras,Scene}` |
+| Theme | `src/Throng.App/Themes/Theme.xaml` |
+| Main window / VM | `src/Throng.App/MainWindow.xaml`, `ViewModels/MainViewModel.cs` |
+| Viewport host + navigation | `src/Throng.App/Views/ViewportView.xaml(.cs)` |
+| Logging, paths, font, dialogs | `src/Throng.App/Services/`, `Views/ThrongDialog.xaml` |
+| Plan editor + overlay | `src/Throng.App/Editing/` (`PlanEditor.cs`, `PlanEditor.Vertical.cs`, `EditorOverlay.cs`); Core editing helpers in `src/Throng.Core/Editing/` |
+| Connectors and shafts | `Core/Model/{Connector,Shaft}.cs`, `Core/Geometry/ConnectorLayout.cs`, `Core/World/VerticalCuts.cs`, `Core/Editing/{ConnectorFactory,StateActions}.cs`, `Render/Scene/ConnectorSymbols.cs`, `App/ViewModels/ConnectorViewModel.cs` |
+| Devices and underlays | `Core/Model/{Device,Underlay}.cs`, `Core/Geometry/DeviceGeometry.cs` (also `UnderlayGeometry`), `App/Editing/PlanEditor.Objects.cs`, `App/ViewModels/ObjectViewModels.cs`, `App/Services/UnderlayImageCache.cs`, `Render/Gl/GpuUnderlay.cs` |
+| Shaders | `src/Throng.Render/Gl/Shaders.cs` |
+| Simulation | `src/Throng.Sim/Nav/` (grids, fields, routes), `src/Throng.Sim/Engine/` (agents, social force), `SimSetup.cs`, `SimRunner.cs` |
+| Run UI | `App/ViewModels/MainViewModel.Run.cs`, `App/ViewModels/EmissionRuleViewModels.cs`, `Render/Gl/GpuAgents.cs` |
+| Levels add/delete | `Core/Editing/LevelActions.cs`, `App/ViewModels/MainViewModel.Levels.cs` |
+| Hover, drag ghost | `App/Editing/PlanEditor.cs` (`Hover`, `HoverLabel`), `PlanEditor.Objects.cs` (`DragGhost`), `EditorOverlay.cs` |
+| Stress, colouring | `Sim/Engine/AgentStore.cs` (`Stress`, `HeldS`), `SimEngine.UpdateStress`, `Render/Gl/AgentColoring.cs`, agent shader |
+| Journeys, mixes, queues | `Core/Library/{JourneyTemplate,JourneyZones}.cs`, `Core/Model/{EmissionRule,Device}.cs`, `Sim/SimJourneys.cs`, `Sim/SimSetup.cs` (devices, lines, zones, journeys), `Sim/Engine/SimEngine.Journeys.cs`, `Sim/Engine/AgentPhase.cs`, `App/ViewModels/EmissionRuleViewModels.cs` (`MixLineViewModel`) |
+| Journey editor, give-up, preferences | `App/ViewModels/{JourneyViewModels,MainViewModel.Journeys,LibraryViewModels}.cs`, `Core/Library/{JourneyGiveUp,DevicePreference,StudyTemplates}.cs`, `SimEngine.TryGiveUp` |
+| Queue layout, snake, hold points | `Core/Geometry/{QueueLines,QueueLineSet}.cs`, `SimSetup.BuildDevices/BuildHoldPoints`, `SimEngine.{TryJoinSnake,PromoteSnakeHead,WaitForLane}`, `App/Editing/PlanEditor.Queue.cs`, `EditorOverlay.DrawQueueDots` |
+| Crowd-aware choice, progress stress | `Sim/Engine/SimEngine.Crowd.cs`, `Sim/Nav/RoutePlanner.cs` (`sightRadius`, `InSight`), `SimEngine.UpdateWaits/Review/PickSink/UpdatePace/UpdateStress`, `SimRunner.TryGetCrowdWait`, `PlanEditor.HoverLabel` + `IEditorHost.RunHoverInfo` |
+| Trains | `Core/Model/TrainService.cs`, `Sim/SimTrain.cs`, `SimSetup.BuildTrains`, `Sim/Engine/SimEngine.Trains.cs`, `App/ViewModels/{MainViewModel.Trains,TrainServiceViewModels}.cs`, STUDY ▸ TRAINS in `MainWindow.xaml`, `EditorOverlay.DrawTrains` |
+| Live and run heatmaps (M5) | `Sim/Engine/{DensityGrid,DensityLayer,DensityCellKind,DensityMeasure,SimEngine.Density}.cs`, `SimRunner.CopyDensity`, `Analysis/{HeatmapPainter,HeatmapMode,HeatmapRamp}.cs`, `Render/Gl/GpuHeatLayer.cs`, `Render/Scene/HeatLayerDraw.cs`, `SceneRenderer.SetHeatmap`, `App/ViewModels/MainViewModel.Heatmap.cs`, MAP chips + legend in `MainWindow.xaml` |
+| Accessible devices | `Core/Library/{DeviceTemplate,AgentProfileTemplate,StudyTemplates}.cs` (`Accessible`, `NeedsAccessibleDevices`, `IsAccessible`), `Core/Model/Device.cs` (`AccessibleOverride`), `SimEngine.{AccessAllows,AccessAvoidS}`, `StudyValidator.ValidateAccessibleDevices`, `FormatMigrations.UpgradeV7ToV8`, SELECTION ▸ device switch |
+| Results (011c) | `Sim/Engine/{SimEngine.Results,RunResults,DeviceResult}.cs`, `SimRunner.LatestResults`, `Analysis/ResultsCsv.cs`, `App/ViewModels/{MainViewModel.Results,DeviceResultRow,GraphMetric}.cs`, `App/Views/{TimeSeriesGraph,GraphData,GraphLine,GraphBand}.cs`, RESULTS tab in `MainWindow.xaml`, `ResultsGrid` styles in `Theme.xaml` |
+| Zone and journey results, PNG (012) | `Core/Geometry/OrientedBounds.cs`, `Sim/SimZone.cs`, `SimSetup.BuildZones`, `Sim/Engine/{SimEngine.ZoneResults,SimEngine.JourneyResults,ZoneResult,JourneyResult}.cs`, `AgentStore.{ZoneBits,MaxWaitS,LeftEarly}`, `App/ViewModels/{ZoneResultRow,JourneyResultRow,ResultsTable,MainViewModel.Png}.cs`, `Render/Gl/OffscreenCapture.cs`, `ViewportView.CaptureAsync`, `App/Services/{PngExport,PngExportInfo,PngLegendRow}.cs` |
+| Lifts (013a) | `Core/Model/{Lift,LiftDoorUse,LiftLevelDoors,LiftScheduleEntry,Shaft}.cs`, `Core/Geometry/{LiftLayout,LiftSide,LiftCarLayout}.cs`, `Core/Editing/LiftFactory.cs`, `NavWorldBuilder.AddLift`, `Nav/LiftTiming.cs`, `NavRoutes` (lift options), `Sim/SimLift.cs`, `SimSetup.BuildLifts`, `Sim/Engine/{SimEngine.Lifts,LiftCarStatus}.cs`, `AgentPhase.{LiftWait,LiftRide}`, `SimRunner.CopyLiftCarStates`, `App/ViewModels/{ShaftViewModel.Lift,LiftDoorRowViewModel,LiftScheduleRowViewModel}.cs`, `App/Editing/{LiftSymbolView,RunLiftCarView}.cs`, `PlanEditor.LiftSymbolsOn`, `EditorOverlay.DrawLifts` |
+| Lifts 3D, priority, train shapes, tower (013b) | `Render/Scene/{LiftCarDraw,LiftCarMeshes}.cs`, `SceneRenderer.SetLiftCars`, `App/ViewModels/MainViewModel.LiftCars.cs`, `ViewportView.LiftCars`; `RoutePlanner.HasLiftPriority` + `priorityPenaltyS`, `SimEngine.{LiftPriorityPenaltyS,UpdateLiftPriorityPenalty,HasLiftPriority}`, `SimTuning.LiftPriority`; `TrainService.Shape`, `App/Editing/PlanEditor.Train.cs`, `MainViewModel.Trains` (DRAW TRAIN / AUTO); `IO/OfficeTowerBuilder.cs`, `MainViewModel.LoadDemo` |
+| Lift finish-off (014) | `SimEngine.{TryLeaveLift,Barred,LiftGaveUp,AssignDestinations,AimBesideCarDoor,ReleaseDestinationWaiters,LiftDoorShare}`, `AgentStore.{LiftBar,LiftBarFloor,LiftGiveUpAt}`, `RoutePlanner.Choose(barredConnector)`, `SimTuning.{LiftPatience,DestinationDispatch}`, `SimRunner.CopyLiftDoorShares`, `Render/Scene/{LiftDoorDraw,LiftSceneDraw}.cs`, `LiftCarMeshes`, `MainViewModel.LiftCars.cs` (landing doors, level visibility), `OfficeTowerBuilder.BuildStair` |
+| Views (015) | `Render/Cameras/OrbitCamera` (`Orthographic`, `SetIsoPreset`), `Render/Gl/{Shaders (warpZ, clipped), ShaderProgram (SetExplode/SetWarp/SetClip), SceneRenderer (View, PrepareView, LevelWarp, AgentPixelsPerMetre), GpuAgents (disc LOD)}`, `Render/Scene/ViewSettings`, `Core/Geometry/ExplodeMap`, `App/ViewModels/MainViewModel.View.cs`, `ViewportView` (`_isoCamera`, `View`, `IsoPreset`, `IsoRotateRequested`), STUDY ▸ VIEW in `MainWindow.xaml`, `Slider` style in `Theme.xaml` |
+| Lift results, shaft walls (015) | `Sim/Engine/{LiftResult,SimEngine.LiftResults}.cs`, `AgentStore.LiftRideFrom`, `RunResults.Lifts`, `ResultsCsv.LiftsCsv`, `App/ViewModels/LiftResultRow.cs`, RESULTS ▸ LIFTS; `Core/Geometry/{ShaftWalls,WallOpening,WallPanel}.cs`, `Core/World/LiftOpenings.cs`, `LiftLayout.{CarHeightFor,DoorHeightShare}`, `SceneBuilder.BuildVertical` |
+| CHECK, rules, capacity (016) | `Core/Validation/{StudyValidator (Tag, ValidationMessage.Rule/At/IgnoreKey), ValidationRule, ValidationRules}.cs`, `Analysis/Checks/{StudyCheck, CapacityCheck, NarrowGapCheck}.cs`, `Study.IgnoredFindings`, `App/ViewModels/{MainViewModel.Check, CheckRowViewModel}.cs`, CHECK tab in `MainWindow.xaml`, `ViewportView.ZoomTo` |
+| Profile exchange (016) | `Core/Library/{ProfileBundle, ProfileReconciler, ReconcileKind, ReconcileAction, ReconcileItem, ReconcileChoice}.cs`, `IO/ProfileFile.cs`, `App/ViewModels/MainViewModel.Profiles.cs`, `App/Views/ReconcileDialog.xaml(.cs)`, `LibraryBrowserViewModel.SetProfiles`, LIBRARY ▸ AGENTS buttons |
+| Named views, box handles (016) | `Core/Model/SavedView.cs`, `Study.Views`, `FormatMigrations.UpgradeV9ToV10`, `App/ViewModels/{MainViewModel.NamedViews, SavedViewRowViewModel}.cs`, `ViewportView.{WriteCamera, ReadCamera, HandleAt, DragBoxFace}`, `Render/Scene/SectionBoxMesh.cs`, `SceneRenderer.{DrawSectionBox, TryGetBoxHandles}`, `ExplodeMap.Unwarp` |
+| Definitions (017) | `Core/Library/{StudyDefinitions, DistributionShape, DeviceBundle, DeviceReconciler}.cs`, `IO/DeviceFile.cs`, `App/ViewModels/{MainViewModel.Definitions, DeviceDefinitionViewModel, ProfileDefinitionViewModel, DistributionEditorViewModel}.cs`, `App/Views/DistributionPlot.cs`, `DistributionEditorTemplate` + SELECTION panels in `MainWindow.xaml`, `LibraryBrowserViewModel.{SetDevices, RefreshNotes}`, `MainViewModel.RefreshPlacePresets` |
+| 3D picking (017, 017b) | `App/Views/ViewportView.Edit3D.cs` (ray, floor pick, 3D pointer, `OpenObjectMenu`), `App/Editing/PlanEditor.ThreeD.cs` (`HasFloorAt`, `ActivateLevel`, `ObjectAt`, `Is3D`), `MainViewModel.ViewInPlan`, `SimEngine.StairEndLane` (D-300), `IEditorHost.ActivateLevel`, `EditorOverlay.Is3D`, `MainViewModel.DropDeviceIn3D` |
+| CHECK stale, capacity trim (017) | `MainViewModel.Check` (`IsCheckStale`, `MarkCheckStale`), `Analysis/Checks/CapacityFindings.cs` |
+| Journey editor (018b) | `Core/Library/{JourneyEdits, JourneyTargets}.cs`, `JourneyNode.{Picks, ChooseBy, Balk, PatienceS}`, `SimStep.{ChooseBy, Weights, Balk, PatienceS}`, `SimEngine.{ChooseDevice(rule), ChooseZone, OnwardS, ZoneLoad}`, `CapacityCheck.SplitByWeight`, `App/Views/{IJourneyCanvasHost, JourneyCanvas}.cs`, `App/ViewModels/{JourneyViewModels, JourneyNodeEditorViewModel}.cs`, `MainViewModel.Journeys` (`EditJourney`, `ResetJourney`, PICK IN PLAN), node editor panel in `MainWindow.xaml` |
+| Run overlay (019) | `Sim/Engine/{SimEngine.JourneyFlow, JourneyFlowResult, JourneyFlowWire, JourneyNodeStats, JourneyCandidateStats}.cs`, `RunResults.{Flows, FlowFor}`, `SimJourney.{JourneyId, NodeIds, SpawnId}`, `SimNode.PickPort`, `CapacityCheck.{FlowShares, PredictedShares}`, `Analysis/Checks/JourneyShares.cs`, `StudyCheck.RunWithModel`, `ResultsCsv.NodesCsv`, `App/Views/{JourneyOverlay, JourneyWireLabel}.cs`, `JourneyCanvas` (strip, `DrawWireLabels`, `StatsRow`), `JourneyViewModel.{Overlay, RefreshOverlay, RebuildOverlay, NodeLine}`, `App/ViewModels/{MainViewModel.JourneyFlow, JourneyRunRow}.cs`, `JourneyNodeEditorViewModel.{RunSummary, RunRows}`, `LibraryBrowserViewModel.IsJourneysTabSelected` |
+| Journey graphs (018a) | `Core/Library/{JourneyGraph (JourneyNode, JourneyWire, Problems, FromSteps, Builder), JourneyTemplate (Nodes, Wires, legacy Steps), JourneyZones}.cs`, `StudyTemplates.{JourneyFor, JourneyIdFor}`, `AgentProfileTemplate.DefaultJourneyId`, `MixLine.UseProfileJourney`, `FormatMigrations.UpgradeV10ToV11`, `ThrongFile.EnsureJourneyGraphs`, `Sim/SimJourneys.cs` (`SimNode`, `SimStep.Next/GaveUpNext`, `SimJourney.Start`), `SimSetup.CompileJourney`, `SimEngine.{GoToNode, BeginExit(sinkStep)}`, `SimEngine.JourneyResults` (sink buckets), `StudyValidator.ValidateJourney`, `CapacityCheck.{WalkNode, NodeShares}`, `App/Views/JourneyCanvas.cs`, `App/ViewModels/JourneyViewModels.cs` (node rows), `MainViewModel.Journeys` (`IsJourneyView`) |
+| Your library (020) | `Core/Library/{MyLibrary, LibrarySavePlan, LibraryImportResult}.cs`, `ReconcileKind.LibraryItem`, `ReconcileAction.Replace`, optional `mine` on `StudyTemplates.{FindProfile, FindJourney, AvailableProfiles, AvailableJourneys, CanEditJourney, Layered}` / `StudyDefinitions.{FindDevice, AvailableDevices}`, `JourneyTargets.{UsesPicks, PicksFallBack}`, `JourneyZones.PickedZones`, `ValidationRules.PicksFallback`, `IO/{UserLibraryStore, LibraryFile}.cs`, `App/ViewModels/MainViewModel.MyLibrary.cs`, `App/Views/TextPromptDialog.xaml(.cs)`, `ReconcileDialog` library mode, `LevelPickerDialog` OK label, MY LIBRARY block + SELECTION buttons in `MainWindow.xaml`, `MainWindow.OnLibraryItemRightClick` |
+| Batch runs (021) | `Sim/Engine/SimEngine.cs` (seed + duration constructor), `Sim/Batch/{BatchOptions, BatchRunner, BatchAverager, BatchResults, BatchRun, BatchStat, BatchSeries, BatchProgress, BatchDensity, DensityFold, DeviceBatchResult, ZoneBatchResult, JourneyBatchResult, LiftBatchResult}.cs`, `Analysis/BatchCsv.cs`, `App/ViewModels/{MainViewModel.Batch, StatCell}.cs`, `App/Views/BatchDialog.xaml(.cs)`, `App/Services/BatchRequest.cs`, `IDialogService.AskBatch`, batch paths in `MainViewModel.{Results, Heatmap, JourneyFlow, Run}.cs`, `GraphLine.{Low, High}` + `TimeSeriesGraph.DrawBand`, SOURCE chips + BATCH… in `MainWindow.xaml` |
+| UI fit (022) | `Themes/Theme.xaml` (`ToolButton` MinWidth, `ToolIconButton`), transport bar + RESULTS drop-downs in `MainWindow.xaml`, `MainWindow.xaml.cs` (tagline), `App/ViewModels/MainViewModel.Choices.cs`, `MainViewModel.Run.RunStatus(compact)` |
+| Replay (023) | `Sim/Engine/AgentStore.Serial`, `Sim/Replay/{ReplayRecording, ReplayState, ReplayFrame, PackedAgent, AgentLook}.cs`, `SimRunner.{Recording, ViewTimeS, ViewStats, Seed}` + seed constructor, `App/ViewModels/MainViewModel.Replay.cs`, `TimeSeriesGraph.{CursorTimeS, JumpCommand}`, scrubber + RESULTS ▸ RUN / REPLAY + arrow keys in `MainWindow.xaml` |
+| Services, report, PERF, stadium (025) | `Core/Model/{ServiceKind, TrainService}.cs`, `App/ViewModels/{TrainServiceViewModels, MainViewModel.Trains}.cs`, SERVICES tab in `MainWindow.xaml`, `EditorOverlay.DrawTrains` (badge); `App/Services/{ReportData, PdfReport}.cs`, `App/Views/ReportDialog.xaml(.cs)`, `App/ViewModels/MainViewModel.Report.cs`, `IDialogService.{PickPdfSavePath, AskReportMap}`; `Sim/Engine/SimEngine.Perf.cs`, `Sim/PerfSample.cs`, `SimRunner.Perf`, `App/Views/ViewportView.Perf.cs`; `IO/{StadiumBuilder, StadiumScenario}.cs`, `tests/Throng.Sim.Tests/Round025Tests.cs` (bench), `bench.bat` |
+| Groups (024b) | `Core/Library/{MyLibrary, StudyDefinitions, GroupTemplate}.cs` (groups in MINE, copies, use counts, summaries), `App/ViewModels/{GroupDefinitionViewModel, MainViewModel.Definitions, MainViewModel.MyLibrary, LibraryViewModels, JourneyResultRow}.cs`, SELECTION ▸ GROUP + LIBRARY ▸ GROUPS in `MainWindow.xaml`, `Sim/Engine/{GroupJourneyResult, SimEngine.GroupResults}.cs`, `Sim/Batch/GroupJourneyBatchResult.cs`, `BatchAverager.Groups`, `Analysis/{ResultsCsv, BatchCsv}.JourneysCsv`, `SimEngine.GroupTag`, `Replay/PackedAgent.GroupTag`, `Render/Gl/AgentColoring.cs` (`GroupColours.OfTag`), `App/Views/{TetherLayer, ViewportView.Tethers}.cs` |
+| Groups (024a) | `Core/Library/GroupTemplate.cs`, `TemplateLibrary.Groups`, `MixLine.GroupId`, `StudyTemplates.{FindGroup, AvailableGroups, LineProfiles}`, `BuiltInLibrary.AddGroups`, `FormatMigrations.UpgradeV11ToV12`, `SimSetup` (group lines, `GroupRouteTemplate`), `Sim/SimJourneys.cs` (`SimMixLine.{RouteProfile, Members, PickWeight}`), `SimModel.RouteProfiles`, `AgentStore.{Route, Group, LastDevice}`, `Sim/Engine/SimEngine.Groups.cs`, `AgentPhase.Regroup`, `Replay/PackedAgent.GroupHue`, `Render/Gl/AgentColoring.cs` (`Group`, `GroupColours`), `MainViewModel.Run.FetchAgents`, `MixLineViewModel.ProfileId` |
+| Clean script | `clean.bat` (repo root) |
+
+## 8. Don't regress
+
+- Step timings (`Lap`, round 025) only read the clock: nothing the simulation reads may depend on them.
+- `TrainService` keeps its name in code and files; the app says "service" everywhere (kinds only change words and
+  starting values, D-398).
+- Demo loads clean (0 errors, 0 warnings) and all tests pass (409 methods on 025; the wheelchair test expects > 95 % at the accessible gate, D-213).
+- Studies without group lines draw exactly the same random numbers as before round 024 (`Recall` is false for people on
+  their own; `PickWeight` = share for single lines); group members' choices go through `RouteOf(i)`, their body,
+  colour and results rows through their own `Profile[i]`.
+- Group members are found through the per-step index (`IndexGroups`), never stored agent indices (the store swap-removes).
+- Group results (024b) never draw a random number; a group is filed only when its last member leaves (`NoteGroupLeave`
+  runs before `LeaveGroup`). Snapshot float 11 is the group **tag** (mates share it), not a hue: anything reading it for
+  colour goes through `GroupColours.OfTag`.
+- The compiled `SimModel` is never written during a run (D-366): batches share it across threads. Anything new a run
+  changes belongs in `SimEngine`, never on model objects; `Round021Tests.BatchRun_IsPlayOnItsSeed` guards it.
+- Recording only reads the engine (`Round023Tests.Recording_NeverChangesTheRun`); `AgentStore.Serial` must never feed the
+  simulation.
+- Your library is never needed by a saved study or a run: MINE items are embedded on first use under their id (D-346),
+  with `EmbedReferencedFromMine` after every model change, before save and before a run. Tests never touch the real
+  `%AppData%` (the store's folder is a constructor parameter). Library writes keep `library.bak.json` (D-348).
+- Test helpers live in classes named for what they test, not the file (`VerticalCutTests.TwoLevelsWithStair` is in
+  `ConnectorTests.cs`): grep for the class before calling a helper.
+- Demo PLAY runs: people cross all three levels; editing locks until RESET.
+- Older files open with their old behaviour (v1/v2: single-level fixed regions, single-run switchbacks; v1–v3: no emission rules; v1–v4: flat rates; v1–v5: one profile per rule, no journey, straight to a sink; v1–v6: no train services, doors emit continuously; v1–v7: no accessible flags, except the built-in accessible gate and wheelchair profile, upgraded on load; v1–v8: no lifts; v9 before 013b: automatic train boxes; lifts saved with Destination before 014 never existed, the factory mapped it to Collective; v1–v9: no saved views, nothing ignored; v1–v10: journeys as step lists, converted to graphs on load, no profile default journeys except embedded built-ins; v1–v11: no groups, and lines of the removed one-wide-agent Family profile become Family group lines).
+- Queuers, people being served and dwellers are never removed as stuck; device line membership is per agent (device, line, slot), never agent indices (the store swap-removes).
+- Built-in journeys are never changed in place: edits go to the study's copy under the built-in's id (D-328), looked up by id on every read (`JourneyViewModel.Journey`); `IsEditableJourney` = the study's own (DELETE), `CanEditJourney` = editable. Nodes and wires are records; edits go through `MainViewModel.EditJourney` (one undo step) and replace the lists.
+- Journey graphs have no loops (D-306); old step lists keep their behaviour after conversion (results match for the same seed).
+- The run overlay's counters never draw a random number (results match 018b for the same seed); only post-warm-up
+  spawns count (D-338); the overlay redraws through `Revision` only (no layout).
+- Editing shortcuts only fire while the viewport has focus; New from Demo is Ctrl+Shift+D (D-043).
+- Plan view ghosts the level below and ignores STUDY ▸ VIEW (no clip, no warp); 3D and ISO show all visible levels; Home re-frames.
+- 3D and ISO: left click selects only (D-298), right click opens VIEW IN PLAN, right-drag orbits, middle pans; every edit is in plan.
+- Built-in definitions are never changed in place: overrides are the study's copy under the same id.
+- Undo/redo for every edit; dirty marker in the title; save → reopen round-trips.
+- The viewport shows its offline panel (never crashes the app) if OpenGL can't start.
+
+## 9. After round 021
+
+Round 021 is built (`ai/rounds/round-021.md`: as built, 14-step checklist, judgement calls). First fix any build errors
+Gavin reports. Backlog (suggested order): replay scrubbing (M8), stadium-scale performance pass + stadium demo (watch batch
+memory: cores − 1 engines at once), one-page PDF report (could take the batch summary), group movement. Open: an
+across-runs nodes summary CSV.
+
+## 9a. After round 020 (history)
+
+Round 020 is built (`ai/rounds/round-020.md`: as built, test checklist, judgement calls, one open question). First fix
+any build errors Gavin reports. Round 021 is decided (D-352–D-365) in `ai/rounds/round-021.md`: build it next.
+Gavin's backlog (suggested order): seeded batch runs with averages (M8, round 021),
+replay scrubbing (M8), stadium-scale performance pass + stadium demo, one-page PDF report, group movement. Watch:
+overlay counter memory at stadium scale ((profiles × journeys) rows × nodes; fine at demo size).

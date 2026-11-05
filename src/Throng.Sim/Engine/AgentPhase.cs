@@ -1,0 +1,40 @@
+namespace Throng.Sim.Engine;
+
+/// <summary>What an agent is doing about its current journey step (round 009, D-149–D-153).</summary>
+public enum AgentPhase : byte
+{
+    /// <summary>Walking to its current target (a sink, a device's service area or a zone).</summary>
+    Walk,
+
+    /// <summary>At a device with no lane free for its side; standing until one is (D-153).</summary>
+    WaitJoin,
+
+    /// <summary>In a queue line, walking to and holding its slot.</summary>
+    Queue,
+
+    /// <summary>At the head of its line, being served.</summary>
+    Service,
+
+    /// <summary>Walking through a pass-through device's lane after service.</summary>
+    Through,
+
+    /// <summary>Stepping aside from a device after service, before heading on.</summary>
+    Aside,
+
+    /// <summary>Lingering in a zone for a dwell time.</summary>
+    Dwell,
+
+    /// <summary>Standing aside of a train door until the train can take them (D-186).</summary>
+    WaitTrain,
+
+    /// <summary>Waiting on a lift landing for a car going their way with room (round 013, D-239).</summary>
+    LiftWait,
+
+    /// <summary>Riding a lift car (round 013): held in the car, carried with it, off the floor.</summary>
+    LiftRide,
+
+    /// <summary>
+    /// A group member past a device, standing about 2 m on until the rest of the group is through (round 024, D-384).
+    /// </summary>
+    Regroup,
+}

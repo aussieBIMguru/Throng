@@ -1,0 +1,726 @@
+using System.Globalization;
+using System.Windows.Threading;
+using CommunityToolkit.Mvvm.Input;
+using Throng.App.Editing;
+using Throng.App.Services;
+using Throng.Core.Geometry;
+using Throng.Core.Model;
+using Throng.Core.Validation;
+using Throng.Render.Gl;
+using Throng.Sim;
+using Throng.Sim.Engine;
+
+namespace Throng.App.ViewModels;
+
+/// <summary>
+/// Run half of the main view model (M2, round 006): PLAY / PAUSE, STEP, RESET and speed chips (D-104), the edit
+/// lock while a run is active (D-097), the CHECK gate before a run starts (D-106), the status-bar counters and
+/// the STUDY tab's RUN settings (D-103, D-105). The run itself lives on a <see cref="SimRunner"/> thread.
+/// </summary>
+public sealed partial class MainViewModel
+{
+    private static readonly IReadOnlyList<StudyEndCondition> EndOptions = [StudyEndCondition.FixedDuration, StudyEndCondition.Indefinite];
+    private static readonly IReadOnlyList<KeepSide> KeepSides = Enum.GetValues<KeepSide>();
+
+    private Dispatcher _dispatcher = null!;
+    private DispatcherTimer _runTimer = null!;
+    private SimRunner? _runner;
+    private CancellationTokenSource? _setupCancel;
+    private bool _isRunActive;
+
+    /// <summary>True while a LIBRARY drop places a device in 3D (D-291): the PLACE tool mustn't switch to plan.</summary>
+    private bool _droppingIn3D;
+    private AgentColoring _agentColoring = AgentColoring.Profile;
+    private bool _isPreparing;
+    private RunSpeed _speed = RunSpeed.RealTime;
+    private SimStats _stats;
+    private float[] _rawAgents = new float[64 * SimEngine.FloatsPerAgent];
+
+    public RelayCommand PlayPauseCommand { get; private set; } = null!;
+    public RelayCommand StepCommand { get; private set; } = null!;
+    public RelayCommand ResetRunCommand { get; private set; } = null!;
+    public RelayCommand<string?> SetSpeedCommand { get; private set; } = null!;
+    public RelayCommand ReRollSeedCommand { get; private set; } = null!;
+
+    /// <summary>True from PLAY until RESET (including while the world compiles): editing is locked (D-097).</summary>
+    public bool IsRunActive
+    {
+        get => _isRunActive;
+        private set
+        {
+            if (_isRunActive == value)
+            {
+                return;
+            }
+
+            _isRunActive = value;
+            Editor.IsLocked = value;
+            if (value)
+            {
+                Editor.Reset();
+            }
+
+            UndoCommand.NotifyCanExecuteChanged();
+            RedoCommand.NotifyCanExecuteChanged();
+            BatchCommand.NotifyCanExecuteChanged();
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(IsEditable));
+            OnPropertyChanged(nameof(RunStatusText));
+            OnPropertyChanged(nameof(ClockText));
+            OnPropertyChanged(nameof(ShowHeatLegend));
+        }
+    }
+
+    /// <summary>False while a run is active; the draw strip, LIBRARY and the right panel bind to it.</summary>
+    public bool IsEditable => !_isRunActive;
+
+    /// <summary>True while the run is playing, or a replay is playing forward (round 023).</summary>
+    public bool IsPlaying => _runner?.IsPlaying == true || _replayPlaying;
+
+    /// <summary>PLAY or PAUSE.</summary>
+    public string PlayText => IsPlaying ? "PAUSE" : "PLAY";
+
+    /// <summary>Glyph for the play/pause button (Segoe MDL2).</summary>
+    public string PlayGlyph => IsPlaying ? "" : "";
+
+    public bool IsSpeedHalf { get => IsSpeed(0.5); set => SetSpeedChip(value, "0.5"); }
+
+    public bool IsSpeed1 { get => IsSpeed(1); set => SetSpeedChip(value, "1"); }
+
+    public bool IsSpeed2 { get => IsSpeed(2); set => SetSpeedChip(value, "2"); }
+
+    public bool IsSpeed4 { get => IsSpeed(4); set => SetSpeedChip(value, "4"); }
+
+    public bool IsSpeed8 { get => IsSpeed(8); set => SetSpeedChip(value, "8"); }
+
+    public bool IsSpeedMax { get => _speed.IsMax; set => SetSpeedChip(value, "MAX"); }
+
+    /// <summary>What agent bodies are coloured by (D-146); a view setting, not saved and not undoable.</summary>
+    public AgentColoring AgentColoring
+    {
+        get => _agentColoring;
+        set
+        {
+            if (SetProperty(ref _agentColoring, value))
+            {
+                OnPropertyChanged(nameof(IsColourProfile));
+                OnPropertyChanged(nameof(IsColourStress));
+                OnPropertyChanged(nameof(IsColourGroup));
+            }
+        }
+    }
+
+    /// <summary>COLOUR ▸ PROFILE chip.</summary>
+    public bool IsColourProfile
+    {
+        get => _agentColoring == AgentColoring.Profile;
+        set
+        {
+            // A chip click always selects; clicking the lit chip re-lights it rather than leaving neither lit.
+            AgentColoring = AgentColoring.Profile;
+            OnPropertyChanged(nameof(IsColourProfile));
+        }
+    }
+
+    /// <summary>COLOUR ▸ GROUP (round 024, D-391).</summary>
+    public bool IsColourGroup
+    {
+        get => _agentColoring == AgentColoring.Group;
+        set
+        {
+            AgentColoring = AgentColoring.Group;
+            OnPropertyChanged(nameof(IsColourGroup));
+        }
+    }
+
+    /// <summary>COLOUR ▸ STRESS chip.</summary>
+    public bool IsColourStress
+    {
+        get => _agentColoring == AgentColoring.Stress;
+        set
+        {
+            AgentColoring = AgentColoring.Stress;
+            OnPropertyChanged(nameof(IsColourStress));
+        }
+    }
+
+    /// <summary>
+    /// Status-bar counters (D-104), compact (round 022): speed, in model, in, out, queuing, stressed, stuck, and at
+    /// lifts / left behind when the study has them; a hint when no run is active. The full line is
+    /// <see cref="RunStatusDetail"/> (its tooltip).
+    /// </summary>
+    public string RunStatusText => RunStatus(compact: true);
+
+    /// <summary>The full status line (D-104, D-168): every counter, for the status bar's tooltip.</summary>
+    public string RunStatusDetail => RunStatus(compact: false);
+
+    private string RunStatus(bool compact)
+    {
+        if (!_isRunActive)
+        {
+            return compact ? "PLAY to run" : "PLAY runs the study; STUDY ▸ RUN ▸ BATCH… runs several seeds.";
+        }
+
+        if (_isBatching)
+        {
+            return BatchStatusText(compact);
+        }
+
+        if (_isPreparing)
+        {
+            return "COMPILING…";
+        }
+
+        CultureInfo c = CultureInfo.InvariantCulture;
+        TimeSpan journey = TimeSpan.FromSeconds(Math.Round(_stats.MeanJourneyS));
+        string speed = _speed.IsMax ? "MAX" : string.Create(c, $"×{_speed.Multiplier:0.#}");
+        string stuck = _stats.StuckRemoved > 0
+            ? string.Create(c, $"{_stats.StuckNow} (+{_stats.StuckRemoved} removed)")
+            : _stats.StuckNow.ToString(c);
+        string leftBehind = _runner?.Model.Trains.Count > 0 ? string.Create(c, $" · LEFT BEHIND {_stats.LeftBehind}") : string.Empty;
+        leftBehind += _runner?.Model.Lifts.Count > 0 ? string.Create(c, $" · AT LIFTS {_stats.AtLifts}") : string.Empty;
+        if (_scrubTimeS is not null)
+        {
+            speed = "REPLAY " + speed;
+        }
+
+        if (compact)
+        {
+            return string.Create(c,
+                $"{speed} · {_stats.InSystem} IN MODEL · {_stats.Spawned} IN · {_stats.Arrived} OUT · {_stats.Queuing} QUEUING · {_stats.Stressed} STRESSED{leftBehind} · {_stats.StuckNow + _stats.StuckRemoved} STUCK");
+        }
+
+        return string.Create(c,
+            $"{speed} · AGENTS {_stats.InSystem} · IN {_stats.Spawned} · OUT {_stats.Arrived} · JOURNEY {(int)journey.TotalMinutes}:{journey.Seconds:00} · QUEUING {_stats.Queuing} · STRESSED {_stats.Stressed} · GAVE UP {_stats.GaveUp}{leftBehind} · STUCK {stuck}");
+    }
+
+    // ------------------------------------------------------------------ STUDY ▸ RUN settings (D-103, D-105)
+
+    /// <summary>End conditions offered in round 006: fixed duration or run until stopped.</summary>
+    public IReadOnlyList<StudyEndCondition> EndConditionOptions => EndOptions;
+
+    /// <summary>How the run ends (undoable).</summary>
+    public StudyEndCondition EndCondition
+    {
+        get => _study.Settings.EndCondition;
+        set => Apply(value == StudyEndCondition.FixedDuration ? "Run for a fixed duration" : "Run until stopped",
+            () => _study.Settings.EndCondition, v => _study.Settings.EndCondition = v, value);
+    }
+
+    /// <summary>True when the duration field applies.</summary>
+    public bool HasDuration => _study.Settings.EndCondition == StudyEndCondition.FixedDuration;
+
+    /// <summary>Keep-side options.</summary>
+    public IReadOnlyList<KeepSide> KeepSideOptions => KeepSides;
+
+    /// <summary>Keep-side bias (undoable).</summary>
+    public KeepSide KeepSide
+    {
+        get => _study.Settings.KeepSide;
+        set => Apply("Change keep side", () => _study.Settings.KeepSide, v => _study.Settings.KeepSide = v, value);
+    }
+
+    /// <summary>
+    /// Fills <paramref name="buffer"/> with the agents to draw for the current view (D-102): in plan only those on
+    /// the active level's height band, in 3D those on visible levels. Returns the count; 0 when no run is active.
+    /// Called by the viewport every frame on the UI thread.
+    /// </summary>
+    public int FetchAgents(ViewMode mode, ref float[] buffer)
+    {
+        if (_runner is null)
+        {
+            return 0;
+        }
+
+        int n = _runner.CopySnapshot(ref _rawAgents, out _, out _);
+        if (buffer.Length < _rawAgents.Length)
+        {
+            buffer = new float[_rawAgents.Length];
+        }
+
+        // Height bands: from just below each level's floor to just below the next level's floor.
+        IReadOnlyList<Level> levels = _study.LevelsAscending();
+        Span<double> lo = stackalloc double[Math.Max(1, levels.Count)];
+        Span<double> hi = stackalloc double[Math.Max(1, levels.Count)];
+        Span<bool> show = stackalloc bool[Math.Max(1, levels.Count)];
+        Guid? active = _activeLevel?.Id;
+        for (int k = 0; k < levels.Count; k++)
+        {
+            lo[k] = k == 0 ? double.NegativeInfinity : levels[k].ElevationM - 0.5;
+            hi[k] = k == levels.Count - 1 ? double.PositiveInfinity : levels[k + 1].ElevationM - 0.5;
+            show[k] = mode == ViewMode.Plan ? levels[k].Id == active : levels[k].IsVisible;
+        }
+
+        const int F = SimEngine.FloatsPerAgent;
+        int count = 0;
+        for (int i = 0; i < n; i++)
+        {
+            double z = _rawAgents[(i * F) + 2];
+            bool visible = levels.Count == 0;
+            for (int k = 0; k < levels.Count; k++)
+            {
+                if (z >= lo[k] && z < hi[k])
+                {
+                    visible = show[k];
+                    break;
+                }
+            }
+
+            if (visible)
+            {
+                Array.Copy(_rawAgents, i * F, buffer, count * F, F);
+                if (_agentColoring == AgentColoring.Group)
+                {
+                    // COLOUR ▸ GROUP (D-391): the group's hue in place of the profile colour.
+                    int o = count * F;
+                    (buffer[o + 4], buffer[o + 5], buffer[o + 6]) = GroupColours.OfTag(buffer[o + 11]);
+                }
+
+                count++;
+            }
+        }
+
+        return count;
+    }
+
+    /// <summary>
+    /// A LIBRARY row dropped on the viewport (D-098): picks the tool and preset, then drops at the point. In 3D and
+    /// ISO (round 017, D-291, D-293) the drop comes with the level whose floor is under the cursor: that level
+    /// becomes active, a device is placed there without leaving 3D, and anything that needs aiming (stairs,
+    /// travelators) carries on in plan from the drop point.
+    /// </summary>
+    public void DropTemplate(TemplateItemViewModel item, Point2? planPoint, double metresPerDip, Guid? levelId = null)
+    {
+        if (_isRunActive)
+        {
+            Ticker = "RUNNING ▸ RESET TO EDIT";
+            return;
+        }
+
+        if (levelId is { } dropLevel && ViewMode != ViewMode.Plan)
+        {
+            if (!ActivateLevel(dropLevel))
+            {
+                return;
+            }
+
+            if (item.Template is Throng.Core.Library.DeviceTemplate { Kind: Throng.Core.Library.DeviceKind.Point } device && planPoint is { } at3D)
+            {
+                DropDeviceIn3D(device, at3D, metresPerDip);
+                return;
+            }
+        }
+
+        // A lift dropped onto a shaft goes into that shaft (round 013b, D-245). Dropped anywhere else it goes nowhere,
+        // not into whichever shaft happened to be selected before (round 014, D-252).
+        if (item.Template is Throng.Core.Library.LiftTemplate lift)
+        {
+            if (planPoint is { } at && ActiveLevelModel is { } level
+                && _study.Shafts.FirstOrDefault(s => _study.ShaftSpans(s, level.Id) && PolygonMath.Contains(s.Outline, at)) is { } target)
+            {
+                Editor.Select(target.Id);
+                UseTemplate(item);
+            }
+            else
+            {
+                Ticker = $"{lift.Name}: drop it onto a shaft in the plan (or select a shaft and click the preset).";
+            }
+
+            return;
+        }
+
+        UseTemplate(item);
+        if (planPoint is not { } point)
+        {
+            Ticker = "Switched to plan ▸ click to place it.";
+            return;
+        }
+
+        if (Editor.Tool is EditorTool.Place or EditorTool.Connect)
+        {
+            Editor.DropAt(point, metresPerDip);
+        }
+    }
+
+    /// <summary>Places a device at a floor point in 3D (D-291) and goes back to SELECT, staying in 3D.</summary>
+    private void DropDeviceIn3D(Throng.Core.Library.DeviceTemplate device, Point2 point, double metresPerDip)
+    {
+        _droppingIn3D = true;
+        try
+        {
+            SelectedPlacePreset = PlacePresetOptions.FirstOrDefault(p => p.Id == device.Id) ?? device;
+            Editor.Tool = EditorTool.Place;
+            Editor.DropAt(point, metresPerDip);
+        }
+        finally
+        {
+            Editor.Tool = EditorTool.Select;
+            _droppingIn3D = false;
+        }
+    }
+
+    /// <summary>Stops any run and its thread (window closing).</summary>
+    public void Shutdown() => ResetRun();
+
+    /// <summary>Creates the run commands and the 4 Hz status timer. Called once from the constructor.</summary>
+    private void InitialiseRun()
+    {
+        _dispatcher = Dispatcher.CurrentDispatcher;
+        PlayPauseCommand = new RelayCommand(PlayPause);
+        StepCommand = new RelayCommand(StepRun);
+        ResetRunCommand = new RelayCommand(ResetRun, () => _isRunActive);
+        SetSpeedCommand = new RelayCommand<string?>(SetSpeed);
+        ReRollSeedCommand = new RelayCommand(() => Seed = Random.Shared.Next(1, int.MaxValue));
+        _runTimer = new DispatcherTimer(DispatcherPriority.Background, _dispatcher) { Interval = TimeSpan.FromMilliseconds(250) };
+        _runTimer.Tick += (_, _) => RefreshRunStatus();
+    }
+
+    private void PlayPause()
+    {
+        if (_isBatching)
+        {
+            Ticker = "BATCH RUNNING ▸ wait for it, or CANCEL it first.";
+            return;
+        }
+
+        if (_scrubTimeS is not null)
+        {
+            // Looking back (D-375): PLAY replays the recording forward, then carries on live.
+            ToggleReplay();
+            return;
+        }
+
+        if (_runner is { } runner)
+        {
+            if (runner.IsPlaying)
+            {
+                runner.Pause();
+                Ticker = "PAUSED ▸ STEP advances 0.1 s, RESET unlocks editing.";
+            }
+            else if (runner.IsFinished)
+            {
+                Ticker = "RUN FINISHED ▸ RESET to run again, or set the end to 'run until stopped' in STUDY.";
+            }
+            else
+            {
+                runner.Play();
+                Ticker = "RUNNING ▸ editing is locked until RESET.";
+            }
+
+            RefreshRunStatus();
+            return;
+        }
+
+        _ = StartRunAsync(play: true);
+    }
+
+    private void StepRun()
+    {
+        if (_isBatching)
+        {
+            Ticker = "BATCH RUNNING ▸ wait for it, or CANCEL it first.";
+            return;
+        }
+
+        if (_runner is { } runner)
+        {
+            // STEP from a replay goes back to the live run first (the live run steps, not the recording).
+            GoLive();
+            runner.Pause();
+            runner.Step();
+            RefreshRunStatus();
+            return;
+        }
+
+        _ = StartRunAsync(play: false);
+    }
+
+    /// <summary>
+    /// Locks editing, compiles the world on a worker thread (CHECK first, D-106) and starts the runner. Errors
+    /// unlock again and show the findings.
+    /// </summary>
+    /// <param name="play">Play straight away (else take one step).</param>
+    /// <param name="seedOverride">A seed other than the study's (REPLAY of a batch run, D-376).</param>
+    /// <param name="durationOverride">A duration other than the study's (the batch's, for a replay).</param>
+    private async Task StartRunAsync(bool play, int? seedOverride = null, double? durationOverride = null)
+    {
+        if (_isPreparing)
+        {
+            return;
+        }
+
+        if (seedOverride is null)
+        {
+            _replayLabel = null;
+        }
+
+        _isPreparing = true;
+        IsRunActive = true;
+        ResetRunCommand.NotifyCanExecuteChanged();
+        Ticker = "COMPILING ▸ navigation grids, portals and flow fields…";
+        OnPropertyChanged(nameof(RunStatusText));
+
+        var cancel = new CancellationTokenSource();
+        _setupCancel = cancel;
+        EmbedReferencedFromMine();
+        Study study = _study;
+        SimSetupResult? result = null;
+        try
+        {
+            result = await Task.Run(() => SimSetup.Build(study, null, cancel.Token), cancel.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            // Reset (or a new study) while compiling.
+        }
+        catch (Exception ex)
+        {
+            // Boundary: a bug in the compiler must not take the app down.
+            AppLog.Error("Simulation set-up failed", ex);
+            _dialogs.ShowError($"The run couldn't start: {ex.Message}");
+        }
+
+        if (cancel.IsCancellationRequested || !ReferenceEquals(_setupCancel, cancel) || !ReferenceEquals(study, _study))
+        {
+            cancel.Dispose();
+            return;
+        }
+
+        _setupCancel = null;
+        cancel.Dispose();
+        _isPreparing = false;
+
+        if (result?.Model is not { } model)
+        {
+            IsRunActive = false;
+            ResetRunCommand.NotifyCanExecuteChanged();
+            if (result is not null)
+            {
+                // Blocking errors open the CHECK tab (D-271).
+                ShowCheck(Throng.Analysis.Checks.StudyCheck.Normalise(result.Findings), "CHECK FAILED ▸ fix the errors (CHECK tab) and press PLAY again.");
+            }
+
+            return;
+        }
+
+        // The run's model gives the overlay's predicted shares too (D-334).
+        SetPredictionModel(model, "PLAY");
+        var runner = new SimRunner(model, seedOverride ?? model.Seed, durationOverride ?? model.DurationS) { Speed = _speed };
+        ClearScrub();
+        runner.Faulted += ex => _dispatcher.InvokeAsync(() =>
+        {
+            AppLog.Error("Simulation step failed", ex);
+            Ticker = $"RUN STOPPED ▸ {ex.Message} (details in the log)";
+            RefreshRunStatus();
+        });
+        runner.Finished += () => _dispatcher.InvokeAsync(() =>
+        {
+            Ticker = _replayLabel is { } replayed
+                ? $"REPLAY READY ▸ {replayed} ▸ drag the slider under the viewport to look back (← → step 0.5 s, Shift 10 s)."
+                : "RUN FINISHED ▸ RESET to edit or run again. Drag the slider under the viewport to look back.";
+            RefreshRunStatus();
+        });
+        _runner = runner;
+
+        // A new run's results show; a batch stays one click away on RESULTS ▸ SOURCE (D-363).
+        ShowLastRun();
+
+        int warnings = result.Findings.Count(f => f.Severity == ValidationSeverity.Warning);
+        string emitters = model.Emitters.Count == 0 ? "no emission rules, so no one will appear" : string.Create(CultureInfo.InvariantCulture, $"{model.Emitters.Count} emission rules");
+        Ticker = string.Create(CultureInfo.InvariantCulture,
+            $"{(play ? "RUNNING" : "READY")} ▸ {model.World.Surfaces.Count} surfaces, {model.World.Portals.Count} portals, {emitters}{(warnings > 0 ? $" ▸ {warnings} warnings (CHECK lists them)" : string.Empty)}");
+        if (_replayLabel is { } replaying)
+        {
+            Ticker = $"REPLAYING ▸ {replaying} at MAX, recording ▸ it pauses at the end, ready to scrub.";
+        }
+
+        AppLog.Info($"Run started: {model.World.Surfaces.Count} surfaces, {model.World.Portals.Count} portals, {model.Emitters.Count} emitters, seed {runner.Seed}.");
+
+        if (play)
+        {
+            runner.Play();
+        }
+        else
+        {
+            runner.Step();
+        }
+
+        _runTimer.Start();
+        RefreshRunStatus();
+    }
+
+    /// <summary>Stops the run, unlocks editing (D-097) and clears the agents; while a batch runs, cancels it (D-357).</summary>
+    private void ResetRun()
+    {
+        if (_isBatching)
+        {
+            CancelBatch();
+            return;
+        }
+
+        _setupCancel?.Cancel();
+        _setupCancel = null;
+        _isPreparing = false;
+        ClearScrub();
+        _replayLabel = null;
+        _runner?.Dispose();
+        _runner = null;
+        _runTimer?.Stop();
+        _stats = default;
+        bool wasActive = _isRunActive;
+        IsRunActive = false;
+        ResetRunCommand?.NotifyCanExecuteChanged();
+        RefreshRunStatus();
+        if (wasActive)
+        {
+            Ticker = "RESET ▸ editing unlocked.";
+        }
+    }
+
+    private void SetSpeed(string? value)
+    {
+        _speed = value switch
+        {
+            "MAX" => RunSpeed.Max,
+            _ when double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double m) && m > 0 => new RunSpeed(m, false),
+            _ => _speed,
+        };
+
+        if (_runner is { } runner)
+        {
+            runner.Speed = _speed;
+        }
+
+        OnPropertyChanged(nameof(IsSpeedHalf));
+        OnPropertyChanged(nameof(IsSpeed1));
+        OnPropertyChanged(nameof(IsSpeed2));
+        OnPropertyChanged(nameof(IsSpeed4));
+        OnPropertyChanged(nameof(IsSpeed8));
+        OnPropertyChanged(nameof(IsSpeedMax));
+        OnPropertyChanged(nameof(SpeedChoice));
+        OnPropertyChanged(nameof(RunStatusText));
+    }
+
+    private bool IsSpeed(double multiplier) => !_speed.IsMax && Math.Abs(_speed.Multiplier - multiplier) < 1e-9;
+
+    private void SetSpeedChip(bool on, string value)
+    {
+        if (on)
+        {
+            SetSpeed(value);
+        }
+        else
+        {
+            // Chips behave like radio buttons: clicking the lit one keeps it lit.
+            SetSpeed(null);
+        }
+    }
+
+    /// <summary>
+    /// Hover text while running (D-183): a connector's or exit's current crowd wait, e.g. "~14 S"; null otherwise.
+    /// </summary>
+    public string? RunHoverInfo(Guid id) =>
+        _runner is { } runner && runner.TryGetCrowdWait(id, out double seconds)
+            ? string.Create(CultureInfo.InvariantCulture, $"~{seconds:0} S")
+            : null;
+
+    /// <summary>
+    /// Lift cars while running, for the plan overlay (round 013, D-240): every car of a shaft passing through the level,
+    /// filled when it's at this level, with its direction and riders.
+    /// </summary>
+    public IReadOnlyList<RunLiftCarView> RunLiftCars(Guid levelId)
+    {
+        if (_runner is not { } runner || _study.FindLevel(levelId) is not { } level)
+        {
+            return [];
+        }
+
+        var views = new List<RunLiftCarView>();
+        foreach ((SimLift lift, int car, double z, LiftCarStatus state, int riders, int direction) in runner.CopyLiftCarStates())
+        {
+            Shaft? shaft = _study.Shafts.FirstOrDefault(s => s.Id == lift.ShaftId);
+            if (shaft is null || !_study.ShaftSpans(shaft, levelId) || car >= lift.CarLayouts.Count)
+            {
+                continue;
+            }
+
+            bool here = Math.Abs(z - level.ElevationM) < 0.05;
+            string arrow = direction > 0 ? "▲" : direction < 0 ? "▼" : "■";
+            string label = here || riders > 0 || state == LiftCarStatus.Moving ? string.Create(CultureInfo.InvariantCulture, $"{arrow}{riders}") : string.Empty;
+            views.Add(new RunLiftCarView(lift.CarLayouts[car].Footprint, here, here && state is LiftCarStatus.Opening or LiftCarStatus.Open, label));
+        }
+
+        return views;
+    }
+
+    /// <summary>True while the PERF overlay shows (round 025, D-380; F8). Session only.</summary>
+    public bool ShowPerf { get; private set; }
+
+    /// <summary>The running simulation's PERF window, or <see cref="PerfSample.Empty"/> without a run.</summary>
+    public PerfSample CurrentPerf => _runner?.Perf ?? PerfSample.Empty;
+
+    /// <summary>F8 / View ▸ Performance Overlay: shows or hides PERF.</summary>
+    public RelayCommand TogglePerfCommand => _togglePerfCommand ??= new RelayCommand(() =>
+    {
+        ShowPerf = !ShowPerf;
+        OnPropertyChanged(nameof(ShowPerf));
+        Ticker = ShowPerf ? "PERF ▸ on (F8 hides it)" : "PERF ▸ off";
+    });
+
+    private RelayCommand? _togglePerfCommand;
+
+    /// <summary>Trains in on a level while running, for the plan overlay (D-190).</summary>
+    public IReadOnlyList<RunTrainView> RunTrains(Guid levelId)
+    {
+        if (_runner is not { } runner)
+        {
+            return [];
+        }
+
+        var views = new List<RunTrainView>();
+        foreach ((SimTrain train, bool isIn, bool boarding) in runner.CopyTrainStates())
+        {
+            if (!isIn || train.LevelId != levelId)
+            {
+                continue;
+            }
+
+            List<IReadOnlyList<Point2>> doors = [.. train.DoorRegionIds.Select(_study.FindRegion).OfType<Region>().Select(r => (IReadOnlyList<Point2>)r.Outline)];
+            // The service's kind labels the vehicle in plan (round 025, D-398): TRAIN, PLANE, BUS, RIDE.
+            ServiceKind kind = _study.TrainServices.FirstOrDefault(s => s?.Id == train.ServiceId)?.Kind ?? ServiceKind.Train;
+            views.Add(new RunTrainView(train.Box, doors, boarding, ServiceKinds.Badge(kind)));
+        }
+
+        return views;
+    }
+
+    private void RefreshRunStatus()
+    {
+        _stats = _runner?.ViewStats ?? default;
+        RefreshScrub();
+        Editor?.RefreshRunHover();
+        RefreshHeatTicker();
+        RefreshResults();
+        RefreshJourneyOverlay();
+        OnPropertyChanged(nameof(RunStatusText));
+        OnPropertyChanged(nameof(RunStatusDetail));
+        OnPropertyChanged(nameof(ClockText));
+        OnPropertyChanged(nameof(IsPlaying));
+        OnPropertyChanged(nameof(PlayText));
+        OnPropertyChanged(nameof(PlayGlyph));
+    }
+
+    /// <summary>Study clock: the run's time of day while a run is active, otherwise the start time.</summary>
+    private string RunClockText()
+    {
+        TimeSpan start = _study.Settings.StartTimeOfDay;
+        if (!_isRunActive || _runner is null)
+        {
+            return SimClock.FormatTimeOfDay(start);
+        }
+
+        TimeSpan absolute = start + TimeSpan.FromSeconds(_stats.TimeS);
+        int day = (int)Math.Floor(absolute.TotalDays);
+        return SimClock.FormatTimeOfDay(absolute - TimeSpan.FromDays(day), day);
+    }
+}
